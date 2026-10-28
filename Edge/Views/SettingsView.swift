@@ -10,6 +10,7 @@ struct SettingsView: View {
     @AppStorage("speakReplies") private var speakReplies = true
     @AppStorage("showPinyin") private var showPinyin = true
     @AppStorage("showEnglish") private var showEnglish = false
+    @AppStorage("checkTones") private var checkTones = true
     @AppStorage("hfRepo") private var hfRepo = ""
 
     @State private var confirmDelete = false
@@ -26,9 +27,14 @@ struct SettingsView: View {
                     }
                     Toggle("Speak replies aloud", isOn: $speakReplies)
                 }
-                Section("Display") {
+                Section {
                     Toggle("Show pinyin", isOn: $showPinyin)
                     Toggle("Show English translation", isOn: $showEnglish)
+                    Toggle("Check my tones", isOn: $checkTones)
+                } header: {
+                    Text("Display")
+                } footer: {
+                    Text("The tone check measures the pitch of each syllable you say. It is a rough guide: it only marks a tone wrong when it is fairly sure.")
                 }
                 Section {
                     TextField(ModelStore.defaultRepo, text: $hfRepo)

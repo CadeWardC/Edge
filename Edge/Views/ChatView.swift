@@ -96,7 +96,7 @@ struct ChatView: View {
     /// Changes whenever the bottom of the conversation grows, without comparing audio buffers.
     private var scrollKey: String {
         guard let last = tutor.turns.last else { return "" }
-        return "\(tutor.turns.count)-\(last.text.count)-\(tutor.turns.compactMap(\.feedback).count)"
+        return "\(tutor.turns.count)-\(last.text.count)-\(tutor.turns.compactMap(\.feedback).count)-\(tutor.turns.filter { !$0.tones.isEmpty }.count)"
     }
 
     private var canStart: Bool {
@@ -223,6 +223,10 @@ private struct TurnView: View {
                 .padding(.horizontal, 14).padding(.vertical, 10)
                 .background(Color.accentColor, in: RoundedRectangle(cornerRadius: 18))
                 .foregroundStyle(.white)
+
+            if !turn.tones.isEmpty {
+                ToneStrip(checks: turn.tones)
+            }
 
             if let fb = turn.feedback, !fb.feedback.isEmpty {
                 FeedbackCard(reply: fb, original: turn.text)

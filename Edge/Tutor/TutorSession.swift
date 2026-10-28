@@ -12,6 +12,7 @@ struct Turn: Identifiable, Equatable {
     var audioSampleRate: Double = 24_000
     var isStreaming = false
     var feedback: TutorReply?        // shown under the learner's bubble once the tutor has answered
+    var tones: [ToneCheck] = []      // pitch-based tone check of the learner's recording
 }
 
 @MainActor
@@ -41,6 +42,7 @@ final class TutorSession: ObservableObject {
     @AppStorage("voice") var voiceRaw = Voice.female.rawValue
     @AppStorage("level") var levelRaw = LearnerLevel.beginner.rawValue
     @AppStorage("speakReplies") var speakReplies = true
+    @AppStorage("checkTones") var checkTones = true
 
     private var runtime: LFMRuntime?
     private let audio = AudioIO()
@@ -136,6 +138,10 @@ final class TutorSession: ObservableObject {
         body(&turns[i])
     }
 
+    private func setTones(_ checks: [ToneCheck], for id: UUID) {
+        update(id) { $0.tones = checks }
+    }
+
     private func remove(_ id: UUID) {
         turns.removeAll { $0.id == id }
     }
@@ -176,6 +182,14 @@ final class TutorSession: ObservableObject {
             remove(id)
             state = .failed("I didn't catch that. Hold the phone closer and try again.")
             return
+        }
+        if checkTones {
+            // pitch analysis runs on the CPU alongside the tutor's answer on the GPU
+            let sampleRate = runtime.inputSampleRate
+            Task.detached(priority: .userInitiated) { [weak self] in
+                let checks = ToneChecker.check(samples: samples, sampleRate: sampleRate, transcript: text)
+                await self?.setTones(checks, for: id)
+            }
         }
         await answer(learnerID: id, learner: text)
     }

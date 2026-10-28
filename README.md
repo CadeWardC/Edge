@@ -21,6 +21,21 @@ or copy both `.gguf` files into *Files › On My iPhone › Edge*.
 
 A device with 6 GB+ RAM (iPhone 13 Pro / 14 / 15 or newer) is recommended.
 
+## Tone check
+
+Speech recognition writes the character you *meant*, so it can't tell you got a tone wrong. Edge checks tones separately,
+on device, from the pitch of your recording:
+
+1. YIN pitch tracking every 10 ms (`Edge/Tones/ToneAnalyzer.swift`, Accelerate).
+2. The voiced audio is split into as many syllables as the transcript has characters.
+3. Pitch is normalized to your own range and each syllable is matched against the four tone shapes.
+4. Expected tones come from a bundled dictionary (`Edge/Resources/pinyin.tsv`, built by `scripts/build-pinyin-dict.py`
+   from the MIT-licensed [pinyin-data](https://github.com/mozillazg/pinyin-data) and
+   [phrase-pinyin-data](https://github.com/mozillazg/phrase-pinyin-data)), with 3-3, 不 and 一 tone sandhi applied.
+
+A syllable is only marked wrong when the match is clear; otherwise it shows as unclear. It is a rough guide.
+`scripts/tones/` has the Python prototype and a synthetic-speech test (`python3 scripts/tones/test_synthetic.py`).
+
 ## How it works
 
 | Step | Prompt | API |

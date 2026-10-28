@@ -64,6 +64,7 @@ jobs:
         run: |
           APP=build/dd/Build/Products/Release-iphoneos/Edge.app
           test -f "$APP/Frameworks/llama.framework/llama"
+          test -f "$APP/pinyin.tsv"
           test -f "$APP/Assets.car" && plutil -extract CFBundleIcons xml1 -o - "$APP/Info.plist" > /dev/null
           rm -rf build/ipa && mkdir -p build/ipa/Payload
           cp -R "$APP" build/ipa/Payload/
