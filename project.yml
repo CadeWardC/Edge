@@ -1,0 +1,55 @@
+name: Edge
+options:
+  bundleIdPrefix: com.cadewardc
+  deploymentTarget:
+    iOS: "17.0"
+  createIntermediateGroups: true
+
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    MARKETING_VERSION: "1.0"
+    CURRENT_PROJECT_VERSION: "1"
+
+targets:
+  Edge:
+    type: application
+    platform: iOS
+    sources:
+      - path: Edge
+    info:
+      path: Edge/Info.plist
+      properties:
+        CFBundleDisplayName: Edge
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        NSMicrophoneUsageDescription: Edge listens to your Mandarin so the on-device model can reply and correct you.
+        UIFileSharingEnabled: true
+        LSSupportsOpeningDocumentsInPlace: true
+        UILaunchScreen: {}
+        UIRequiresFullScreen: true
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+        UISupportedInterfaceOrientations~ipad:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
+        ITSAppUsesNonExemptEncryption: false
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.cadewardc.edge
+        PRODUCT_NAME: Edge
+        TARGETED_DEVICE_FAMILY: "1,2"
+        SWIFT_OBJC_BRIDGING_HEADER: Edge/Engine/Edge-Bridging-Header.h
+        CLANG_CXX_LANGUAGE_STANDARD: c++17
+        GCC_OPTIMIZATION_LEVEL: s
+        ENABLE_BITCODE: NO
+        # built by scripts/build-llama-ios.sh
+        FRAMEWORK_SEARCH_PATHS: $(inherited) $(PROJECT_DIR)/vendor
+        LD_RUNPATH_SEARCH_PATHS: $(inherited) @executable_path/Frameworks
+    dependencies:
+      - framework: vendor/llama.xcframework
+        embed: true
+      - sdk: Metal.framework
+      - sdk: Accelerate.framework
+      - sdk: AVFoundation.framework
+    scheme: {}

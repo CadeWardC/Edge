@@ -1,0 +1,94 @@
+name: Build unsigned IPA
+
+on:
+  push:
+    branches: ["**"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ipa-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ipa:
+    runs-on: macos-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      - name: Ensure the iOS platform is installed
+        run: |
+          xcodebuild -version
+          xcodebuild -downloadPlatform iOS || true
+
+      - name: Cache llama.xcframework
+        uses: actions/cache@v4
+        with:
+          path: vendor
+          key: llama-xcframework-${{ hashFiles('scripts/build-llama-ios.sh') }}
+
+      - name: Build llama.cpp for iOS
+        run: ./scripts/build-llama-ios.sh
+
+      - name: Generate the Xcode project
+        run: |
+          brew install xcodegen
+          xcodegen generate
+
+      - name: Build the app (no code signing)
+        run: |
+          set -o pipefail
+          xcodebuild \
+            -project Edge.xcodeproj \
+            -scheme Edge \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath build/dd \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            build | tee build/xcodebuild.log | grep -E "error:|warning: .*Edge/|BUILD (SUCCEEDED|FAILED)" || true
+          test -d build/dd/Build/Products/Release-iphoneos/Edge.app
+
+      - name: Package Edge-unsigned.ipa
+        run: |
+          APP=build/dd/Build/Products/Release-iphoneos/Edge.app
+          test -f "$APP/Frameworks/llama.framework/llama"
+          rm -rf build/ipa && mkdir -p build/ipa/Payload
+          cp -R "$APP" build/ipa/Payload/
+          (cd build/ipa && zip -qry ../Edge-unsigned.ipa Payload)
+          ls -lh build/Edge-unsigned.ipa
+
+      - name: Upload build log on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xcodebuild-log
+          path: build/xcodebuild.log
+          if-no-files-found: ignore
+
+      - name: Upload IPA artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Edge-unsigned-ipa
+          path: build/Edge-unsigned.ipa
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="build-${{ github.run_number }}"
+          gh release create "$TAG" build/Edge-unsigned.ipa \
+            --target "${{ github.sha }}" \
+            --title "Edge (unsigned) #${{ github.run_number }}" \
+            --notes "Unsigned IPA built from ${{ github.ref_name }} @ ${GITHUB_SHA::7}. Sign it with your sideloading tool (AltStore, SideStore, Sideloadly, TrollStore) before installing." \
+            --prerelease
