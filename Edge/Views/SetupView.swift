@@ -23,7 +23,7 @@ struct SetupView: View {
                     VStack(alignment: .leading, spacing: 12) {
                         Label("One-time model download", systemImage: "arrow.down.circle")
                             .font(.headline)
-                        Text("Two GGUF files from \(models.repo) on Hugging Face, about 1.5–2 GB in total. Use Wi-Fi and keep the app open while it downloads.")
+                        Text("Two GGUF files from \(models.repo) on Hugging Face, about 1.5–2 GB in total. Use Wi-Fi. It keeps downloading in the background if you leave the app.")
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
 
@@ -70,10 +70,13 @@ struct SetupView: View {
             .controlSize(.large)
         case .resolving:
             ProgressView("Looking up files…")
-        case .downloading(let file, let index, let count):
+        case .downloading(let remaining):
             VStack(alignment: .leading, spacing: 6) {
                 ProgressView(value: models.progress)
-                Text("\(file) (\(index)/\(count)) · \(Int(models.progress * 100))% of \(ByteCountFormatter.string(fromByteCount: models.downloadSizeBytes, countStyle: .file))")
+                Text("\(Int(models.progress * 100))% of \(ByteCountFormatter.string(fromByteCount: models.downloadSizeBytes, countStyle: .file)) · \(remaining) file\(remaining == 1 ? "" : "s") left")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Text("You can leave the app. The download keeps going and you'll get a notification when it's done.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 Button("Cancel", role: .cancel) { models.cancelDownload() }

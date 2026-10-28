@@ -2,7 +2,8 @@ import SwiftUI
 
 @main
 struct EdgeApp: App {
-    @StateObject private var models = ModelStore()
+    @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
+    @ObservedObject private var models = ModelStore.shared
     @StateObject private var tutor = TutorSession()
 
     var body: some Scene {
@@ -36,5 +37,18 @@ struct ContentView: View {
     private func loadIfNeeded() async {
         guard let model = models.modelURL, let mmproj = models.mmprojURL, tutor.state == .notLoaded else { return }
         await tutor.load(model: model, mmproj: mmproj)
+    }
+}
+
+final class AppDelegate: NSObject, UIApplicationDelegate {
+    /// iOS relaunches the app when the model downloads finish in the background.
+    func application(_ application: UIApplication, handleEventsForBackgroundURLSession identifier: String,
+                     completionHandler: @escaping () -> Void) {
+        guard identifier == ModelStore.sessionIdentifier else {
+            completionHandler()
+            return
+        }
+        // touching the store reconnects to the background session, which then delivers its events
+        ModelStore.shared.backgroundCompletionHandler = completionHandler
     }
 }

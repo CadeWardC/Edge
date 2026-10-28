@@ -1,5 +1,6 @@
 import Foundation
 import UIKit
+import UserNotifications
 
 /// Finds, downloads and imports the two GGUF files LFM3-Audio needs:
 /// the backbone ("LFM3-Audio-2B-Q4_K_M.gguf") and the mmproj (audio encoder, depthformer, codec).
@@ -7,8 +8,8 @@ import UIKit
 final class ModelStore: NSObject, ObservableObject {
     static let defaultRepo = "LiquidAI/LFM3-Audio-2B-GGUF"
     /// Backbone quantizations in order of preference: small enough for a phone, good enough for Mandarin.
-    static let preferredQuants = ["Q4_K_M", "Q4_K_S", "Q5_K_M", "Q4_0", "Q8_0", "F16"]
-    static let preferredMMProjQuants = ["Q8_0", "F16", "BF16", "F32"]
+    nonisolated static let preferredQuants = ["Q4_K_M", "Q4_K_S", "Q5_K_M", "Q4_0", "Q8_0", "F16"]
+    nonisolated static let preferredMMProjQuants = ["Q8_0", "F16", "BF16", "F32"]
 
     struct RemoteFile: Decodable {
         let type: String
@@ -19,9 +20,12 @@ final class ModelStore: NSObject, ObservableObject {
     enum Phase: Equatable {
         case idle
         case resolving
-        case downloading(file: String, index: Int, count: Int)
+        case downloading(remaining: Int)
         case failed(String)
     }
+
+    static let shared = ModelStore()
+    static let sessionIdentifier = "com.cadewardc.edge.models"
 
     @Published private(set) var modelURL: URL?
     @Published private(set) var mmprojURL: URL?
@@ -29,11 +33,21 @@ final class ModelStore: NSObject, ObservableObject {
     @Published private(set) var progress: Double = 0
     @Published private(set) var downloadSizeBytes: Int64 = 0
 
+    /// Handed over by the app delegate when iOS wakes the app for finished background downloads.
+    var backgroundCompletionHandler: (() -> Void)?
+
     private var session: URLSession!
-    private var continuation: CheckedContinuation<URL, Error>?
-    private var currentDestination: URL?
-    private var currentTask: URLSessionDownloadTask?
-    private var completedBytes: Int64 = 0
+    /// Bytes written and expected per file name (the task description of each download).
+    private var written: [String: Int64] = [:]
+    private var expected: [String: Int64] {
+        get {
+            let stored = UserDefaults.standard.dictionary(forKey: "downloadSizes") ?? [:]
+            return stored.compactMapValues { ($0 as? NSNumber)?.int64Value }
+        }
+        set { UserDefaults.standard.set(newValue.mapValues { NSNumber(value: $0) }, forKey: "downloadSizes") }
+    }
+    /// Lets "Try again" continue a failed download instead of starting over.
+    private var resumeData: [String: Data] = [:]
 
     var repo: String {
         let r = UserDefaults.standard.string(forKey: "hfRepo")?.trimmingCharacters(in: .whitespaces) ?? ""
@@ -41,19 +55,22 @@ final class ModelStore: NSObject, ObservableObject {
     }
 
     /// Documents is exposed in the Files app, so GGUFs can also be dropped in by hand.
-    static var modelsDirectory: URL {
+    nonisolated static var modelsDirectory: URL {
         FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
     }
 
     var isReady: Bool { modelURL != nil && mmprojURL != nil }
 
-    override init() {
+    private override init() {
         super.init()
-        let config = URLSessionConfiguration.default
-        config.timeoutIntervalForRequest = 60
-        config.timeoutIntervalForResource = 60 * 60 * 6
+        // a background session keeps downloading while the app is suspended, and relaunches it when done
+        let config = URLSessionConfiguration.background(withIdentifier: Self.sessionIdentifier)
+        config.isDiscretionary = false
+        config.sessionSendsLaunchEvents = true
+        config.timeoutIntervalForResource = 60 * 60 * 24
         session = URLSession(configuration: config, delegate: self, delegateQueue: nil)
         refresh()
+        restoreDownloads()
     }
 
     /// Picks the best local backbone and mmproj from the models directory.
@@ -65,11 +82,11 @@ final class ModelStore: NSObject, ObservableObject {
         mmprojURL = Self.pickMMProj(names).map { Self.modelsDirectory.appendingPathComponent($0) }
     }
 
-    static func isMMProj(_ name: String) -> Bool {
+    nonisolated static func isMMProj(_ name: String) -> Bool {
         name.lowercased().contains("mmproj")
     }
 
-    static func pickBackbone(_ names: [String]) -> String? {
+    nonisolated static func pickBackbone(_ names: [String]) -> String? {
         let candidates = names.filter { $0.lowercased().hasSuffix(".gguf") && !isMMProj($0) }
         for q in preferredQuants {
             if let hit = candidates.first(where: { $0.uppercased().contains(q) }) { return hit }
@@ -77,7 +94,7 @@ final class ModelStore: NSObject, ObservableObject {
         return candidates.first
     }
 
-    static func pickMMProj(_ names: [String]) -> String? {
+    nonisolated static func pickMMProj(_ names: [String]) -> String? {
         let candidates = names.filter { $0.lowercased().hasSuffix(".gguf") && isMMProj($0) }
         for q in preferredMMProjQuants {
             if let hit = candidates.first(where: { $0.uppercased().contains(q) }) { return hit }
@@ -91,8 +108,7 @@ final class ModelStore: NSObject, ObservableObject {
         guard phase == .idle || phase.isFailed else { return }
         phase = .resolving
         progress = 0
-        UIApplication.shared.isIdleTimerDisabled = true
-        defer { UIApplication.shared.isIdleTimerDisabled = false }
+        Notifier.requestPermission()
 
         do {
             let remote = try await listRemoteFiles()
@@ -106,49 +122,92 @@ final class ModelStore: NSObject, ObservableObject {
             let wanted = [backbone, mmproj].filter {
                 !FileManager.default.fileExists(atPath: Self.modelsDirectory.appendingPathComponent($0).path)
             }
-            let sizes = Dictionary(remote.map { ($0.path, $0.size ?? 0) }, uniquingKeysWith: { a, _ in a })
-            downloadSizeBytes = wanted.reduce(0) { $0 + (sizes[$1] ?? 0) }
-            completedBytes = 0
-
-            for (i, name) in wanted.enumerated() {
-                phase = .downloading(file: name, index: i + 1, count: wanted.count)
-                let encoded = name.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? name
-                let url = URL(string: "https://huggingface.co/\(repo)/resolve/main/\(encoded)?download=true")!
-                let dest = Self.modelsDirectory.appendingPathComponent(name)
-                _ = try await downloadFile(from: url, to: dest)
-                completedBytes += sizes[name] ?? 0
-            }
-            phase = .idle
-            refresh()
-        } catch {
-            if (error as? URLError)?.code == .cancelled {
+            guard !wanted.isEmpty else {
                 phase = .idle
-            } else {
-                phase = .failed(error.localizedDescription)
+                refresh()
+                return
             }
+            let sizes = Dictionary(remote.map { ($0.path, $0.size ?? 0) }, uniquingKeysWith: { a, _ in a })
+            expected = Dictionary(uniqueKeysWithValues: wanted.map { ($0, sizes[$0] ?? 0) })
+            written = [:]
+            updateProgress()
+
+            for name in wanted {
+                let task: URLSessionDownloadTask
+                if let data = resumeData.removeValue(forKey: name) {
+                    task = session.downloadTask(withResumeData: data)
+                } else {
+                    let encoded = name.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? name
+                    task = session.downloadTask(with: URL(string: "https://huggingface.co/\(repo)/resolve/main/\(encoded)?download=true")!)
+                }
+                task.taskDescription = name
+                if let size = sizes[name], size > 0 {
+                    task.countOfBytesClientExpectsToReceive = size
+                }
+                task.resume()
+            }
+            phase = .downloading(remaining: wanted.count)
+        } catch {
+            phase = .failed(error.localizedDescription)
         }
     }
 
     func cancelDownload() {
-        currentTask?.cancel()
+        resumeData.removeAll()
+        session.getAllTasks { tasks in tasks.forEach { $0.cancel() } }
+        phase = .idle
     }
 
-    private func listRemoteFiles() async throws -> [RemoteFile] {
-        let url = URL(string: "https://huggingface.co/api/models/\(repo)/tree/main")!
-        let (data, response) = try await URLSession.shared.data(from: url)
-        if let http = response as? HTTPURLResponse, http.statusCode != 200 {
-            throw LFMError.load("Hugging Face returned \(http.statusCode) for \(repo). Check the repo name in Settings.")
+    /// Picks up downloads that kept running while the app was suspended or relaunched.
+    private func restoreDownloads() {
+        session.getAllTasks { tasks in
+            let names = tasks.filter { $0.state == .running || $0.state == .suspended }.compactMap(\.taskDescription)
+            Task { @MainActor in
+                guard !names.isEmpty else { return }
+                self.phase = .downloading(remaining: names.count)
+                self.updateProgress()
+            }
         }
-        return try JSONDecoder().decode([RemoteFile].self, from: data).filter { $0.type == "file" }
     }
 
-    private func downloadFile(from url: URL, to dest: URL) async throws -> URL {
-        try await withCheckedThrowingContinuation { cont in
-            self.continuation = cont
-            self.currentDestination = dest
-            let task = session.downloadTask(with: url)
-            self.currentTask = task
-            task.resume()
+    private func updateProgress() {
+        let exp = expected
+        downloadSizeBytes = exp.values.reduce(0, +)
+        guard downloadSizeBytes > 0 else { return }
+        let done = exp.keys.reduce(Int64(0)) { $0 + min(written[$1] ?? 0, exp[$1] ?? 0) }
+        progress = min(1, Double(done) / Double(downloadSizeBytes))
+    }
+
+    /// Called after each download task ends, with the error that ended it (nil on success).
+    private func taskEnded(_ name: String?, error: Error?) {
+        if let name, let error {
+            let ns = error as NSError
+            if let data = ns.userInfo[NSURLSessionDownloadTaskResumeDataKey] as? Data {
+                resumeData[name] = data
+            }
+            if ns.domain == NSURLErrorDomain && ns.code == NSURLErrorCancelled && resumeData[name] == nil {
+                return // cancelled by the user
+            }
+            phase = .failed(error.localizedDescription)
+        }
+        session.getAllTasks { tasks in
+            let remaining = tasks.filter { $0.state == .running || $0.state == .suspended }.count
+            Task { @MainActor in self.allTasksSettled(remaining: remaining) }
+        }
+    }
+
+    private func allTasksSettled(remaining: Int) {
+        if remaining > 0 {
+            if !phase.isFailed { phase = .downloading(remaining: remaining) }
+            return
+        }
+        refresh()
+        if isReady {
+            phase = .idle
+            expected = [:]
+            Notifier.post(title: "Model downloaded", body: "LFM3-Audio is ready. Tap to start speaking Mandarin.")
+        } else if !phase.isFailed {
+            phase = .failed("The download did not finish. Tap Try again to continue.")
         }
     }
 
@@ -178,18 +237,13 @@ final class ModelStore: NSObject, ObservableObject {
         refresh()
     }
 
-    static func excludeFromBackup(_ url: URL) {
+    nonisolated static func excludeFromBackup(_ url: URL) {
         var u = url
         var values = URLResourceValues()
         values.isExcludedFromBackup = true
         try? u.setResourceValues(values)
     }
 
-    fileprivate func finish(_ result: Result<URL, Error>) {
-        currentTask = nil
-        continuation?.resume(with: result)
-        continuation = nil
-    }
 }
 
 extension ModelStore.Phase {
@@ -203,38 +257,64 @@ extension ModelStore: URLSessionDownloadDelegate {
     nonisolated func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask,
                                 didWriteData bytesWritten: Int64, totalBytesWritten: Int64,
                                 totalBytesExpectedToWrite: Int64) {
+        guard let name = downloadTask.taskDescription else { return }
         Task { @MainActor in
-            let total = self.downloadSizeBytes > 0 ? self.downloadSizeBytes : totalBytesExpectedToWrite
-            guard total > 0 else { return }
-            self.progress = min(1, Double(self.completedBytes + totalBytesWritten) / Double(total))
+            self.written[name] = totalBytesWritten
+            if (self.expected[name] ?? 0) <= 0, totalBytesExpectedToWrite > 0 {
+                self.expected[name] = totalBytesExpectedToWrite
+            }
+            self.updateProgress()
         }
     }
 
     nonisolated func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask,
                                 didFinishDownloadingTo location: URL) {
-        // the temporary file is deleted when this returns, so move it synchronously
+        // the temporary file is deleted when this returns, so move it into place synchronously
+        guard let name = downloadTask.taskDescription else { return }
         let status = (downloadTask.response as? HTTPURLResponse)?.statusCode ?? 200
-        let staging = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-        let moved = Result<URL, Error>(catching: {
-            guard status == 200 else { throw LFMError.load("Download failed with HTTP \(status).") }
-            try FileManager.default.moveItem(at: location, to: staging)
-            return staging
-        })
-        Task { @MainActor in
-            guard let dest = self.currentDestination else { return }
-            self.finish(moved.flatMap { staged in
-                Result<URL, Error>(catching: {
-                    try? FileManager.default.removeItem(at: dest)
-                    try FileManager.default.moveItem(at: staged, to: dest)
-                    ModelStore.excludeFromBackup(dest)
-                    return dest
-                })
-            })
+        let dest = Self.modelsDirectory.appendingPathComponent(name)
+        var failure: String?
+        if status == 200 {
+            do {
+                try? FileManager.default.removeItem(at: dest)
+                try FileManager.default.moveItem(at: location, to: dest)
+                Self.excludeFromBackup(dest)
+            } catch {
+                failure = "Could not save \(name): \(error.localizedDescription)"
+            }
+        } else {
+            failure = "Downloading \(name) failed with HTTP \(status)."
+        }
+        if let failure {
+            Task { @MainActor in self.phase = .failed(failure) }
         }
     }
 
     nonisolated func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
-        guard let error else { return }
-        Task { @MainActor in self.finish(.failure(error)) }
+        let name = task.taskDescription
+        Task { @MainActor in self.taskEnded(name, error: error) }
+    }
+
+    nonisolated func urlSessionDidFinishEvents(forBackgroundURLSession session: URLSession) {
+        Task { @MainActor in
+            self.backgroundCompletionHandler?()
+            self.backgroundCompletionHandler = nil
+        }
+    }
+}
+
+/// Local notification for when the model finishes downloading in the background.
+enum Notifier {
+    static func requestPermission() {
+        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in }
+    }
+
+    @MainActor static func post(title: String, body: String) {
+        guard UIApplication.shared.applicationState != .active else { return }
+        let content = UNMutableNotificationContent()
+        content.title = title
+        content.body = body
+        content.sound = .default
+        UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil))
     }
 }
