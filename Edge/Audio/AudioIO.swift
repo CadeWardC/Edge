@@ -1,27 +1,47 @@
 import AVFoundation
 
-/// Microphone capture (resampled to the model's input rate) and streaming playback on one AVAudioEngine.
+/// Microphone capture (resampled to the model's input rate) and streaming playback.
+/// Recording and playback use separate engines: the mic engine only lives while recording,
+/// so the playback engine never runs with an active input.
 final class AudioIO: @unchecked Sendable {
     static let maxRecordingSeconds: Double = 30
-
-    private let engine = AVAudioEngine()
-    private let player = AVAudioPlayerNode()
-    private var playbackFormat: AVAudioFormat?
+    /// Audio queued before playback starts, so a slower-than-realtime voice does not stutter.
+    static let prebufferSeconds: Double = 0.6
 
     private let lock = NSLock()
+
+    // MARK: Recording state
+    private var recordEngine: AVAudioEngine?
     private var recorded: [Float] = []
     private var converter: AVAudioConverter?
     private var targetFormat: AVAudioFormat?
     private(set) var isRecording = false
 
-    /// Scheduled but not yet played buffers; playback is finished when this hits zero.
-    private var pendingBuffers = 0
+    // MARK: Playback state (touched on playQueue only, except where locked)
+    private let playQueue = DispatchQueue(label: "edge.audio.playback")
+    private let playEngine = AVAudioEngine()
+    private let player = AVAudioPlayerNode()
+    private var playFormat: AVAudioFormat?
+    private var streaming = false
+    private var started = false
+    private var waiting: [AVAudioPCMBuffer] = []   // queued before playback starts
     /// Bumped by stopPlayback() so completions of flushed buffers are ignored.
-    private var playbackGeneration = 0
-    private var onPlaybackDrained: (() -> Void)?
+    private var generation = 0
+    private var pendingSeconds: Double = 0          // scheduled and not yet played (locked)
+    private var onDrained: (() -> Void)?            // locked
 
     init() {
-        engine.attach(player)
+        playEngine.attach(player)
+        let center = NotificationCenter.default
+        center.addObserver(forName: .AVAudioEngineConfigurationChange, object: playEngine, queue: nil) { [weak self] _ in
+            self?.playQueue.async { self?.recoverPlayback() }
+        }
+        center.addObserver(forName: AVAudioSession.interruptionNotification, object: nil, queue: nil) { [weak self] note in
+            let type = (note.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt).flatMap { AVAudioSession.InterruptionType(rawValue: $0) }
+            if type == .ended {
+                self?.playQueue.async { self?.recoverPlayback() }
+            }
+        }
     }
 
     static func requestMicrophone() async -> Bool {
@@ -30,34 +50,25 @@ final class AudioIO: @unchecked Sendable {
         }
     }
 
-    private func configureSession() throws {
+    /// Sets up the shared audio session once; later calls only re-activate it.
+    private static var sessionConfigured = false
+    private static func activateSession() throws {
         let session = AVAudioSession.sharedInstance()
-        try session.setCategory(.playAndRecord, mode: .default,
-                                options: [.defaultToSpeaker, .allowBluetoothA2DP, .allowBluetooth])
-        try session.setActive(true)
-    }
-
-    private func ensurePlayerConnected(sampleRate: Double) {
-        if let fmt = playbackFormat, fmt.sampleRate == sampleRate { return }
-        let fmt = AVAudioFormat(standardFormatWithSampleRate: sampleRate, channels: 1)!
-        engine.disconnectNodeOutput(player)
-        engine.connect(player, to: engine.mainMixerNode, format: fmt)
-        playbackFormat = fmt
-    }
-
-    private func startEngineIfNeeded() throws {
-        if !engine.isRunning {
-            engine.prepare()
-            try engine.start()
+        if !sessionConfigured {
+            try session.setCategory(.playAndRecord, mode: .default,
+                                    options: [.defaultToSpeaker, .allowBluetoothA2DP, .allowBluetooth])
+            sessionConfigured = true
         }
+        try session.setActive(true)
     }
 
     // MARK: Recording
 
     func startRecording(sampleRate: Double) throws {
-        try configureSession()
         stopPlayback()
+        try Self.activateSession()
 
+        let engine = AVAudioEngine()
         let input = engine.inputNode
         let inputFormat = input.outputFormat(forBus: 0)
         guard inputFormat.sampleRate > 0, inputFormat.channelCount > 0 else {
@@ -69,13 +80,12 @@ final class AudioIO: @unchecked Sendable {
 
         lock.lock(); recorded.removeAll(keepingCapacity: true); lock.unlock()
 
-        input.removeTap(onBus: 0)
         input.installTap(onBus: 0, bufferSize: 4096, format: inputFormat) { [weak self] buffer, _ in
             self?.append(buffer)
         }
-        // the player needs a format before the engine starts
-        ensurePlayerConnected(sampleRate: playbackFormat?.sampleRate ?? 24_000)
-        try startEngineIfNeeded()
+        engine.prepare()
+        try engine.start()
+        recordEngine = engine
         isRecording = true
     }
 
@@ -111,9 +121,13 @@ final class AudioIO: @unchecked Sendable {
         return Double(recorded.count) / targetFormat.sampleRate
     }
 
-    /// Stops the microphone and returns the recording at the requested sample rate.
+    /// Stops and releases the microphone, returning the recording at the requested sample rate.
     func stopRecording() -> [Float] {
-        engine.inputNode.removeTap(onBus: 0)
+        if let engine = recordEngine {
+            engine.inputNode.removeTap(onBus: 0)
+            engine.stop()
+        }
+        recordEngine = nil
         isRecording = false
         lock.lock(); defer { lock.unlock() }
         let samples = recorded
@@ -123,73 +137,171 @@ final class AudioIO: @unchecked Sendable {
 
     // MARK: Playback
 
-    /// Queues a chunk of mono PCM; chunks play back to back as they arrive.
+    /// Starts a stream of chunks; playback begins once `prebufferSeconds` are queued or the stream ends.
+    func beginStream() {
+        stopPlayback()
+        playQueue.async {
+            self.streaming = true
+            self.started = false
+            self.waiting.removeAll()
+        }
+    }
+
+    /// Queues a chunk of mono PCM.
     func enqueue(_ samples: [Float], sampleRate: Double) {
         guard !samples.isEmpty else { return }
-        do {
-            try configureSession()
-            ensurePlayerConnected(sampleRate: sampleRate)
-            try startEngineIfNeeded()
-        } catch {
-            return
-        }
-        guard let fmt = playbackFormat,
-              let buffer = AVAudioPCMBuffer(pcmFormat: fmt, frameCapacity: AVAudioFrameCount(samples.count)) else { return }
-        buffer.frameLength = AVAudioFrameCount(samples.count)
-        samples.withUnsafeBufferPointer { src in
-            buffer.floatChannelData![0].update(from: src.baseAddress!, count: samples.count)
-        }
-
-        lock.lock()
-        pendingBuffers += 1
-        let generation = playbackGeneration
-        lock.unlock()
-        player.scheduleBuffer(buffer, completionCallbackType: .dataPlayedBack) { [weak self] _ in
-            self?.bufferFinished(generation: generation)
-        }
-        if !player.isPlaying {
-            player.play()
+        playQueue.async {
+            guard let buffer = self.makeBuffer(samples, sampleRate: sampleRate) else { return }
+            if self.started || !self.streaming {
+                self.schedule(buffer)
+                self.startIfNeeded()
+            } else {
+                self.waiting.append(buffer)
+                let queued = self.waiting.reduce(0) { $0 + Double($1.frameLength) / $1.format.sampleRate }
+                if queued >= Self.prebufferSeconds {
+                    self.startWaiting()
+                }
+            }
         }
     }
 
-    private func bufferFinished(generation: Int) {
-        lock.lock()
-        guard generation == playbackGeneration else {
-            lock.unlock()
-            return
+    /// Marks the end of the stream: whatever is still waiting starts playing.
+    func endStream() {
+        playQueue.async {
+            self.streaming = false
+            self.startWaiting()
         }
-        pendingBuffers = max(0, pendingBuffers - 1)
-        let done = pendingBuffers == 0 ? onPlaybackDrained : nil
-        if done != nil { onPlaybackDrained = nil }
-        lock.unlock()
-        if let done { DispatchQueue.main.async(execute: done) }
-    }
-
-    /// Calls `completion` on the main queue once everything queued so far has played.
-    func whenPlaybackDrained(_ completion: @escaping () -> Void) {
-        lock.lock()
-        if pendingBuffers == 0 {
-            lock.unlock()
-            DispatchQueue.main.async(execute: completion)
-            return
-        }
-        onPlaybackDrained = completion
-        lock.unlock()
     }
 
     func play(_ samples: [Float], sampleRate: Double) {
-        stopPlayback()
+        beginStream()
         enqueue(samples, sampleRate: sampleRate)
+        endStream()
     }
 
     func stopPlayback() {
         lock.lock()
-        playbackGeneration += 1
-        pendingBuffers = 0
-        let done = onPlaybackDrained
-        onPlaybackDrained = nil
+        let done = onDrained
+        onDrained = nil
+        pendingSeconds = 0
         lock.unlock()
-        player.stop()
+        playQueue.async {
+            self.generation += 1
+            self.waiting.removeAll()
+            self.started = false
+            self.player.stop()
+        }
         if let done { DispatchQueue.main.async(execute: done) }
+    }
+
+    /// Calls `completion` on the main queue once everything queued so far has played.
+    /// A timer backs up the buffer completions, in case iOS stopped the audio engine.
+    func whenPlaybackDrained(_ completion: @escaping () -> Void) {
+        playQueue.async {
+            self.lock.lock()
+            let remaining = self.pendingSeconds + self.waiting.reduce(0) { $0 + Double($1.frameLength) / $1.format.sampleRate }
+            guard remaining > 0 else {
+                self.lock.unlock()
+                DispatchQueue.main.async(execute: completion)
+                return
+            }
+            var fired = false
+            let once = { [weak self] in
+                guard let self else { return }
+                self.lock.lock()
+                let run = !fired
+                fired = true
+                if self.onDrained != nil, run { self.onDrained = nil }
+                self.lock.unlock()
+                if run { DispatchQueue.main.async(execute: completion) }
+            }
+            self.onDrained = once
+            self.lock.unlock()
+            DispatchQueue.main.asyncAfter(deadline: .now() + remaining + 1.5) { once() }
+        }
+    }
+
+    /// Writes mono PCM as a 16-bit WAV file.
+    static func writeWAV(_ samples: [Float], sampleRate: Double, to url: URL) throws {
+        var data = Data()
+        func put<T: FixedWidthInteger>(_ v: T) { withUnsafeBytes(of: v.littleEndian) { data.append(contentsOf: $0) } }
+        let rate = UInt32(sampleRate)
+        data.append(contentsOf: Array("RIFF".utf8)); put(UInt32(36 + samples.count * 2))
+        data.append(contentsOf: Array("WAVEfmt ".utf8)); put(UInt32(16)); put(UInt16(1)); put(UInt16(1))
+        put(rate); put(rate * 2); put(UInt16(2)); put(UInt16(16))
+        data.append(contentsOf: Array("data".utf8)); put(UInt32(samples.count * 2))
+        for s in samples { put(Int16(max(-1, min(1, s)) * 32767)) }
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try data.write(to: url, options: .atomic)
+    }
+
+    // MARK: Playback internals (playQueue)
+
+    private func makeBuffer(_ samples: [Float], sampleRate: Double) -> AVAudioPCMBuffer? {
+        if playFormat?.sampleRate != sampleRate {
+            let fmt = AVAudioFormat(standardFormatWithSampleRate: sampleRate, channels: 1)!
+            let wasRunning = playEngine.isRunning
+            if wasRunning { playEngine.stop() }
+            playEngine.disconnectNodeOutput(player)
+            playEngine.connect(player, to: playEngine.mainMixerNode, format: fmt)
+            playFormat = fmt
+        }
+        guard let fmt = playFormat,
+              let buffer = AVAudioPCMBuffer(pcmFormat: fmt, frameCapacity: AVAudioFrameCount(samples.count)) else { return nil }
+        buffer.frameLength = AVAudioFrameCount(samples.count)
+        samples.withUnsafeBufferPointer { src in
+            buffer.floatChannelData![0].update(from: src.baseAddress!, count: samples.count)
+        }
+        return buffer
+    }
+
+    private func startWaiting() {
+        let buffers = waiting
+        waiting.removeAll()
+        for b in buffers { schedule(b) }
+        if !buffers.isEmpty || started { startIfNeeded() }
+    }
+
+    private func schedule(_ buffer: AVAudioPCMBuffer) {
+        let seconds = Double(buffer.frameLength) / buffer.format.sampleRate
+        lock.lock(); pendingSeconds += seconds; lock.unlock()
+        let gen = generation
+        player.scheduleBuffer(buffer, completionCallbackType: .dataPlayedBack) { [weak self] _ in
+            guard let self else { return }
+            self.playQueue.async {
+                guard gen == self.generation else { return }
+                self.lock.lock()
+                self.pendingSeconds = max(0, self.pendingSeconds - seconds)
+                let done = self.pendingSeconds < 0.001 && self.waiting.isEmpty && !self.streaming ? self.onDrained : nil
+                self.lock.unlock()
+                done?()
+            }
+        }
+    }
+
+    private func startIfNeeded() {
+        do {
+            try Self.activateSession()
+            if !playEngine.isRunning {
+                playEngine.prepare()
+                try playEngine.start()
+            }
+            if !player.isPlaying { player.play() }
+            started = true
+        } catch {
+            NSLog("Edge audio: could not start playback: \(error)")
+        }
+    }
+
+    /// iOS stopped the engine (route change, interruption): restart it and keep playing what is queued.
+    private func recoverPlayback() {
+        guard started else { return }
+        lock.lock(); let hasAudio = pendingSeconds > 0; lock.unlock()
+        guard hasAudio else { return }
+        if let fmt = playFormat {
+            playEngine.disconnectNodeOutput(player)
+            playEngine.connect(player, to: playEngine.mainMixerNode, format: fmt)
+        }
+        startIfNeeded()
     }
 }
