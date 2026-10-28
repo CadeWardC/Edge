@@ -181,11 +181,11 @@ final class ModelStore: NSObject, ObservableObject {
     /// Called after each download task ends, with the error that ended it (nil on success).
     private func taskEnded(_ name: String?, error: Error?) {
         if let name, let error {
-            let ns = error as NSError
-            if let data = ns.userInfo[NSURLSessionDownloadTaskResumeDataKey] as? Data {
+            let urlError = error as? URLError
+            if let data = urlError?.downloadTaskResumeData {
                 resumeData[name] = data
             }
-            if ns.domain == NSURLErrorDomain && ns.code == NSURLErrorCancelled && resumeData[name] == nil {
+            if urlError?.code == .cancelled && resumeData[name] == nil {
                 return // cancelled by the user
             }
             phase = .failed(error.localizedDescription)
@@ -209,6 +209,15 @@ final class ModelStore: NSObject, ObservableObject {
         } else if !phase.isFailed {
             phase = .failed("The download did not finish. Tap Try again to continue.")
         }
+    }
+
+    private func listRemoteFiles() async throws -> [RemoteFile] {
+        let url = URL(string: "https://huggingface.co/api/models/\(repo)/tree/main")!
+        let (data, response) = try await URLSession.shared.data(from: url)
+        if let http = response as? HTTPURLResponse, http.statusCode != 200 {
+            throw LFMError.load("Hugging Face returned \(http.statusCode) for \(repo). Check the repo name in Settings.")
+        }
+        return try JSONDecoder().decode([RemoteFile].self, from: data).filter { $0.type == "file" }
     }
 
     // MARK: Import
