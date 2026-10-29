@@ -11,7 +11,6 @@ struct Turn: Identifiable, Equatable {
     var audio: [Float] = []
     var audioSampleRate: Double = 24_000
     var isStreaming = false
-    var feedback: TutorReply?        // shown under the learner's bubble once the tutor has answered
     var tones: [ToneCheck] = []      // pitch-based tone check of the learner's recording
     var translating = false
 }
@@ -188,7 +187,7 @@ final class TutorSession: ObservableObject {
         guard !t.isEmpty, state == .idle || state.isFailedState else { return }
         let turn = Turn(role: .learner, text: t)
         turns.append(turn)
-        await answer(learnerID: turn.id, learner: t)
+        await answer(learner: t)
     }
 
     /// Edits a turn if it still exists (the conversation may have been cleared meanwhile).
@@ -240,7 +239,7 @@ final class TutorSession: ObservableObject {
                 await self?.setTones(checks, for: id)
             }
         }
-        await answer(learnerID: id, learner: text)
+        await answer(learner: text)
     }
 
     @AppStorage("showEnglish") var showEnglish = true
@@ -286,7 +285,7 @@ final class TutorSession: ObservableObject {
         }
     }
 
-    private func answer(learnerID: UUID, learner: String) async {
+    private func answer(learner: String) async {
         guard canConverse else { return }
         cancelFlag.set(false)
         state = .thinking
@@ -337,24 +336,13 @@ final class TutorSession: ObservableObject {
             await translate(id)
         }
 
-        // 3. speak it; the correction is written while it plays
+        // 3. speak it
         var spoke = false
         if speakReplies, !cancelled, turns.contains(where: { $0.id == id }) {
             let speech = TutorReply(reply: replyText).speakableReply
             if !speech.isEmpty {
                 await speak(speech, into: id)
                 spoke = true
-            }
-        }
-
-        // 4. the correction of what the learner said, on its own
-        if !cancelled {
-            if let raw = try? await complete(TutorPrompts.feedback(learner: learner), prefill: TutorPrompts.feedbackPrefill,
-                                             maxTokens: 120, temperature: 0.2) {
-                let fb = TutorReply.parse(TutorPrompts.feedbackPrefill + raw)
-                if !fb.feedback.isEmpty || !fb.corrected.isEmpty {
-                    update(learnerID) { $0.feedback = fb }
-                }
             }
         }
 

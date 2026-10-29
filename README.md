@@ -3,8 +3,8 @@
 Speak Mandarin to your iPhone. Everything runs on the phone:
 
 1. [SenseVoice-Small](https://github.com/FunAudioLLM/SenseVoice) transcribes what you said,
-2. [Qwen3.5-2B](https://huggingface.co/unsloth/Qwen3.5-2B-GGUF) corrects you **in English**, rewrites your sentence as
-   natural Mandarin, and replies in Mandarin (with pinyin and an optional English translation),
+2. [Qwen3.5-2B](https://huggingface.co/unsloth/Qwen3.5-2B-GGUF) replies in Mandarin (with pinyin and an optional English
+   translation), and the tone check marks the tones you got wrong,
 3. [Kokoro-82M v1.1-zh](https://huggingface.co/hexgrad/Kokoro-82M-v1.1-zh) **speaks the reply**, sentence by sentence.
 
 Tap the mic once and talk; your turn is sent when you pause (1.6 s by default), and hands-free mode reopens the mic
@@ -44,7 +44,6 @@ A syllable is only marked wrong when the match is clear; otherwise it shows as u
 | --- | --- | --- |
 | Hear you | [SenseVoice-Small](https://github.com/FunAudioLLM/SenseVoice) via [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx) (int8, Mandarin) | `SherpaOnnxOfflineRecognizer` |
 | Reply | plain chat: answer in one or two short Chinese sentences (retried once if it has no Chinese), written by [Qwen3.5-2B](https://huggingface.co/unsloth/Qwen3.5-2B-GGUF) (Q4_K_M, its own chat template, thinking off) | `chat_engine_generate` |
-| Correct | the learner's sentence alone, answer prefilled with `Correct:` then `Feedback:` | text generation |
 | Translate | right after the reply, when English is switched on | text generation |
 | Speak | Kokoro v1.1-zh (full precision, speaker 3 female / 58 male, its own speed control) | `SherpaOnnxOfflineTtsWrapper`, one sentence at a time (24 kHz) |
 

@@ -11,7 +11,7 @@ struct SetupView: View {
                     VStack(alignment: .leading, spacing: 8) {
                         Text("你好！")
                             .font(.system(size: 44, weight: .bold))
-                        Text("Practice speaking Mandarin, fully on your iPhone. Your tutor answers out loud in Mandarin and corrects you in English.")
+                        Text("Practice speaking Mandarin, fully on your iPhone. Talk, and it answers out loud in Mandarin and checks your tones.")
                             .font(.body)
                             .foregroundStyle(.secondary)
                     }

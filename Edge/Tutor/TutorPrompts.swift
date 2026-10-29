@@ -32,7 +32,7 @@ enum TutorPrompts {
     }
 
     // Small models handle small, plain tasks much better than one answer with several labeled parts,
-    // so each turn is three short requests: the reply, the correction, and the translation.
+    // so each turn is two short requests: the reply, then its translation.
 
     typealias Message = TextRuntime.Message
 
@@ -52,29 +52,6 @@ enum TutorPrompts {
         }
         m.append(Message(role: "user", content: learner))
         return m
-    }
-
-    /// Prefilled start of the correction, so the answer cannot wander off before it.
-    static let feedbackPrefill = "Correct:"
-
-    /// Correction of the learner's sentence on its own, with no conversation around it.
-    static func feedback(learner: String) -> [Message] {
-        let system = """
-        You are a Mandarin teacher for an English-speaking learner. The learner's sentence comes from speech \
-        recognition, so ignore punctuation. Check it for grammar, word-choice and measure-word mistakes. \
-        Answer with exactly two lines:
-        Correct: the sentence rewritten as natural Mandarin (unchanged if it was already correct)
-        Feedback: in English, one or two short sentences explaining each fix, or "Perfect!" and a short \
-        compliment if it was already correct
-        """
-        return [
-            Message(role: "system", content: system),
-            Message(role: "user", content: "我昨天去商店买了三个苹果们"),
-            Message(role: "assistant", content: "Correct: 我昨天去商店买了三个苹果。\nFeedback: Drop 们 after 苹果: 们 only goes on people (like 朋友们), never after a number and measure word."),
-            Message(role: "user", content: "我很喜欢喝咖啡"),
-            Message(role: "assistant", content: "Correct: 我很喜欢喝咖啡。\nFeedback: Perfect! Very natural."),
-            Message(role: "user", content: learner),
-        ]
     }
 
     /// English translation of a reply.

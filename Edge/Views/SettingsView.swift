@@ -87,7 +87,7 @@ struct SettingsView: View {
                 }
                 Section {
                     modelRow("SenseVoice", "Hears you · 230 MB", ready: models.senseVoiceReady)
-                    modelRow("Qwen3.5-2B", "Writes the replies, corrections and translations · 1.3 GB", ready: models.chatModelURL != nil)
+                    modelRow("Qwen3.5-2B", "Writes the replies and translations · 1.3 GB", ready: models.chatModelURL != nil)
                     modelRow("Kokoro", "Speaks the replies · 390 MB", ready: models.kokoroReady)
                     if !models.isReady {
                         switch models.phase {

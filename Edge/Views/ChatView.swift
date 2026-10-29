@@ -97,7 +97,7 @@ struct ChatView: View {
     /// Changes whenever the bottom of the conversation grows, without comparing audio buffers.
     private var scrollKey: String {
         guard let last = tutor.turns.last else { return "" }
-        return "\(tutor.turns.count)-\(last.text.count)-\(tutor.turns.compactMap(\.feedback).count)-\(tutor.turns.filter { !$0.tones.isEmpty }.count)"
+        return "\(tutor.turns.count)-\(last.text.count)-\(tutor.turns.filter { !$0.tones.isEmpty }.count)"
     }
 
     private var canStart: Bool {
@@ -251,10 +251,6 @@ private struct TurnView: View {
             if checkTones, !turn.tones.isEmpty {
                 ToneStrip(checks: turn.tones)
             }
-
-            if let fb = turn.feedback, !fb.feedback.isEmpty {
-                FeedbackCard(reply: fb, original: turn.text)
-            }
         }
         .frame(maxWidth: .infinity, alignment: .trailing)
         .padding(.leading, 40)
@@ -307,30 +303,3 @@ private struct TurnView: View {
     }
 }
 
-private struct FeedbackCard: View {
-    let reply: TutorReply
-    let original: String
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Label(reply.isPerfect ? "Nice!" : "Correction",
-                  systemImage: reply.isPerfect ? "checkmark.seal.fill" : "pencil.circle.fill")
-                .font(.caption.bold())
-                .foregroundStyle(reply.isPerfect ? .green : .orange)
-            Text(reply.feedback)
-                .font(.subheadline)
-            if !reply.isPerfect, !reply.corrected.isEmpty, normalized(reply.corrected) != normalized(original) {
-                Text(reply.corrected)
-                    .font(.body.weight(.medium))
-                    .textSelection(.enabled)
-            }
-        }
-        .padding(10)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background((reply.isPerfect ? Color.green : Color.orange).opacity(0.12), in: RoundedRectangle(cornerRadius: 12))
-    }
-
-    private func normalized(_ s: String) -> String {
-        s.filter { !$0.isPunctuation && !$0.isWhitespace }
-    }
-}
