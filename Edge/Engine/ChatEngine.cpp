@@ -132,8 +132,8 @@ extern "C" int32_t chat_engine_generate(chat_engine * e, const char * prompt, in
     }
 
     llama_batch batch = llama_batch_init(e->n_batch, 0, 1);
-    bool ok = true;
-    for (int32_t start = 0; start < n && ok; start += e->n_batch) {
+    int32_t rc = 0;
+    for (int32_t start = 0; start < n && rc == 0; start += e->n_batch) {
         const int32_t m = std::min(n - start, e->n_batch);
         for (int32_t i = 0; i < m; i++) {
             batch.token   [i]    = toks[(size_t) (start + i)];
@@ -143,11 +143,11 @@ extern "C" int32_t chat_engine_generate(chat_engine * e, const char * prompt, in
             batch.logits  [i]    = start + i == n - 1;
         }
         batch.n_tokens = m;
-        ok = llama_decode(e->lctx, batch) == 0;
+        rc = llama_decode(e->lctx, batch);
     }
     llama_batch_free(batch);
-    if (!ok) {
-        e->error = "Could not evaluate the prompt.";
+    if (rc != 0) {
+        e->error = "Could not evaluate the prompt (llama_decode returned " + std::to_string(rc) + ").";
         return 1;
     }
 
@@ -183,8 +183,9 @@ extern "C" int32_t chat_engine_generate(chat_engine * e, const char * prompt, in
             }
         }
         llama_batch one = llama_batch_get_one(&tok, 1);
-        if (llama_decode(e->lctx, one) != 0) {
-            e->error = "Decoding failed during generation.";
+        const int32_t step = llama_decode(e->lctx, one);
+        if (step != 0) {
+            e->error = "Decoding failed during generation (llama_decode returned " + std::to_string(step) + ").";
             ret = 1;
             break;
         }

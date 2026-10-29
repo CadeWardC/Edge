@@ -1,0 +1,57 @@
+name: Test the chat engine
+
+# Runs the app's reply request through Edge/Engine/ChatEngine.cpp with the same llama.cpp commit and the same
+# Qwen3.5 GGUF the app downloads, on CPU and on Metal, to reproduce on-device failures.
+
+on:
+  push:
+    paths:
+      - ".github/workflows/test-chat-engine.yml"
+      - "scripts/chat-engine-test.cpp"
+      - "Edge/Engine/ChatEngine.*"
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: macos-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build llama.cpp (pinned commit)
+        run: |
+          COMMIT=$(grep '^LLAMA_COMMIT=' scripts/build-llama-ios.sh | cut -d'"' -f2)
+          git init -q llama && cd llama
+          git remote add origin https://github.com/ggml-org/llama.cpp.git
+          git fetch -q --depth 1 origin "$COMMIT" && git checkout -q FETCH_HEAD
+          cmake -B build -DLLAMA_CURL=OFF -DLLAMA_BUILD_TESTS=OFF -DLLAMA_BUILD_EXAMPLES=OFF -DLLAMA_BUILD_SERVER=OFF \
+            -DBUILD_SHARED_LIBS=OFF -DCMAKE_BUILD_TYPE=Release > /dev/null
+          cmake --build build --target llama -j 4 > /dev/null
+
+      - name: Build the test
+        run: |
+          LIBS=$(find llama/build -name '*.a' | tr '\n' ' ')
+          clang++ -std=c++17 -O2 -Illama/include -Illama/ggml/include \
+            scripts/chat-engine-test.cpp Edge/Engine/ChatEngine.cpp \
+            -Wl,-force_load,llama/build/src/libllama.a $LIBS \
+            -framework Metal -framework Foundation -framework Accelerate -framework MetalKit \
+            -o chat-engine-test
+
+      - name: Download Qwen3.5 (the file the app picks)
+        run: |
+          FILE=$(curl -sSf https://huggingface.co/api/models/unsloth/Qwen3.5-2B-GGUF/tree/main | python3 -c "
+          import sys, json
+          names = [f['path'] for f in json.load(sys.stdin) if f['type'] == 'file' and f['path'].lower().endswith('.gguf') and 'mmproj' not in f['path'].lower()]
+          for q in ['Q4_K_M', 'UD-Q4_K_XL', 'Q5_K_M', 'Q4_K_S', 'Q6_K', 'Q8_0']:
+              hit = [n for n in names if q in n.upper()]
+              if hit: print(hit[0]); break")
+          echo "file: $FILE"
+          curl -sSfL -o model.gguf "https://huggingface.co/unsloth/Qwen3.5-2B-GGUF/resolve/main/$FILE"
+          ls -l model.gguf
+
+      - name: Run on CPU
+        run: ./chat-engine-test model.gguf 0
+
+      - name: Run on Metal
+        if: always()
+        run: ./chat-engine-test model.gguf 1
