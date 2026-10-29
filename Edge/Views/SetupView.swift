@@ -19,7 +19,7 @@ struct SetupView: View {
                     VStack(alignment: .leading, spacing: 12) {
                         Label("One-time model download", systemImage: "arrow.down.circle")
                             .font(.headline)
-                        Text("About 1.7 GB in total: SenseVoice hears you, Qwen3.5 writes the replies and Kokoro speaks them. Use Wi-Fi. It keeps downloading in the background if you leave the app.")
+                        Text("About 1.9 GB in total: SenseVoice hears you, Qwen3.5 writes the replies and Kokoro speaks them. Use Wi-Fi. It keeps downloading in the background if you leave the app.")
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
 

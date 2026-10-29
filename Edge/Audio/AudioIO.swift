@@ -232,6 +232,8 @@ final class AudioIO: @unchecked Sendable {
         playQueue.async {
             self.playbackRate = min(1, max(0.5, rate))
             self.timePitch.rate = Float(self.playbackRate)
+            // at normal speed the voice goes straight through, untouched by the time-stretcher
+            self.timePitch.bypass = self.playbackRate >= 0.999
         }
     }
 

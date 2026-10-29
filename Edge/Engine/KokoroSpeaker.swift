@@ -1,7 +1,7 @@
 import Foundation
 import SherpaOnnx
 
-/// Mandarin speech with Kokoro-82M v1.1-zh (sherpa-onnx, int8 ONNX, CPU).
+/// Mandarin speech with Kokoro-82M v1.1-zh (sherpa-onnx, full-precision ONNX, CPU).
 /// Loaded on first use and kept until `unload()`; every call runs on a private serial queue.
 final class KokoroSpeaker: @unchecked Sendable {
     /// Speaker ids in voices.bin: 0-2 are English, 3-57 Chinese female (zf_001…), 58-102 Chinese male (zm_009…).
@@ -51,7 +51,7 @@ final class KokoroSpeaker: @unchecked Sendable {
         }) else { return nil }
         let path = { (name: String) in ModelStore.kokoroURL(name).path }
         let kokoro = sherpaOnnxOfflineTtsKokoroModelConfig(
-            model: path("model.int8.onnx"),
+            model: path("model.onnx"),
             voices: path("voices.bin"),
             tokens: path("tokens.txt"),
             lexicon: "\(path("lexicon-us-en.txt")),\(path("lexicon-zh.txt"))",

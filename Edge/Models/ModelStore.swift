@@ -55,6 +55,8 @@ final class ModelStore: NSObject, ObservableObject {
         for url in files where url.pathExtension.lowercased() == "gguf" {
             try? FileManager.default.removeItem(at: url)
         }
+        // and the noisy int8 Kokoro model build 24 used
+        try? FileManager.default.removeItem(at: Self.kokoroURL("model.int8.onnx"))
     }
 
     private override init() {
@@ -118,13 +120,13 @@ final class ModelStore: NSObject, ObservableObject {
 
     // MARK: Kokoro (the tutor's voice)
 
-    /// Kokoro-82M v1.1-zh as converted by sherpa-onnx, unpacked into a release of this repo
+    /// Kokoro-82M v1.1-zh as converted by sherpa-onnx (full precision: the int8 model hisses and buzzes), unpacked into a release of this repo
     /// (.github/workflows/mirror-kokoro.yml) since the original is a single .tar.bz2.
-    nonisolated static let kokoroBaseURL = "https://github.com/CadeWardC/Edge/releases/download/models-kokoro-int8-v1_1"
+    nonisolated static let kokoroBaseURL = "https://github.com/CadeWardC/Edge/releases/download/models-kokoro-v1_1"
     nonisolated static let kokoroDirectory = "Kokoro"
     /// File name and size (for the progress bar).
     nonisolated static let kokoroFiles: [String: Int64] = [
-        "model.int8.onnx": 114_203_914, "voices.bin": 53_790_720, "tokens.txt": 1_111,
+        "model.onnx": 325_561_476, "voices.bin": 53_790_720, "tokens.txt": 1_111,
         "lexicon-zh.txt": 2_120_131, "lexicon-us-en.txt": 5_956_885, "date-zh.fst": 59_154,
         "number-zh.fst": 64_482, "phone-zh.fst": 88_630, "LICENSE": 11_358,
     ]
