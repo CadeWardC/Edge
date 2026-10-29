@@ -17,6 +17,7 @@ struct SettingsView: View {
     @AppStorage("handsFree") private var handsFree = false
     @AppStorage("speechOnCPU") private var speechOnCPU = false
     @AppStorage("speechRate") private var speechRate = 1.0
+    @AppStorage("asrEngine") private var asrEngine = "sensevoice"
     @State private var reloading = false
 
     @State private var confirmDelete = false
@@ -78,6 +79,35 @@ struct SettingsView: View {
                     Text(autoSend
                          ? "Tap the mic once and speak; once you have started talking, your turn is sent when you have been quiet this long. Raise it if it cuts you off while you think. Hands-free opens the mic again after each reply and waits for you to speak. Tap ✕ to stop."
                          : "Tap the mic to start, and again to send.")
+                }
+                Section {
+                    Picker("Hear me with", selection: $asrEngine) {
+                        Text("SenseVoice").tag("sensevoice")
+                        Text("LFM3-Audio").tag("lfm")
+                    }
+                    if asrEngine == "sensevoice" && !models.senseVoiceReady {
+                        switch models.phase {
+                        case .idle, .failed:
+                            Button("Download SenseVoice (230 MB)") { Task { await models.download() } }
+                            if case .failed(let msg) = models.phase {
+                                Text(msg).font(.footnote).foregroundStyle(.red)
+                            }
+                        case .resolving:
+                            ProgressView("Looking up files…")
+                        case .downloading:
+                            ProgressView(value: models.progress) {
+                                Text("\(Int(models.progress * 100))% · keeps going in the background").font(.caption)
+                            }
+                        }
+                    }
+                } header: {
+                    Text("Speech recognition")
+                } footer: {
+                    Text(asrEngine == "sensevoice"
+                         ? (models.senseVoiceReady
+                            ? "SenseVoice is a small model made for Mandarin; it usually hears learners better. LFM3-Audio still writes and speaks the replies."
+                            : "Until SenseVoice is downloaded, LFM3-Audio hears you.")
+                         : "LFM3-Audio hears you as well as replying.")
                 }
                 Section {
                     Toggle("Show pinyin", isOn: $showPinyin)

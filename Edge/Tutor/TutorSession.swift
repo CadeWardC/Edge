@@ -57,6 +57,9 @@ final class TutorSession: ObservableObject {
     static let handsFreeNoSpeechTimeout: Double = 120
 
     private var runtime: LFMRuntime?
+    private let senseVoice = SenseVoiceRecognizer()
+    /// "sensevoice" (default) or "lfm": which model turns the learner's speech into text.
+    @AppStorage("asrEngine") var asrEngine = "sensevoice"
     /// The backbone the runtime was loaded from, so a new download triggers a reload.
     private(set) var loadedModel: URL?
     private let audio = AudioIO()
@@ -85,6 +88,7 @@ final class TutorSession: ObservableObject {
         stop()
         let old = runtime
         runtime = nil
+        senseVoice.unload()
         loadedModel = nil
         state = .notLoaded
         await old?.close()
@@ -209,22 +213,30 @@ final class TutorSession: ObservableObject {
         let turn = Turn(role: .learner, text: "", isStreaming: true)
         let id = turn.id
         turns.append(turn)
-        let transcript = TextAccumulator()
-        let flag = cancelFlag
-        do {
-            try await runtime.generate(prompt: TutorPrompts.asr(), audio: samples, maxTokens: 200, temperature: 0) { piece in
-                let sofar = transcript.append(piece).trimmingCharacters(in: .whitespacesAndNewlines)
-                Task { @MainActor in
-                    self.update(id) { if $0.isStreaming { $0.text = sofar } }
-                }
-                return !flag.value
-            }
-        } catch {
-            remove(id)
-            state = .failed(error.localizedDescription)
-            return
+        // SenseVoice is specialised in Mandarin; LFM3-Audio hears it too and is used when SenseVoice is missing
+        var heard: String?
+        if asrEngine == "sensevoice" {
+            heard = await senseVoice.transcribe(samples, sampleRate: runtime.inputSampleRate)
         }
-        let text = transcript.value.trimmingCharacters(in: .whitespacesAndNewlines)
+        if heard == nil {
+            let transcript = TextAccumulator()
+            let flag = cancelFlag
+            do {
+                try await runtime.generate(prompt: TutorPrompts.asr(), audio: samples, maxTokens: 200, temperature: 0) { piece in
+                    let sofar = transcript.append(piece).trimmingCharacters(in: .whitespacesAndNewlines)
+                    Task { @MainActor in
+                        self.update(id) { if $0.isStreaming { $0.text = sofar } }
+                    }
+                    return !flag.value
+                }
+            } catch {
+                remove(id)
+                state = .failed(error.localizedDescription)
+                return
+            }
+            heard = transcript.value
+        }
+        let text = (heard ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         update(id) {
             $0.text = text
             $0.isStreaming = false

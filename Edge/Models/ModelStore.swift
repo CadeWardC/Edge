@@ -100,7 +100,22 @@ final class ModelStore: NSObject, ObservableObject {
         let names = ggufs.map(\.lastPathComponent)
         modelURL  = Self.pickBackbone(names).map { Self.modelsDirectory.appendingPathComponent($0) }
         mmprojURL = Self.pickMMProj(names).map { Self.modelsDirectory.appendingPathComponent($0) }
+        senseVoiceReady = Self.senseVoiceFiles.allSatisfy {
+            FileManager.default.fileExists(atPath: Self.modelsDirectory.appendingPathComponent($0).path)
+        }
     }
+
+    // MARK: SenseVoice (speech recognition)
+
+    /// SenseVoice-Small converted for sherpa-onnx: Mandarin speech recognition, separate from LFM3-Audio.
+    nonisolated static let senseVoiceRepo = "csukuangfj/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17"
+    nonisolated static let senseVoiceFiles = ["SenseVoice/model.int8.onnx", "SenseVoice/tokens.txt"]
+    nonisolated static var senseVoiceModelURL: URL { modelsDirectory.appendingPathComponent(senseVoiceFiles[0]) }
+    nonisolated static var senseVoiceTokensURL: URL { modelsDirectory.appendingPathComponent(senseVoiceFiles[1]) }
+    /// Approximate sizes, for the progress bar until the server reports the real ones.
+    private static let senseVoiceSizes: [String: Int64] = [senseVoiceFiles[0]: 229_000_000, senseVoiceFiles[1]: 316_000]
+
+    @Published private(set) var senseVoiceReady = false
 
     nonisolated static func isMMProj(_ name: String) -> Bool {
         name.lowercased().contains("mmproj")
@@ -130,35 +145,50 @@ final class ModelStore: NSObject, ObservableObject {
         progress = 0
         Notifier.requestPermission()
 
+        func missing(_ name: String) -> Bool {
+            !FileManager.default.fileExists(atPath: Self.modelsDirectory.appendingPathComponent(name).path)
+        }
+        func resolveURL(_ repo: String, _ file: String) -> URL {
+            let encoded = file.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? file
+            return URL(string: "https://huggingface.co/\(repo)/resolve/main/\(encoded)?download=true")!
+        }
+
         do {
-            let remote = try await listRemoteFiles()
-            let names = remote.map(\.path)
-            guard let backbone = Self.pickBackbone(names) else {
-                throw LFMError.load("No model GGUF found in \(repo).")
+            // the LFM3-Audio files: listed from the repo, only when they are missing or 4-bit
+            var jobs: [(name: String, url: URL)] = []
+            var sizes: [String: Int64] = Self.senseVoiceSizes
+            if !isReady || backboneIsLowPrecision {
+                let remote = try await listRemoteFiles()
+                let names = remote.map(\.path)
+                guard let backbone = Self.pickBackbone(names) else {
+                    throw LFMError.load("No model GGUF found in \(repo).")
+                }
+                guard let mmproj = Self.pickMMProj(names) else {
+                    throw LFMError.load("No mmproj GGUF found in \(repo).")
+                }
+                for (path, size) in remote.map({ ($0.path, $0.size ?? 0) }) { sizes[path] = size }
+                jobs += [backbone, mmproj].filter(missing).map { (name: $0, url: resolveURL(repo, $0)) }
             }
-            guard let mmproj = Self.pickMMProj(names) else {
-                throw LFMError.load("No mmproj GGUF found in \(repo).")
+            // the SenseVoice files, kept in their own folder
+            jobs += Self.senseVoiceFiles.filter(missing).map {
+                (name: $0, url: resolveURL(Self.senseVoiceRepo, String($0.split(separator: "/").last!)))
             }
-            let wanted = [backbone, mmproj].filter {
-                !FileManager.default.fileExists(atPath: Self.modelsDirectory.appendingPathComponent($0).path)
-            }
+            let wanted = jobs.map(\.name)
             guard !wanted.isEmpty else {
                 phase = .idle
                 refresh()
                 return
             }
-            let sizes = Dictionary(remote.map { ($0.path, $0.size ?? 0) }, uniquingKeysWith: { a, _ in a })
             expected = Dictionary(uniqueKeysWithValues: wanted.map { ($0, sizes[$0] ?? 0) })
             written = [:]
             updateProgress()
 
-            for name in wanted {
+            for (name, url) in jobs {
                 let task: URLSessionDownloadTask
                 if let data = resumeData.removeValue(forKey: name) {
                     task = session.downloadTask(withResumeData: data)
                 } else {
-                    let encoded = name.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? name
-                    task = session.downloadTask(with: URL(string: "https://huggingface.co/\(repo)/resolve/main/\(encoded)?download=true")!)
+                    task = session.downloadTask(with: url)
                 }
                 task.taskDescription = name
                 if let size = sizes[name], size > 0 {
@@ -264,6 +294,7 @@ final class ModelStore: NSObject, ObservableObject {
         for url in [modelURL, mmprojURL].compactMap({ $0 }) {
             try? FileManager.default.removeItem(at: url)
         }
+        try? FileManager.default.removeItem(at: Self.senseVoiceModelURL.deletingLastPathComponent())
         refresh()
     }
 
@@ -306,6 +337,7 @@ extension ModelStore: URLSessionDownloadDelegate {
         var failure: String?
         if status == 200 {
             do {
+                try FileManager.default.createDirectory(at: dest.deletingLastPathComponent(), withIntermediateDirectories: true)
                 try? FileManager.default.removeItem(at: dest)
                 try FileManager.default.moveItem(at: location, to: dest)
                 Self.excludeFromBackup(dest)

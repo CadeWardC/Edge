@@ -23,7 +23,7 @@ struct SetupView: View {
                     VStack(alignment: .leading, spacing: 12) {
                         Label("One-time model download", systemImage: "arrow.down.circle")
                             .font(.headline)
-                        Text("Two GGUF files from \(models.repo) on Hugging Face, about 2.1 GB in total. Use Wi-Fi. It keeps downloading in the background if you leave the app.")
+                        Text("Two GGUF files from \(models.repo) on Hugging Face, about 2.3 GB in total (the tutor, plus SenseVoice for hearing you). Use Wi-Fi. It keeps downloading in the background if you leave the app.")
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
 
