@@ -304,41 +304,32 @@ final class TutorSession: ObservableObject {
         state = .speaking
         let audio = self.audio
         let flag = cancelFlag
-        // Mandarin runs at most ~6-7 syllables a second; much less audio than that means the voice stopped early
         let characters = Double(text.filter(Pinyin.isHanzi).count)
-        let minSeconds = characters * 0.12
 
-        for attempt in 1...2 {
-            let pcm = PCMAccumulator()
-            audio.beginStream(expectedSeconds: characters * 0.24)   // ~4 characters a second
-            do {
-                try await runtime.speak(prompt: TutorPrompts.tts(text, voice: voice)) { chunk, rate in
-                    if flag.value { return false }
-                    audio.enqueue(chunk, sampleRate: rate)
-                    pcm.append(chunk, rate: rate)
-                    return true
-                }
-            } catch {
-                audio.stopPlayback()
-                state = .failed(error.localizedDescription)
-                return
+        let pcm = PCMAccumulator()
+        audio.beginStream(expectedSeconds: characters * 0.24)   // ~4 characters a second
+        do {
+            try await runtime.speak(prompt: TutorPrompts.tts(text, voice: voice)) { chunk, rate in
+                if flag.value { return false }
+                audio.enqueue(chunk, sampleRate: rate)
+                pcm.append(chunk, rate: rate)
+                return true
             }
-            audio.endStream()
-            let (samples, rate) = pcm.value
-            update(id) {
-                $0.audio = samples
-                $0.audioSampleRate = rate
-            }
-            saveDiagnostics(samples, sampleRate: rate, text: text, attempt: attempt)
-            if cancelled {
-                state = .idle
-                return
-            }
-            let seconds = Double(samples.count) / rate
-            if seconds >= minSeconds || attempt == 2 {
-                break
-            }
-            NSLog("%@", "Edge: speech stopped early (\(String(format: "%.1f", seconds)) s for \(text.count) characters), generating it again")
+        } catch {
+            audio.stopPlayback()
+            state = .failed(error.localizedDescription)
+            return
+        }
+        audio.endStream()
+        let (samples, rate) = pcm.value
+        update(id) {
+            $0.audio = samples
+            $0.audioSampleRate = rate
+        }
+        saveDiagnostics(samples, sampleRate: rate, text: text)
+        if cancelled {
+            state = .idle
+            return
         }
 
         audio.whenPlaybackDrained { [weak self] in
@@ -361,10 +352,10 @@ final class TutorSession: ObservableObject {
     }
 
     /// Keeps the last reply's audio in Files › Edge › Diagnostics, to tell a short voice from a playback problem.
-    private func saveDiagnostics(_ samples: [Float], sampleRate: Double, text: String, attempt: Int) {
+    private func saveDiagnostics(_ samples: [Float], sampleRate: Double, text: String) {
         let dir = ModelStore.modelsDirectory.appendingPathComponent("Diagnostics", isDirectory: true)
         let seconds = Double(samples.count) / sampleRate
-        let note = "text: \(text)\nattempt: \(attempt)\naudio: \(String(format: "%.2f", seconds)) s at \(Int(sampleRate)) Hz\n"
+        let note = "text: \(text)\naudio: \(String(format: "%.2f", seconds)) s at \(Int(sampleRate)) Hz\n"
         Task.detached(priority: .utility) {
             try? AudioIO.writeWAV(samples, sampleRate: sampleRate, to: dir.appendingPathComponent("last-reply.wav"))
             try? note.write(to: dir.appendingPathComponent("last-reply.txt"), atomically: true, encoding: .utf8)

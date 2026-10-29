@@ -253,9 +253,15 @@ final class AudioIO: @unchecked Sendable {
         return buffered >= needed
     }
 
-    /// Marks the end of the stream: whatever is still waiting starts playing.
+    /// Marks the end of the stream: whatever is still waiting starts playing, followed by a short
+    /// silent tail so the last syllable is fully out of the speaker before playback counts as done.
     func endStream() {
         playQueue.async {
+            if let fmt = self.playFormat, self.producedSeconds > 0,
+               let tail = AVAudioPCMBuffer(pcmFormat: fmt, frameCapacity: AVAudioFrameCount(fmt.sampleRate * 0.25)) {
+                tail.frameLength = tail.frameCapacity   // zero-filled
+                if self.started { self.schedule(tail) } else { self.waiting.append(tail) }
+            }
             self.streaming = false
             self.startWaiting()
         }
@@ -301,7 +307,9 @@ final class AudioIO: @unchecked Sendable {
                 fired = true
                 if self.onDrained != nil, run { self.onDrained = nil }
                 self.lock.unlock()
-                if run { DispatchQueue.main.async(execute: completion) }
+                // the hardware still has its output latency worth of audio to play
+                let latency = AVAudioSession.sharedInstance().outputLatency
+                if run { DispatchQueue.main.asyncAfter(deadline: .now() + latency + 0.05, execute: completion) }
             }
             self.onDrained = once
             self.lock.unlock()
