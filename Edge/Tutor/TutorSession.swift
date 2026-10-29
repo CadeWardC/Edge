@@ -13,6 +13,7 @@ struct Turn: Identifiable, Equatable {
     var isStreaming = false
     var feedback: TutorReply?        // shown under the learner's bubble once the tutor has answered
     var tones: [ToneCheck] = []      // pitch-based tone check of the learner's recording
+    var translating = false
 }
 
 @MainActor
@@ -248,56 +249,121 @@ final class TutorSession: ObservableObject {
         await answer(learnerID: id, learner: text)
     }
 
+    @AppStorage("showEnglish") var showEnglish = false
+
+    /// Runs one prompt to completion and returns what it wrote; `onText` sees the text so far.
+    private func complete(_ prompt: String, maxTokens: Int32, temperature: Float,
+                          onText: (@Sendable (String) -> Void)? = nil) async throws -> String {
+        guard let runtime else { return "" }
+        let raw = TextAccumulator()
+        let flag = cancelFlag
+        try await runtime.generate(prompt: prompt, maxTokens: maxTokens, temperature: temperature) { piece in
+            let sofar = raw.append(piece)
+            onText?(sofar)
+            return !flag.value
+        }
+        return raw.value
+    }
+
     private func answer(learnerID: UUID, learner: String) async {
-        guard let runtime else { return }
+        guard runtime != nil else { return }
         cancelFlag.set(false)
         state = .thinking
 
-        let prompt = TutorPrompts.chat(history: history, learner: learner, level: level)
         let turn = Turn(role: .tutor, text: "", isStreaming: true)
         let id = turn.id
         turns.append(turn)
 
-        let raw = TextAccumulator()
-        let flag = cancelFlag
+        // 1. the reply: plain chat, short, Chinese only; retried once (greedy) if it has no Chinese in it
+        var replyText = ""
         do {
-            try await runtime.generate(prompt: prompt, maxTokens: 384, temperature: 0.3) { piece in
-                let sofar = raw.append(piece)
-                let parsed = TutorReply.parse(sofar)
-                Task { @MainActor in
-                    self.update(id) {
-                        guard $0.isStreaming else { return }
-                        $0.text = sofar
-                        $0.reply = parsed
+            for temperature: Float in [0.3, 0] {
+                let raw = try await complete(TutorPrompts.reply(history: history, learner: learner, level: level),
+                                             maxTokens: 96, temperature: temperature) { sofar in
+                    let shown = TutorReply.cleanReply(sofar)
+                    Task { @MainActor in
+                        self.update(id) {
+                            guard $0.isStreaming else { return }
+                            $0.reply.reply = shown
+                        }
                     }
                 }
-                return !flag.value
+                replyText = TutorReply.cleanReply(raw)
+                if !replyText.isEmpty || cancelled { break }
             }
         } catch {
             remove(id)
             state = .failed(error.localizedDescription)
             return
         }
-
-        let text = raw.value.trimmingCharacters(in: .whitespacesAndNewlines)
-        let reply = TutorReply.parse(text)
-        update(id) {
-            $0.text = text
-            $0.reply = reply
-            $0.isStreaming = false
-        }
-        update(learnerID) { $0.feedback = reply }
-        if !text.isEmpty {
-            history.append(.init(learner: learner, tutorRaw: text))
-        }
-
-        let speech = reply.speakableReply
-        guard speakReplies, !speech.isEmpty, !cancelled, turns.contains(where: { $0.id == id }) else {
-            state = .idle
-            if !cancelled { listenAgainIfHandsFree() }
+        if replyText.isEmpty && !cancelled {
+            remove(id)
+            state = .failed("小林 didn't come up with a reply. Try saying it again.")
             return
         }
-        await speak(speech, into: id)
+        update(id) {
+            $0.text = replyText
+            $0.reply.reply = replyText
+            $0.reply.pinyin = Pinyin.romanize(replyText)
+            $0.isStreaming = false
+        }
+        history.append(.init(learner: learner, tutor: replyText))
+
+        // 2. speak it right away; the correction is written while it plays
+        var spoke = false
+        if speakReplies, !cancelled, turns.contains(where: { $0.id == id }) {
+            let speech = TutorReply(reply: replyText).speakableReply
+            if !speech.isEmpty {
+                await speak(speech, into: id)
+                spoke = true
+            }
+        }
+
+        // 3. the correction of what the learner said, on its own
+        if !cancelled {
+            if let raw = try? await complete(TutorPrompts.feedback(learner: learner), maxTokens: 120, temperature: 0.2) {
+                let fb = TutorReply.parse(TutorPrompts.feedbackPrefill + raw)
+                if !fb.feedback.isEmpty || !fb.corrected.isEmpty {
+                    update(learnerID) { $0.feedback = fb }
+                }
+            }
+        }
+
+        // 4. the translation, if it is shown without asking
+        if showEnglish, !cancelled {
+            await translate(id)
+        }
+
+        if cancelled || state.isFailedState {
+            // an interruption may already have started listening: only settle states this turn owns
+            if state == .thinking || state == .speaking { state = .idle }
+            return
+        }
+        guard spoke else {
+            state = .idle
+            listenAgainIfHandsFree()
+            return
+        }
+        audio.whenPlaybackDrained { [weak self] in
+            guard let self, self.state == .speaking else { return }
+            self.state = .idle
+            self.listenAgainIfHandsFree()
+        }
+    }
+
+    /// Translates a tutor reply into English (shown under it); runs after whatever the model is doing.
+    func translate(_ id: UUID) async {
+        guard let turn = turns.first(where: { $0.id == id }), turn.reply.english.isEmpty,
+              !turn.reply.reply.isEmpty else { return }
+        update(id) { $0.translating = true }
+        let raw = (try? await complete(TutorPrompts.translate(turn.reply.reply), maxTokens: 80, temperature: 0)) ?? ""
+        let english = (raw.components(separatedBy: "</think>").last ?? raw)
+            .components(separatedBy: .newlines).first { !$0.trimmingCharacters(in: .whitespaces).isEmpty }?
+            .trimmingCharacters(in: .whitespaces) ?? ""
+        update(id) {
+            $0.reply.english = english
+            $0.translating = false
+        }
     }
 
     private func speak(_ text: String, into id: UUID) async {
@@ -329,16 +395,6 @@ final class TutorSession: ObservableObject {
             $0.audioSampleRate = rate
         }
         saveDiagnostics(samples, sampleRate: rate, text: text)
-        if cancelled {
-            state = .idle
-            return
-        }
-
-        audio.whenPlaybackDrained { [weak self] in
-            guard let self, self.state == .speaking else { return }
-            self.state = .idle
-            self.listenAgainIfHandsFree()
-        }
     }
 
     /// Hands-free conversation: the mic opens again once the tutor has finished, and waits for the

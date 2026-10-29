@@ -270,15 +270,25 @@ private struct TurnView: View {
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                 }
-                if !turn.reply.english.isEmpty {
-                    if showEnglish || revealEnglish {
+                if !turn.isStreaming {
+                    if !turn.reply.english.isEmpty && (showEnglish || revealEnglish) {
                         Text(turn.reply.english)
                             .font(.subheadline)
                             .italic()
                             .foregroundStyle(.secondary)
-                    } else {
-                        Button("Show English") { revealEnglish = true }
+                    } else if turn.translating {
+                        HStack(spacing: 6) { ProgressView().controlSize(.small); Text("Translating…") }
                             .font(.caption)
+                            .foregroundStyle(.secondary)
+                    } else if !showEnglish || turn.reply.english.isEmpty {
+                        // translated on demand, so a turn does not wait for it
+                        Button("Show English") {
+                            revealEnglish = true
+                            if turn.reply.english.isEmpty {
+                                Task { await tutor.translate(turn.id) }
+                            }
+                        }
+                        .font(.caption)
                     }
                 }
                 if !turn.audio.isEmpty && !turn.isStreaming {

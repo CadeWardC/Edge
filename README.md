@@ -45,7 +45,9 @@ A syllable is only marked wrong when the match is clear; otherwise it shows as u
 | Step | Prompt | API |
 | --- | --- | --- |
 | Hear you | system `Perform ASR in Chinese.`, the recording in the user turn | `mtmd_tokenize` + `mtmd_helper_eval_chunks` |
-| Correct + reply | tutor system prompt; it answers in `Feedback / Correct / Reply / Pinyin / English` lines | text generation, `<\|audio_start\|>` / `<\|mixed_start\|>` banned |
+| Reply | plain chat: answer in one or two short Chinese sentences (retried once if it has no Chinese) | text generation, `<\|audio_start\|>` / `<\|mixed_start\|>` banned |
+| Correct | the learner's sentence alone, answer prefilled with `Correct:` then `Feedback:` | text generation |
+| Translate | on demand, when "Show English" is tapped | text generation |
 | Speak | `Perform TTS in Chinese using a female/male voice.` + `<\|audio_start\|>` | `mtmd_helper_gen_audio_*` (streaming PCM, 24 kHz) |
 
 - `Edge/Engine/LFMEngine.{h,cpp}` is a small C API over llama.cpp/libmtmd that Swift calls through the bridging header.

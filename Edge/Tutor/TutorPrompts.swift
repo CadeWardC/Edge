@@ -28,9 +28,10 @@ enum TutorPrompts {
     static let bos = "<|startoftext|>"
     static let mediaMarker = "<__media__>"
 
+    /// One turn of the conversation: what the learner said and the tutor's Chinese reply.
     struct Exchange {
         let learner: String
-        let tutorRaw: String
+        let tutor: String
     }
 
     /// Speech recognition of the learner's Mandarin (model-card system prompt).
@@ -49,45 +50,59 @@ enum TutorPrompts {
             + "<|im_start|>assistant\n<|audio_start|>"
     }
 
-    static func system(level: LearnerLevel) -> String {
+    // The 2B model handles small, plain tasks much better than one answer with several labeled
+    // parts, so each turn is three short requests: the reply, the correction, and (on demand) a translation.
+
+    /// The conversational reply: plain chat, Chinese only.
+    static func reply(history: [Exchange], learner: String, level: LearnerLevel, maxHistory: Int = 6) -> String {
+        let system = """
+        You are 小林, a warm, patient Mandarin conversation partner for an English-speaking learner. \
+        Answer what the learner says in natural Mandarin: one or two short sentences, ending with a question \
+        that keeps the conversation going. Write only simplified Chinese characters and Chinese punctuation: \
+        no pinyin, no English, no explanations. \(level.replyGuidance)
         """
-        You are 小林 (Xiǎo Lín), a warm, patient Mandarin Chinese conversation partner for an English-speaking learner. \
-        The learner speaks Mandarin to you; their words come from speech recognition, so ignore missing punctuation. \
-        Keep the conversation going about everyday life.
-
-        Reply to every learner message with exactly these five labeled lines and nothing else:
-        Feedback: In English, point out any grammar, word-choice or measure-word mistakes in what the learner said and briefly explain the fix. If a word looks misheard, mention which word they may have mispronounced. If everything was correct and natural, write "Perfect!" plus a short compliment.
-        Correct: The learner's sentence rewritten as natural Mandarin in simplified Chinese characters (repeat it unchanged if it was already correct).
-        Reply: Your conversational answer in Mandarin, simplified Chinese characters only (no pinyin, no English), one or two sentences, ending with a question.
-        Pinyin: The pinyin with tone marks for your Reply.
-        English: The English translation of your Reply.
-
-        Learner level: \(level.title). \(level.replyGuidance)
-        """
-    }
-
-    /// One worked example so the 2B model keeps the format from the first turn.
-    static let example = Exchange(
-        learner: "我昨天去商店买了三个苹果们",
-        tutorRaw: """
-        Feedback: Nice sentence! Just drop 们 after 苹果: 们 only goes on people (like 朋友们), never after a number + measure word.
-        Correct: 我昨天去商店买了三个苹果。
-        Reply: 你喜欢吃苹果吗？你还买了什么？
-        Pinyin: Nǐ xǐhuan chī píngguǒ ma? Nǐ hái mǎi le shénme?
-        English: Do you like eating apples? What else did you buy?
-        """
-    )
-
-    /// The full chat prompt: system, example, recent history, and the new learner message.
-    static func chat(history: [Exchange], learner: String, level: LearnerLevel, maxHistory: Int = 6) -> String {
-        var p = bos + "<|im_start|>system\n\(system(level: level))<|im_end|>\n"
+        let example = Exchange(learner: "我昨天去商店买了三个苹果", tutor: "你喜欢吃苹果吗？你还买了什么？")
+        var p = bos + "<|im_start|>system\n\(system)<|im_end|>\n"
         for ex in [example] + history.suffix(maxHistory) {
             p += "<|im_start|>user\n\(ex.learner)<|im_end|>\n"
             // past assistant turns carry an empty think block, as the chat template renders them
-            p += "<|im_start|>assistant\n<think></think>\(ex.tutorRaw)<|im_end|>\n"
+            p += "<|im_start|>assistant\n<think></think>\(ex.tutor)<|im_end|>\n"
         }
         p += "<|im_start|>user\n\(learner)<|im_end|>\n"
         p += "<|im_start|>assistant\n<think></think>"
         return p
+    }
+
+    /// Prefilled start of the correction, so the answer cannot wander off before it.
+    static let feedbackPrefill = "Correct:"
+
+    /// Correction of the learner's sentence on its own, with no conversation around it.
+    static func feedback(learner: String) -> String {
+        let system = """
+        You are a Mandarin teacher for an English-speaking learner. The learner's sentence comes from speech \
+        recognition, so ignore punctuation. Check it for grammar, word-choice and measure-word mistakes. \
+        Answer with exactly two lines:
+        Correct: the sentence rewritten as natural Mandarin (unchanged if it was already correct)
+        Feedback: in English, one or two short sentences explaining each fix, or "Perfect!" and a short \
+        compliment if it was already correct
+        """
+        return bos
+            + "<|im_start|>system\n\(system)<|im_end|>\n"
+            + "<|im_start|>user\n我昨天去商店买了三个苹果们<|im_end|>\n"
+            + "<|im_start|>assistant\n<think></think>Correct: 我昨天去商店买了三个苹果。\n"
+            + "Feedback: Drop 们 after 苹果: 们 only goes on people (like 朋友们), never after a number and measure word.<|im_end|>\n"
+            + "<|im_start|>user\n我很喜欢喝咖啡<|im_end|>\n"
+            + "<|im_start|>assistant\n<think></think>Correct: 我很喜欢喝咖啡。\n"
+            + "Feedback: Perfect! Very natural.<|im_end|>\n"
+            + "<|im_start|>user\n\(learner)<|im_end|>\n"
+            + "<|im_start|>assistant\n<think></think>\(feedbackPrefill)"
+    }
+
+    /// English translation of a reply.
+    static func translate(_ chinese: String) -> String {
+        bos
+            + "<|im_start|>system\nTranslate the Chinese text into natural English. Reply with the translation only.<|im_end|>\n"
+            + "<|im_start|>user\n\(chinese)<|im_end|>\n"
+            + "<|im_start|>assistant\n<think></think>"
     }
 }
