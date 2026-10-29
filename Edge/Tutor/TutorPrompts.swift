@@ -23,36 +23,16 @@ enum Voice: String, CaseIterable, Identifiable {
     var title: String { rawValue.capitalized }
 }
 
-/// Prompts for LFM3-Audio-2B, rendered by hand in the model's ChatML format.
+/// Prompts for the chat model (Qwen3.5), formatted by its own chat template.
 enum TutorPrompts {
-    static let bos = "<|startoftext|>"
-    static let mediaMarker = "<__media__>"
-
     /// One turn of the conversation: what the learner said and the tutor's Chinese reply.
     struct Exchange {
         let learner: String
         let tutor: String
     }
 
-    /// Speech recognition of the learner's Mandarin (model-card system prompt).
-    static func asr() -> String {
-        bos
-            + "<|im_start|>system\nPerform ASR in Chinese.<|im_end|>\n"
-            + "<|im_start|>user\n\(mediaMarker)<|im_end|>\n"
-            + "<|im_start|>assistant\n"
-    }
-
-    /// Reading the reply aloud: the "tts" chat template of LFM3-Audio.
-    static func tts(_ text: String, voice: Voice) -> String {
-        bos
-            + "<|im_start|>system\nPerform TTS in Chinese using a \(voice.rawValue) voice.<|im_end|>\n"
-            + "<|im_start|>user\n\(text)<|im_end|>\n"
-            + "<|im_start|>assistant\n<|audio_start|>"
-    }
-
     // Small models handle small, plain tasks much better than one answer with several labeled parts,
-    // so each turn is three short requests: the reply, the correction, and the translation. Each is a list of
-    // messages, formatted either by hand for LFM3-Audio (`lfm`) or by the chat model's own template.
+    // so each turn is three short requests: the reply, the correction, and the translation.
 
     typealias Message = TextRuntime.Message
 
@@ -103,16 +83,5 @@ enum TutorPrompts {
             Message(role: "system", content: "Translate the Chinese text into natural English. Reply with the translation only."),
             Message(role: "user", content: chinese),
         ]
-    }
-
-    /// LFM3-Audio's chat format, written by hand (its template is not one llama.cpp can apply itself):
-    /// past assistant turns and the new one start with an empty think block.
-    static func lfm(_ messages: [Message], prefill: String = "") -> String {
-        var p = bos
-        for msg in messages {
-            let think = msg.role == "assistant" ? "<think></think>" : ""
-            p += "<|im_start|>\(msg.role)\n\(think)\(msg.content)<|im_end|>\n"
-        }
-        return p + "<|im_start|>assistant\n<think></think>" + prefill
     }
 }

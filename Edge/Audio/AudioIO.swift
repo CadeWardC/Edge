@@ -99,7 +99,7 @@ final class AudioIO: @unchecked Sendable {
         let input = engine.inputNode
         let inputFormat = input.outputFormat(forBus: 0)
         guard inputFormat.sampleRate > 0, inputFormat.channelCount > 0 else {
-            throw LFMError.inference("No microphone input is available.")
+            throw EngineError.inference("No microphone input is available.")
         }
         let target = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: sampleRate, channels: 1, interleaved: false)!
         converter = AVAudioConverter(from: inputFormat, to: target)

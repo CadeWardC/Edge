@@ -1,12 +1,8 @@
 import SwiftUI
-import UniformTypeIdentifiers
 
 struct SetupView: View {
     @EnvironmentObject private var models: ModelStore
-    @State private var importing = false
     @State private var showSettings = false
-
-    private static let gguf = UTType(filenameExtension: "gguf") ?? .data
 
     var body: some View {
         NavigationStack {
@@ -31,19 +27,6 @@ struct SetupView: View {
                     }
                     .padding()
                     .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 16))
-
-                    VStack(alignment: .leading, spacing: 12) {
-                        Label("Using LFM3-Audio instead?", systemImage: "folder")
-                            .font(.headline)
-                        Text("Pick it in Settings to download it, or import its model .gguf and mmproj .gguf (or copy them into Files › On My iPhone › Edge).")
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                        Button("Import GGUF files…") { importing = true }
-                            .buttonStyle(.bordered)
-                        fileStatus
-                    }
-                    .padding()
-                    .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 16))
                 }
                 .padding()
             }
@@ -52,9 +35,6 @@ struct SetupView: View {
                 Button { showSettings = true } label: { Image(systemName: "gearshape") }
             }
             .sheet(isPresented: $showSettings) { SettingsView() }
-            .fileImporter(isPresented: $importing, allowedContentTypes: [Self.gguf, .data], allowsMultipleSelection: true) { result in
-                if case .success(let urls) = result { models.importFiles(urls) }
-            }
         }
     }
 
@@ -89,16 +69,5 @@ struct SetupView: View {
                     .buttonStyle(.borderedProminent)
             }
         }
-    }
-
-    private var fileStatus: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Label(models.modelURL?.lastPathComponent ?? "Model GGUF missing",
-                  systemImage: models.modelURL == nil ? "xmark.circle" : "checkmark.circle.fill")
-            Label(models.mmprojURL?.lastPathComponent ?? "mmproj GGUF missing",
-                  systemImage: models.mmprojURL == nil ? "xmark.circle" : "checkmark.circle.fill")
-        }
-        .font(.caption)
-        .foregroundStyle(.secondary)
     }
 }

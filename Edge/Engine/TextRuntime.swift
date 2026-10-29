@@ -1,5 +1,17 @@
 import Foundation
 
+enum EngineError: LocalizedError {
+    case load(String)
+    case inference(String)
+
+    var errorDescription: String? {
+        switch self {
+        case .load(let msg): return msg
+        case .inference(let msg): return msg
+        }
+    }
+}
+
 /// Owns one text-only chat model (Qwen3.5) and runs every call on a private serial queue.
 final class TextRuntime: @unchecked Sendable {
     struct Message {
@@ -18,7 +30,7 @@ final class TextRuntime: @unchecked Sendable {
     deinit {
         let engine = self.engine
         let closed = self.closed
-        queue.async { if !closed { lfm_text_engine_free(engine) } }
+        queue.async { if !closed { chat_engine_free(engine) } }
     }
 
     static func load(modelPath: String, contextSize: Int32 = 2048) async throws -> TextRuntime {
@@ -30,10 +42,10 @@ final class TextRuntime: @unchecked Sendable {
                 #else
                 let useGPU = true
                 #endif
-                if let engine = lfm_text_engine_create(modelPath, contextSize, useGPU, &err, err.count) {
+                if let engine = chat_engine_create(modelPath, contextSize, useGPU, &err, err.count) {
                     cont.resume(returning: TextRuntime(engine: engine))
                 } else {
-                    cont.resume(throwing: LFMError.load(String(cString: err)))
+                    cont.resume(throwing: EngineError.load(String(cString: err)))
                 }
             }
         }
@@ -44,7 +56,7 @@ final class TextRuntime: @unchecked Sendable {
         await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
             queue.async {
                 if !self.closed {
-                    lfm_text_engine_free(self.engine)
+                    chat_engine_free(self.engine)
                     self.closed = true
                 }
                 cont.resume()
@@ -67,14 +79,14 @@ final class TextRuntime: @unchecked Sendable {
                 var usesThink = false
                 var size = Int32(messages.reduce(0) { $0 + $1.content.utf8.count } * 2 + 1024)
                 var buf = [CChar](repeating: 0, count: Int(size))
-                var n = lfm_text_engine_render(engine, &rolePtrs, &contentPtrs, Int32(messages.count), &buf, size, &usesThink)
+                var n = chat_engine_render(engine, &rolePtrs, &contentPtrs, Int32(messages.count), &buf, size, &usesThink)
                 if n > size {
                     size = n + 1
                     buf = [CChar](repeating: 0, count: Int(size))
-                    n = lfm_text_engine_render(engine, &rolePtrs, &contentPtrs, Int32(messages.count), &buf, size, &usesThink)
+                    n = chat_engine_render(engine, &rolePtrs, &contentPtrs, Int32(messages.count), &buf, size, &usesThink)
                 }
                 guard n > 0 else {
-                    cont.resume(throwing: LFMError.inference("The chat model's template is not supported."))
+                    cont.resume(throwing: EngineError.inference("The chat model's template is not supported."))
                     return
                 }
                 let text = String(decoding: buf.prefix(Int(n)).map { UInt8(bitPattern: $0) }, as: UTF8.self)
@@ -92,14 +104,14 @@ final class TextRuntime: @unchecked Sendable {
 
         try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
             queue.async {
-                let callback: lfm_text_callback = { piece, userData in
+                let callback: chat_text_callback = { piece, userData in
                     guard let piece, let userData else { return false }
                     return Unmanaged<TextPieceSink>.fromOpaque(userData).takeUnretainedValue().fn(String(cString: piece))
                 }
-                if lfm_text_engine_generate(engine, prompt, maxTokens, temperature, callback, box) == 0 {
+                if chat_engine_generate(engine, prompt, maxTokens, temperature, callback, box) == 0 {
                     cont.resume()
                 } else {
-                    cont.resume(throwing: LFMError.inference(String(cString: lfm_text_engine_last_error(engine))))
+                    cont.resume(throwing: EngineError.inference(String(cString: chat_engine_last_error(engine))))
                 }
             }
         }
