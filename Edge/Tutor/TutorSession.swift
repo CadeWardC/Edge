@@ -249,14 +249,15 @@ final class TutorSession: ObservableObject {
         await answer(learnerID: id, learner: text)
     }
 
-    @AppStorage("showEnglish") var showEnglish = false
+    @AppStorage("showEnglish") var showEnglish = true
 
     /// Runs one prompt to completion and returns what it wrote; `onText` sees the text so far.
-    private func complete(_ prompt: String, maxTokens: Int32, temperature: Float,
+    /// `cancellable: false` for work that should finish even after the turn was interrupted.
+    private func complete(_ prompt: String, maxTokens: Int32, temperature: Float, cancellable: Bool = true,
                           onText: (@Sendable (String) -> Void)? = nil) async throws -> String {
         guard let runtime else { return "" }
         let raw = TextAccumulator()
-        let flag = cancelFlag
+        let flag = cancellable ? cancelFlag : AtomicFlag()
         try await runtime.generate(prompt: prompt, maxTokens: maxTokens, temperature: temperature) { piece in
             let sofar = raw.append(piece)
             onText?(sofar)
@@ -281,10 +282,12 @@ final class TutorSession: ObservableObject {
                 let raw = try await complete(TutorPrompts.reply(history: history, learner: learner, level: level),
                                              maxTokens: 96, temperature: temperature) { sofar in
                     let shown = TutorReply.cleanReply(sofar)
+                    let pinyin = Pinyin.romanize(shown)
                     Task { @MainActor in
                         self.update(id) {
                             guard $0.isStreaming else { return }
                             $0.reply.reply = shown
+                            $0.reply.pinyin = pinyin
                         }
                     }
                 }
@@ -309,7 +312,12 @@ final class TutorSession: ObservableObject {
         }
         history.append(.init(learner: learner, tutor: replyText))
 
-        // 2. speak it right away; the correction is written while it plays
+        // 2. the translation comes with the reply when it is switched on (a few words, quick)
+        if showEnglish, !cancelled {
+            await translate(id)
+        }
+
+        // 3. speak it; the correction is written while it plays
         var spoke = false
         if speakReplies, !cancelled, turns.contains(where: { $0.id == id }) {
             let speech = TutorReply(reply: replyText).speakableReply
@@ -319,7 +327,7 @@ final class TutorSession: ObservableObject {
             }
         }
 
-        // 3. the correction of what the learner said, on its own
+        // 4. the correction of what the learner said, on its own
         if !cancelled {
             if let raw = try? await complete(TutorPrompts.feedback(learner: learner), maxTokens: 120, temperature: 0.2) {
                 let fb = TutorReply.parse(TutorPrompts.feedbackPrefill + raw)
@@ -327,11 +335,6 @@ final class TutorSession: ObservableObject {
                     update(learnerID) { $0.feedback = fb }
                 }
             }
-        }
-
-        // 4. the translation, if it is shown without asking
-        if showEnglish, !cancelled {
-            await translate(id)
         }
 
         if cancelled || state.isFailedState {
@@ -356,7 +359,7 @@ final class TutorSession: ObservableObject {
         guard let turn = turns.first(where: { $0.id == id }), turn.reply.english.isEmpty,
               !turn.reply.reply.isEmpty else { return }
         update(id) { $0.translating = true }
-        let raw = (try? await complete(TutorPrompts.translate(turn.reply.reply), maxTokens: 80, temperature: 0)) ?? ""
+        let raw = (try? await complete(TutorPrompts.translate(turn.reply.reply), maxTokens: 80, temperature: 0, cancellable: false)) ?? ""
         let english = (raw.components(separatedBy: "</think>").last ?? raw)
             .components(separatedBy: .newlines).first { !$0.trimmingCharacters(in: .whitespaces).isEmpty }?
             .trimmingCharacters(in: .whitespaces) ?? ""

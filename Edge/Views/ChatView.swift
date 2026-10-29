@@ -223,13 +223,20 @@ private struct TurnView: View {
     let turn: Turn
     @EnvironmentObject private var tutor: TutorSession
     @AppStorage("showPinyin") private var showPinyin = true
-    @AppStorage("showEnglish") private var showEnglish = false
-    @State private var revealEnglish = false
+    @AppStorage("showEnglish") private var showEnglish = true
+    @AppStorage("checkTones") private var checkTones = true
 
     var body: some View {
         switch turn.role {
         case .learner: learner
-        case .tutor: tutorBubble
+        case .tutor:
+            tutorBubble
+                .task(id: showEnglish) {
+                    // replies from before English was switched on get their translation too
+                    if showEnglish, !turn.isStreaming, turn.reply.english.isEmpty, !turn.translating {
+                        await tutor.translate(turn.id)
+                    }
+                }
         }
     }
 
@@ -241,7 +248,7 @@ private struct TurnView: View {
                 .background(Color.accentColor, in: RoundedRectangle(cornerRadius: 18))
                 .foregroundStyle(.white)
 
-            if !turn.tones.isEmpty {
+            if checkTones, !turn.tones.isEmpty {
                 ToneStrip(checks: turn.tones)
             }
 
@@ -270,8 +277,8 @@ private struct TurnView: View {
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                 }
-                if !turn.isStreaming {
-                    if !turn.reply.english.isEmpty && (showEnglish || revealEnglish) {
+                if showEnglish {
+                    if !turn.reply.english.isEmpty {
                         Text(turn.reply.english)
                             .font(.subheadline)
                             .italic()
@@ -280,15 +287,6 @@ private struct TurnView: View {
                         HStack(spacing: 6) { ProgressView().controlSize(.small); Text("Translating…") }
                             .font(.caption)
                             .foregroundStyle(.secondary)
-                    } else if !showEnglish || turn.reply.english.isEmpty {
-                        // translated on demand, so a turn does not wait for it
-                        Button("Show English") {
-                            revealEnglish = true
-                            if turn.reply.english.isEmpty {
-                                Task { await tutor.translate(turn.id) }
-                            }
-                        }
-                        .font(.caption)
                     }
                 }
                 if !turn.audio.isEmpty && !turn.isStreaming {

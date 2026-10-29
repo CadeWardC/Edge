@@ -9,7 +9,7 @@ struct SettingsView: View {
     @AppStorage("level") private var level = LearnerLevel.beginner.rawValue
     @AppStorage("speakReplies") private var speakReplies = true
     @AppStorage("showPinyin") private var showPinyin = true
-    @AppStorage("showEnglish") private var showEnglish = false
+    @AppStorage("showEnglish") private var showEnglish = true
     @AppStorage("checkTones") private var checkTones = true
     @AppStorage("hfRepo") private var hfRepo = ""
     @AppStorage("autoSend") private var autoSend = true
