@@ -21,6 +21,7 @@ final class AudioIO: @unchecked Sendable {
     /// Voice activity of the current recording, read by the session to send when the learner pauses.
     struct VoiceActivity {
         var speechDetected = false
+        var speechSeconds: Double = 0
         var silenceSeconds: Double = 0
         var level: Double = 0          // 0...1 for the mic meter
     }
@@ -28,11 +29,19 @@ final class AudioIO: @unchecked Sendable {
     private var noiseFloorDB: Double?
     private var speechSeconds: Double = 0
     private var lastSpeechSample = 0
+    private var listenedSeconds: Double = 0
+    /// The first moments only teach the detector the room's noise (and any tail of the tutor's voice).
+    static let calibrationSeconds: Double = 0.3
+    /// Speech needed before the pause timer is armed, so a click or cough does not start it.
+    static let minSpeechSeconds: Double = 0.35
 
     // MARK: Playback state (touched on playQueue only, except where locked)
     private let playQueue = DispatchQueue(label: "edge.audio.playback")
     private let playEngine = AVAudioEngine()
     private let player = AVAudioPlayerNode()
+    /// Slows the voice down without lowering it.
+    private let timePitch = AVAudioUnitTimePitch()
+    private var playbackRate: Double = 1
     private var playFormat: AVAudioFormat?
     private var streaming = false
     // generation speed of the current stream, to decide how much to buffer
@@ -49,6 +58,7 @@ final class AudioIO: @unchecked Sendable {
 
     init() {
         playEngine.attach(player)
+        playEngine.attach(timePitch)
         let center = NotificationCenter.default
         center.addObserver(forName: .AVAudioEngineConfigurationChange, object: playEngine, queue: nil) { [weak self] _ in
             self?.playQueue.async { self?.recoverPlayback() }
@@ -100,6 +110,7 @@ final class AudioIO: @unchecked Sendable {
         activity = VoiceActivity()
         noiseFloorDB = nil
         speechSeconds = 0
+        listenedSeconds = 0
         lastSpeechSample = 0
         lock.unlock()
 
@@ -149,18 +160,24 @@ final class AudioIO: @unchecked Sendable {
         let db = 10 * log10(Double(meanSquare) + 1e-12)
         let dt = Double(x.count) / sampleRate
 
+        activity.level = min(1, max(0, (db + 60) / 45))
+        listenedSeconds += dt
         let floor = noiseFloorDB ?? min(db, -45)
+        if listenedSeconds <= Self.calibrationSeconds {
+            noiseFloorDB = min(floor, db)
+            return
+        }
         if db > max(floor + 12, -55) {
             speechSeconds += dt
+            activity.speechSeconds = speechSeconds
             activity.silenceSeconds = 0
-            if speechSeconds >= 0.2 { activity.speechDetected = true }
+            if speechSeconds >= Self.minSpeechSeconds { activity.speechDetected = true }
             lastSpeechSample = recorded.count
             noiseFloorDB = floor
         } else {
             activity.silenceSeconds += dt
             noiseFloorDB = db < floor ? db : floor + min(db - floor, 3 * dt)
         }
-        activity.level = min(1, max(0, (db + 60) / 45))
     }
 
     var voiceActivity: VoiceActivity {
@@ -210,6 +227,14 @@ final class AudioIO: @unchecked Sendable {
         }
     }
 
+    /// Playback speed, 0.5...1 (1 = as generated). The pitch stays the same.
+    func setPlaybackRate(_ rate: Double) {
+        playQueue.async {
+            self.playbackRate = min(1, max(0.5, rate))
+            self.timePitch.rate = Float(self.playbackRate)
+        }
+    }
+
     /// Queues a chunk of mono PCM.
     func enqueue(_ samples: [Float], sampleRate: Double) {
         guard !samples.isEmpty else { return }
@@ -244,12 +269,12 @@ final class AudioIO: @unchecked Sendable {
         let elapsed = Date().timeIntervalSince(first)
         guard elapsed >= 0.5 else { return buffered >= 3 }      // no speed measured yet
         let rate = producedAfterFirst / elapsed                 // audio seconds per second
-        if rate >= 1.15 { return true }                         // comfortably faster than real time
+        if rate >= 1.15 * playbackRate { return true }          // comfortably faster than it is played
         guard rate > 0.05 else { return buffered >= 3 }
 
-        // remaining audio takes remaining/rate to generate but only buffered+remaining to play
+        // remaining audio takes remaining/rate to generate, and (buffered+remaining)/playbackRate to play
         let remaining = expectedSeconds > 0 ? max(expectedSeconds - producedSeconds, 0) : 4
-        let needed = remaining / rate - remaining + 0.4
+        let needed = playbackRate * (remaining / rate + 0.4) - remaining
         return buffered >= needed
     }
 
@@ -313,7 +338,7 @@ final class AudioIO: @unchecked Sendable {
             }
             self.onDrained = once
             self.lock.unlock()
-            DispatchQueue.main.asyncAfter(deadline: .now() + remaining + 1.5) { once() }
+            DispatchQueue.main.asyncAfter(deadline: .now() + remaining / self.playbackRate + 1.5) { once() }
         }
     }
 
@@ -338,8 +363,7 @@ final class AudioIO: @unchecked Sendable {
             let fmt = AVAudioFormat(standardFormatWithSampleRate: sampleRate, channels: 1)!
             let wasRunning = playEngine.isRunning
             if wasRunning { playEngine.stop() }
-            playEngine.disconnectNodeOutput(player)
-            playEngine.connect(player, to: playEngine.mainMixerNode, format: fmt)
+            connectGraph(fmt)
             playFormat = fmt
         }
         guard let fmt = playFormat,
@@ -401,9 +425,15 @@ final class AudioIO: @unchecked Sendable {
         lock.lock(); let hasAudio = pendingSeconds > 0; lock.unlock()
         guard hasAudio else { return }
         if let fmt = playFormat {
-            playEngine.disconnectNodeOutput(player)
-            playEngine.connect(player, to: playEngine.mainMixerNode, format: fmt)
+            connectGraph(fmt)
         }
         startIfNeeded()
+    }
+
+    private func connectGraph(_ fmt: AVAudioFormat) {
+        playEngine.disconnectNodeOutput(player)
+        playEngine.disconnectNodeOutput(timePitch)
+        playEngine.connect(player, to: timePitch, format: fmt)
+        playEngine.connect(timePitch, to: playEngine.mainMixerNode, format: fmt)
     }
 }

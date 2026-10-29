@@ -16,6 +16,7 @@ struct SettingsView: View {
     @AppStorage("pauseSeconds") private var pauseSeconds = 1.6
     @AppStorage("handsFree") private var handsFree = false
     @AppStorage("speechOnCPU") private var speechOnCPU = false
+    @AppStorage("speechRate") private var speechRate = 1.0
     @State private var reloading = false
 
     @State private var confirmDelete = false
@@ -31,6 +32,24 @@ struct SettingsView: View {
                         ForEach(Voice.allCases) { Text($0.title).tag($0.rawValue) }
                     }
                     Toggle("Speak replies aloud", isOn: $speakReplies)
+                    if speakReplies {
+                        VStack(alignment: .leading, spacing: 4) {
+                            HStack {
+                                Text("Speech speed")
+                                Spacer()
+                                Text(speechRate >= 0.999 ? "Normal" : String(format: "%.2g×", speechRate))
+                                    .monospacedDigit()
+                                    .foregroundStyle(.secondary)
+                            }
+                            Slider(value: $speechRate, in: 0.5...1.0, step: 0.05) {
+                                Text("Speech speed")
+                            } minimumValueLabel: {
+                                Image(systemName: "tortoise").font(.caption)
+                            } maximumValueLabel: {
+                                Image(systemName: "hare").font(.caption)
+                            }
+                        }
+                    }
                 }
                 Section {
                     Toggle("Send when I stop talking", isOn: $autoSend)
@@ -57,7 +76,7 @@ struct SettingsView: View {
                     Text("Voice")
                 } footer: {
                     Text(autoSend
-                         ? "Tap the mic once and speak; your turn is sent once you have been quiet this long. Raise it if it cuts you off while you think. Hands-free opens the mic again after each reply. Tap ✕ to stop."
+                         ? "Tap the mic once and speak; once you have started talking, your turn is sent when you have been quiet this long. Raise it if it cuts you off while you think. Hands-free opens the mic again after each reply and waits for you to speak. Tap ✕ to stop."
                          : "Tap the mic to start, and again to send.")
                 }
                 Section {

@@ -49,6 +49,7 @@ final class TutorSession: ObservableObject {
     @AppStorage("pauseSeconds") var pauseSeconds = 1.6
     @AppStorage("handsFree") var handsFree = false
     @AppStorage("speechOnCPU") var speechOnCPU = false
+    @AppStorage("speechRate") var speechRate = 1.0
 
     /// Listening gives up when nothing is said for this long; hands-free waits much longer.
     static let noSpeechTimeout: Double = 8
@@ -171,6 +172,7 @@ final class TutorSession: ObservableObject {
         let minSamples = Int((runtime?.inputSampleRate ?? 16_000) * 0.4)
         guard samples.count >= minSamples else {
             state = .idle
+            listenAgainIfHandsFree()
             return
         }
         await respond(toSpeech: samples)
@@ -233,7 +235,12 @@ final class TutorSession: ObservableObject {
         }
         if text.isEmpty {
             remove(id)
-            state = .failed("I didn't catch that. Hold the phone closer and try again.")
+            if handsFree {
+                state = .idle
+                listenAgainIfHandsFree()   // a noise, not a turn: keep listening
+            } else {
+                state = .failed("I didn't catch that. Hold the phone closer and try again.")
+            }
             return
         }
         if checkTones {
@@ -307,6 +314,7 @@ final class TutorSession: ObservableObject {
         let characters = Double(text.filter(Pinyin.isHanzi).count)
 
         let pcm = PCMAccumulator()
+        audio.setPlaybackRate(speechRate)
         audio.beginStream(expectedSeconds: characters * 0.24)   // ~4 characters a second
         do {
             try await runtime.speak(prompt: TutorPrompts.tts(text, voice: voice)) { chunk, rate in
@@ -364,6 +372,7 @@ final class TutorSession: ObservableObject {
 
     func replay(_ turn: Turn) {
         guard !turn.audio.isEmpty, !state.isBusy, state != .listening else { return }
+        audio.setPlaybackRate(speechRate)
         audio.play(turn.audio, sampleRate: turn.audioSampleRate)
     }
 
