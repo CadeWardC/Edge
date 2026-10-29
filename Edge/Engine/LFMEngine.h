@@ -55,6 +55,35 @@ int32_t lfm_engine_speak(lfm_engine *       engine,
 // Message of the last failure, empty if none. Valid until the next call on the engine.
 const char * lfm_engine_last_error(const lfm_engine * engine);
 
+// --- Text-only chat model (e.g. Qwen3.5) for the tutor's replies -------------------------------------
+
+typedef struct lfm_text_engine lfm_text_engine;
+
+lfm_text_engine * lfm_text_engine_create(const char * model_path, int32_t n_ctx, bool use_gpu, char * err, size_t err_len);
+
+void lfm_text_engine_free(lfm_text_engine * engine);
+
+// Formats messages with the model's own chat template and ends with the assistant header.
+// Writes up to out_len bytes and returns the full length (call again with a bigger buffer if larger),
+// or -1 when the template is not supported. Also reports whether the template uses <think> blocks.
+int32_t lfm_text_engine_render(lfm_text_engine * engine,
+                               const char **     roles,
+                               const char **     contents,
+                               int32_t           n_messages,
+                               char *            out,
+                               int32_t           out_len,
+                               bool *            out_uses_think);
+
+// Generation from a fresh context; stops at the model's end-of-turn token. Returns 0 on success.
+int32_t lfm_text_engine_generate(lfm_text_engine * engine,
+                                 const char *      prompt,
+                                 int32_t           max_tokens,
+                                 float             temperature,
+                                 lfm_text_callback on_text,
+                                 void *            user_data);
+
+const char * lfm_text_engine_last_error(const lfm_text_engine * engine);
+
 #ifdef __cplusplus
 }
 #endif

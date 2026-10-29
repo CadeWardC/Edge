@@ -25,6 +25,12 @@ struct ContentView: View {
             if models.isReady {
                 ChatView()
                     .task(id: models.modelURL) { await loadIfNeeded() }
+                    .task(id: models.chatModelURL) {
+                        // a chat model downloaded later; at launch loadIfNeeded loads it after LFM3
+                        if tutor.state != .notLoaded && tutor.state != .loading {
+                            await tutor.loadChatModel(models.chatModelURL)
+                        }
+                    }
             } else {
                 SetupView()
             }
@@ -38,6 +44,7 @@ struct ContentView: View {
         guard let model = models.modelURL, let mmproj = models.mmprojURL else { return }
         if tutor.state == .notLoaded {
             await tutor.load(model: model, mmproj: mmproj)
+            await tutor.loadChatModel(models.chatModelURL)
         } else if tutor.loadedModel != model, !tutor.state.isBusy, tutor.state != .listening {
             // a better backbone finished downloading
             await tutor.reload(model: model, mmproj: mmproj)

@@ -89,6 +89,7 @@ final class TutorSession: ObservableObject {
         let old = runtime
         runtime = nil
         senseVoice.unload()
+        await loadChatModel(nil)
         loadedModel = nil
         state = .notLoaded
         await old?.close()
@@ -96,8 +97,10 @@ final class TutorSession: ObservableObject {
 
     /// Loads the model again, e.g. after switching where speech runs.
     func reload(model: URL, mmproj: URL) async {
+        let chat = loadedChatModel
         await unload()
         await load(model: model, mmproj: mmproj)
+        await loadChatModel(chat)
     }
 
     // MARK: Conversation
@@ -263,19 +266,52 @@ final class TutorSession: ObservableObject {
 
     @AppStorage("showEnglish") var showEnglish = true
 
-    /// Runs one prompt to completion and returns what it wrote; `onText` sees the text so far.
+    /// Runs one request to completion and returns what it wrote; `onText` sees the text so far.
+    /// The chat model writes it when it is chosen and loaded, LFM3-Audio otherwise.
     /// `cancellable: false` for work that should finish even after the turn was interrupted.
-    private func complete(_ prompt: String, maxTokens: Int32, temperature: Float, cancellable: Bool = true,
+    private func complete(_ messages: [TutorPrompts.Message], prefill: String = "", maxTokens: Int32,
+                          temperature: Float, cancellable: Bool = true,
                           onText: (@Sendable (String) -> Void)? = nil) async throws -> String {
-        guard let runtime else { return "" }
         let raw = TextAccumulator()
         let flag = cancellable ? cancelFlag : AtomicFlag()
-        try await runtime.generate(prompt: prompt, maxTokens: maxTokens, temperature: temperature) { piece in
+        let sink: @Sendable (String) -> Bool = { piece in
             let sofar = raw.append(piece)
             onText?(sofar)
             return !flag.value
         }
+        if replyEngine == "qwen", let chat = chatRuntime {
+            let prompt = try await chat.prompt(messages, prefill: prefill)
+            try await chat.generate(prompt: prompt, maxTokens: maxTokens, temperature: temperature, onText: sink)
+        } else if let runtime {
+            try await runtime.generate(prompt: TutorPrompts.lfm(messages, prefill: prefill),
+                                       maxTokens: maxTokens, temperature: temperature, onText: sink)
+        }
         return raw.value
+    }
+
+    // MARK: Chat model (Qwen3.5)
+
+    /// "qwen" (default) or "lfm": which model writes the replies, corrections and translations.
+    @AppStorage("replyEngine") var replyEngine = "qwen"
+    private var chatRuntime: TextRuntime?
+    @Published private(set) var loadedChatModel: URL?
+    @Published private(set) var chatModelError: String?
+
+    /// Loads (or swaps, or drops) the chat model; until it is in place LFM3-Audio writes the replies.
+    func loadChatModel(_ url: URL?) async {
+        guard url != loadedChatModel || (url != nil && chatRuntime == nil) else { return }
+        let old = chatRuntime
+        chatRuntime = nil
+        loadedChatModel = nil
+        await old?.close()
+        guard let url else { return }
+        do {
+            chatRuntime = try await TextRuntime.load(modelPath: url.path)
+            loadedChatModel = url
+            chatModelError = nil
+        } catch {
+            chatModelError = error.localizedDescription
+        }
     }
 
     private func answer(learnerID: UUID, learner: String) async {
@@ -341,7 +377,8 @@ final class TutorSession: ObservableObject {
 
         // 4. the correction of what the learner said, on its own
         if !cancelled {
-            if let raw = try? await complete(TutorPrompts.feedback(learner: learner), maxTokens: 120, temperature: 0.2) {
+            if let raw = try? await complete(TutorPrompts.feedback(learner: learner), prefill: TutorPrompts.feedbackPrefill,
+                                             maxTokens: 120, temperature: 0.2) {
                 let fb = TutorReply.parse(TutorPrompts.feedbackPrefill + raw)
                 if !fb.feedback.isEmpty || !fb.corrected.isEmpty {
                     update(learnerID) { $0.feedback = fb }

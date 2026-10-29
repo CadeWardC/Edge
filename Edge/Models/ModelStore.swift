@@ -103,6 +103,32 @@ final class ModelStore: NSObject, ObservableObject {
         senseVoiceReady = Self.senseVoiceFiles.allSatisfy {
             FileManager.default.fileExists(atPath: Self.modelsDirectory.appendingPathComponent($0).path)
         }
+        let chatDir = Self.modelsDirectory.appendingPathComponent(Self.chatDirectory, isDirectory: true)
+        let chatFiles = ((try? FileManager.default.contentsOfDirectory(atPath: chatDir.path)) ?? [])
+            .filter { $0.lowercased().hasSuffix(".gguf") }
+        chatModelURL = Self.pickChatModel(chatFiles).map { chatDir.appendingPathComponent($0) }
+    }
+
+    // MARK: Chat model (Qwen3.5, the tutor's replies)
+
+    nonisolated static let defaultChatRepo = "unsloth/Qwen3.5-2B-GGUF"
+    nonisolated static let chatDirectory = "Chat"
+    /// 4-5 bit is plenty for text; only LFM3's voice needed 8-bit.
+    nonisolated static let preferredChatQuants = ["Q4_K_M", "UD-Q4_K_XL", "Q5_K_M", "Q4_K_S", "Q6_K", "Q8_0"]
+
+    @Published private(set) var chatModelURL: URL?
+
+    var chatRepo: String {
+        let r = UserDefaults.standard.string(forKey: "chatRepo")?.trimmingCharacters(in: .whitespaces) ?? ""
+        return r.isEmpty ? Self.defaultChatRepo : r
+    }
+
+    nonisolated static func pickChatModel(_ names: [String]) -> String? {
+        let candidates = names.filter { $0.lowercased().hasSuffix(".gguf") && !isMMProj($0) }
+        for q in preferredChatQuants {
+            if let hit = candidates.first(where: { $0.uppercased().contains(q) }) { return hit }
+        }
+        return candidates.first
     }
 
     // MARK: SenseVoice (speech recognition)
@@ -158,7 +184,7 @@ final class ModelStore: NSObject, ObservableObject {
             var jobs: [(name: String, url: URL)] = []
             var sizes: [String: Int64] = Self.senseVoiceSizes
             if !isReady || backboneIsLowPrecision {
-                let remote = try await listRemoteFiles()
+                let remote = try await listRemoteFiles(repo: repo)
                 let names = remote.map(\.path)
                 guard let backbone = Self.pickBackbone(names) else {
                     throw LFMError.load("No model GGUF found in \(repo).")
@@ -168,6 +194,13 @@ final class ModelStore: NSObject, ObservableObject {
                 }
                 for (path, size) in remote.map({ ($0.path, $0.size ?? 0) }) { sizes[path] = size }
                 jobs += [backbone, mmproj].filter(missing).map { (name: $0, url: resolveURL(repo, $0)) }
+            }
+            // the chat model, kept in its own folder; a failed lookup does not hold back the rest
+            if chatModelURL == nil, let remote = try? await listRemoteFiles(repo: chatRepo),
+               let file = Self.pickChatModel(remote.map(\.path)) {
+                let name = "\(Self.chatDirectory)/\(file)"
+                sizes[name] = remote.first { $0.path == file }?.size ?? 0
+                if missing(name) { jobs.append((name: name, url: resolveURL(chatRepo, file))) }
             }
             // the SenseVoice files, kept in their own folder
             jobs += Self.senseVoiceFiles.filter(missing).map {
@@ -262,7 +295,7 @@ final class ModelStore: NSObject, ObservableObject {
         }
     }
 
-    private func listRemoteFiles() async throws -> [RemoteFile] {
+    private func listRemoteFiles(repo: String) async throws -> [RemoteFile] {
         let url = URL(string: "https://huggingface.co/api/models/\(repo)/tree/main")!
         let (data, response) = try await URLSession.shared.data(from: url)
         if let http = response as? HTTPURLResponse, http.statusCode != 200 {
@@ -295,6 +328,7 @@ final class ModelStore: NSObject, ObservableObject {
             try? FileManager.default.removeItem(at: url)
         }
         try? FileManager.default.removeItem(at: Self.senseVoiceModelURL.deletingLastPathComponent())
+        try? FileManager.default.removeItem(at: Self.modelsDirectory.appendingPathComponent(Self.chatDirectory))
         refresh()
     }
 

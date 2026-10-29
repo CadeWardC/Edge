@@ -50,11 +50,14 @@ enum TutorPrompts {
             + "<|im_start|>assistant\n<|audio_start|>"
     }
 
-    // The 2B model handles small, plain tasks much better than one answer with several labeled
-    // parts, so each turn is three short requests: the reply, the correction, and (on demand) a translation.
+    // Small models handle small, plain tasks much better than one answer with several labeled parts,
+    // so each turn is three short requests: the reply, the correction, and the translation. Each is a list of
+    // messages, formatted either by hand for LFM3-Audio (`lfm`) or by the chat model's own template.
+
+    typealias Message = TextRuntime.Message
 
     /// The conversational reply: plain chat, Chinese only.
-    static func reply(history: [Exchange], learner: String, level: LearnerLevel, maxHistory: Int = 6) -> String {
+    static func reply(history: [Exchange], learner: String, level: LearnerLevel, maxHistory: Int = 6) -> [Message] {
         let system = """
         You are 小林, a warm, patient Mandarin conversation partner for an English-speaking learner. \
         Answer what the learner says in natural Mandarin: one or two short sentences, ending with a question \
@@ -62,22 +65,20 @@ enum TutorPrompts {
         no pinyin, no English, no explanations. \(level.replyGuidance)
         """
         let example = Exchange(learner: "我昨天去商店买了三个苹果", tutor: "你喜欢吃苹果吗？你还买了什么？")
-        var p = bos + "<|im_start|>system\n\(system)<|im_end|>\n"
+        var m = [Message(role: "system", content: system)]
         for ex in [example] + history.suffix(maxHistory) {
-            p += "<|im_start|>user\n\(ex.learner)<|im_end|>\n"
-            // past assistant turns carry an empty think block, as the chat template renders them
-            p += "<|im_start|>assistant\n<think></think>\(ex.tutor)<|im_end|>\n"
+            m.append(Message(role: "user", content: ex.learner))
+            m.append(Message(role: "assistant", content: ex.tutor))
         }
-        p += "<|im_start|>user\n\(learner)<|im_end|>\n"
-        p += "<|im_start|>assistant\n<think></think>"
-        return p
+        m.append(Message(role: "user", content: learner))
+        return m
     }
 
     /// Prefilled start of the correction, so the answer cannot wander off before it.
     static let feedbackPrefill = "Correct:"
 
     /// Correction of the learner's sentence on its own, with no conversation around it.
-    static func feedback(learner: String) -> String {
+    static func feedback(learner: String) -> [Message] {
         let system = """
         You are a Mandarin teacher for an English-speaking learner. The learner's sentence comes from speech \
         recognition, so ignore punctuation. Check it for grammar, word-choice and measure-word mistakes. \
@@ -86,23 +87,32 @@ enum TutorPrompts {
         Feedback: in English, one or two short sentences explaining each fix, or "Perfect!" and a short \
         compliment if it was already correct
         """
-        return bos
-            + "<|im_start|>system\n\(system)<|im_end|>\n"
-            + "<|im_start|>user\n我昨天去商店买了三个苹果们<|im_end|>\n"
-            + "<|im_start|>assistant\n<think></think>Correct: 我昨天去商店买了三个苹果。\n"
-            + "Feedback: Drop 们 after 苹果: 们 only goes on people (like 朋友们), never after a number and measure word.<|im_end|>\n"
-            + "<|im_start|>user\n我很喜欢喝咖啡<|im_end|>\n"
-            + "<|im_start|>assistant\n<think></think>Correct: 我很喜欢喝咖啡。\n"
-            + "Feedback: Perfect! Very natural.<|im_end|>\n"
-            + "<|im_start|>user\n\(learner)<|im_end|>\n"
-            + "<|im_start|>assistant\n<think></think>\(feedbackPrefill)"
+        return [
+            Message(role: "system", content: system),
+            Message(role: "user", content: "我昨天去商店买了三个苹果们"),
+            Message(role: "assistant", content: "Correct: 我昨天去商店买了三个苹果。\nFeedback: Drop 们 after 苹果: 们 only goes on people (like 朋友们), never after a number and measure word."),
+            Message(role: "user", content: "我很喜欢喝咖啡"),
+            Message(role: "assistant", content: "Correct: 我很喜欢喝咖啡。\nFeedback: Perfect! Very natural."),
+            Message(role: "user", content: learner),
+        ]
     }
 
     /// English translation of a reply.
-    static func translate(_ chinese: String) -> String {
-        bos
-            + "<|im_start|>system\nTranslate the Chinese text into natural English. Reply with the translation only.<|im_end|>\n"
-            + "<|im_start|>user\n\(chinese)<|im_end|>\n"
-            + "<|im_start|>assistant\n<think></think>"
+    static func translate(_ chinese: String) -> [Message] {
+        [
+            Message(role: "system", content: "Translate the Chinese text into natural English. Reply with the translation only."),
+            Message(role: "user", content: chinese),
+        ]
+    }
+
+    /// LFM3-Audio's chat format, written by hand (its template is not one llama.cpp can apply itself):
+    /// past assistant turns and the new one start with an empty think block.
+    static func lfm(_ messages: [Message], prefill: String = "") -> String {
+        var p = bos
+        for msg in messages {
+            let think = msg.role == "assistant" ? "<think></think>" : ""
+            p += "<|im_start|>\(msg.role)\n\(think)\(msg.content)<|im_end|>\n"
+        }
+        return p + "<|im_start|>assistant\n<think></think>" + prefill
     }
 }

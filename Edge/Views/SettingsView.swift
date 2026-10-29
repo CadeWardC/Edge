@@ -18,6 +18,7 @@ struct SettingsView: View {
     @AppStorage("speechOnCPU") private var speechOnCPU = false
     @AppStorage("speechRate") private var speechRate = 1.0
     @AppStorage("asrEngine") private var asrEngine = "sensevoice"
+    @AppStorage("replyEngine") private var replyEngine = "qwen"
     @State private var reloading = false
 
     @State private var confirmDelete = false
@@ -25,6 +26,38 @@ struct SettingsView: View {
     var body: some View {
         NavigationStack {
             Form {
+                Section {
+                    Picker("Replies by", selection: $replyEngine) {
+                        Text("Qwen3.5").tag("qwen")
+                        Text("LFM3-Audio").tag("lfm")
+                    }
+                    if replyEngine == "qwen" && models.chatModelURL == nil {
+                        switch models.phase {
+                        case .idle, .failed:
+                            Button("Download Qwen3.5 (about 1.3 GB)") { Task { await models.download() } }
+                            if case .failed(let msg) = models.phase {
+                                Text(msg).font(.footnote).foregroundStyle(.red)
+                            }
+                        case .resolving:
+                            ProgressView("Looking up files…")
+                        case .downloading:
+                            ProgressView(value: models.progress) {
+                                Text("\(Int(models.progress * 100))% · keeps going in the background").font(.caption)
+                            }
+                        }
+                    }
+                    if replyEngine == "qwen", let err = tutor.chatModelError {
+                        Text(err).font(.footnote).foregroundStyle(.red)
+                    }
+                } header: {
+                    Text("Replies")
+                } footer: {
+                    Text(replyEngine == "qwen"
+                         ? (models.chatModelURL != nil
+                            ? "Qwen3.5 writes the replies, corrections and translations; LFM3-Audio speaks them."
+                            : "Until Qwen3.5 is downloaded, LFM3-Audio writes the replies.")
+                         : "LFM3-Audio writes and speaks the replies.")
+                }
                 Section("Tutor") {
                     Picker("Level", selection: $level) {
                         ForEach(LearnerLevel.allCases) { Text($0.title).tag($0.rawValue) }

@@ -45,7 +45,7 @@ A syllable is only marked wrong when the match is clear; otherwise it shows as u
 | Step | Prompt | API |
 | --- | --- | --- |
 | Hear you | [SenseVoice-Small](https://github.com/FunAudioLLM/SenseVoice) via [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx) (int8, Mandarin); falls back to LFM3-Audio `Perform ASR in Chinese.` | `SherpaOnnxOfflineRecognizer` / `mtmd_helper_eval_chunks` |
-| Reply | plain chat: answer in one or two short Chinese sentences (retried once if it has no Chinese) | text generation, `<\|audio_start\|>` / `<\|mixed_start\|>` banned |
+| Reply | plain chat: answer in one or two short Chinese sentences (retried once if it has no Chinese), written by [Qwen3.5-2B](https://huggingface.co/unsloth/Qwen3.5-2B-GGUF) (Q4_K_M, its own chat template, thinking off) or LFM3-Audio | `lfm_text_engine_generate` / `lfm_engine_generate` |
 | Correct | the learner's sentence alone, answer prefilled with `Correct:` then `Feedback:` | text generation |
 | Translate | right after the reply, when English is switched on | text generation |
 | Speak | `Perform TTS in Chinese using a female/male voice.` + `<\|audio_start\|>` | `mtmd_helper_gen_audio_*` (streaming PCM, 24 kHz) |
