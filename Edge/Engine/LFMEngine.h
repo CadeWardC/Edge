@@ -32,10 +32,9 @@ void lfm_engine_free(lfm_engine * engine);
 // Sample rate the audio encoder expects (16 kHz for LFM3-Audio).
 int32_t lfm_engine_input_sample_rate(const lfm_engine * engine);
 
-// One-off text generation (speech recognition) on a scratch sequence, cleared for every call.
-// The prompt is fully rendered (special tokens included) and may contain one "<__media__>" marker
-// where the mono PCM F32 audio is placed. Mode-switch tokens are banned, so the answer stays text.
-// Returns 0 on success.
+// Text generation from a fresh context. The prompt is fully rendered (special tokens included)
+// and may contain one "<__media__>" marker where the mono PCM F32 audio is placed.
+// Mode-switch tokens are banned, so the answer stays text. Returns 0 on success.
 int32_t lfm_engine_generate(lfm_engine *      engine,
                             const char *      prompt,
                             const float *     audio,
@@ -45,28 +44,7 @@ int32_t lfm_engine_generate(lfm_engine *      engine,
                             lfm_text_callback on_text,
                             void *            user_data);
 
-// The conversation. `prompt` is the whole conversation so far, ending with the assistant header; the part
-// already in memory from the previous turn is not evaluated again, and the reply stays in memory for the next.
-// A callback returning false pauses the reply (*out_paused is set): speech can run in between, and
-// lfm_engine_chat_continue() resumes the reply where it stopped. Returns 0 on success.
-int32_t lfm_engine_chat(lfm_engine *      engine,
-                        const char *      prompt,
-                        int32_t           max_tokens,
-                        float             temperature,
-                        lfm_text_callback on_text,
-                        void *            user_data,
-                        bool *            out_paused);
-
-int32_t lfm_engine_chat_continue(lfm_engine *      engine,
-                                 int32_t           max_tokens,
-                                 lfm_text_callback on_text,
-                                 void *            user_data,
-                                 bool *            out_paused);
-
-// Forgets the conversation held in memory.
-void lfm_engine_chat_reset(lfm_engine * engine);
-
-// Speech generation on the scratch sequence (the conversation is left untouched). The prompt is the model's "tts" template, ending in <|audio_start|>.
+// Speech generation from a fresh context. The prompt is the model's "tts" template, ending in <|audio_start|>.
 // PCM F32 mono chunks are streamed to on_audio as they are decoded. Returns 0 on success.
 int32_t lfm_engine_speak(lfm_engine *       engine,
                          const char *       tts_prompt,

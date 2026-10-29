@@ -95,33 +95,6 @@ enum Pinyin {
         return s
     }
 
-    /// Pinyin of a sentence for display, with dictionary tones: "你好吗？" -> "nǐ hǎo ma?"
-    static func romanize(_ text: String) -> String {
-        let punctuation: [Character: String] = ["，": ",", "。": ".", "？": "?", "！": "!", "：": ":", "；": ";",
-                                                "、": ",", "“": "\"", "”": "\"", "（": "(", "）": ")"]
-        var out = ""
-        var run = ""
-        func flush() {
-            guard !run.isEmpty else { return }
-            let words = syllables(in: run).map(\.marked).joined(separator: " ")
-            if !words.isEmpty {
-                if let last = out.last, !last.isWhitespace, !"(\"".contains(last) { out += " " }
-                out += words
-            }
-            run = ""
-        }
-        for c in text {
-            if isHanzi(c) {
-                run.append(c)
-            } else {
-                flush()
-                if let p = punctuation[c] { out += p } else { out.append(c) }
-            }
-        }
-        flush()
-        return out.trimmingCharacters(in: .whitespaces)
-    }
-
     /// "hao3" -> "hǎo", "lv4" -> "lǜ", "ma5" -> "ma"
     static func marked(_ numbered: String) -> String {
         guard let tone = numbered.last?.wholeNumberValue else { return numbered }

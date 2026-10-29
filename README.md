@@ -45,13 +45,8 @@ A syllable is only marked wrong when the match is clear; otherwise it shows as u
 | Step | Prompt | API |
 | --- | --- | --- |
 | Hear you | system `Perform ASR in Chinese.`, the recording in the user turn | `mtmd_tokenize` + `mtmd_helper_eval_chunks` |
-| Reply + correct | tutor system prompt; it answers in `Reply / English / Feedback / Correct` lines | text generation, `<\|audio_start\|>` / `<\|mixed_start\|>` banned |
+| Correct + reply | tutor system prompt; it answers in `Feedback / Correct / Reply / Pinyin / English` lines | text generation, `<\|audio_start\|>` / `<\|mixed_start\|>` banned |
 | Speak | `Perform TTS in Chinese using a female/male voice.` + `<\|audio_start\|>` | `mtmd_helper_gen_audio_*` (streaming PCM, 24 kHz) |
-
-The conversation lives in its own sequence of the model's memory (seq 0) and is never cleared between turns:
-each turn's prompt extends the last one, so only the new sentence is evaluated. Speech recognition and the voice
-run on a scratch sequence (seq 1). The reply is written first; generation pauses once it is complete, the voice
-speaks it, and the translation and feedback are written while it plays. Pinyin comes from the bundled dictionary.
 
 - `Edge/Engine/LFMEngine.{h,cpp}` is a small C API over llama.cpp/libmtmd that Swift calls through the bridging header.
 - `Edge/Tutor/` holds the prompts, the reply parser and the conversation state machine.
