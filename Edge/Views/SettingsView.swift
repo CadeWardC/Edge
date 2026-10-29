@@ -108,8 +108,9 @@ struct SettingsView: View {
                     Text("Hugging Face repo with the LFM3-Audio GGUFs. The app uses the Q8_0 backbone and its mmproj; 4-bit backbones garble speech.")
                 }
                 Section {
+                    // never locked: switching stops whatever the tutor is doing and reloads
                     Toggle("Generate speech on CPU", isOn: $speechOnCPU)
-                        .disabled(reloading || tutor.state.isBusy || !models.isReady)
+                        .disabled(reloading || !models.isReady)
                         .onChange(of: speechOnCPU) {
                             guard let model = models.modelURL, let mmproj = models.mmprojURL else { return }
                             reloading = true
@@ -120,6 +121,8 @@ struct SettingsView: View {
                         }
                     if reloading {
                         HStack { ProgressView(); Text("Reloading the model…").foregroundStyle(.secondary) }
+                    } else if models.isReady {
+                        LabeledContent("Speech runs on", value: speechOnCPU ? "CPU" : "GPU")
                     }
                 } header: {
                     Text("Troubleshooting")
