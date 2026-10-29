@@ -7,8 +7,10 @@ import UserNotifications
 @MainActor
 final class ModelStore: NSObject, ObservableObject {
     static let defaultRepo = "LiquidAI/LFM3-Audio-2B-GGUF"
-    /// Backbone quantizations in order of preference: small enough for a phone, good enough for Mandarin.
-    nonisolated static let preferredQuants = ["Q4_K_M", "Q4_K_S", "Q5_K_M", "Q4_0", "Q8_0", "F16"]
+    /// Backbone quantizations in order of preference. Q8_0 first: speech is generated from the backbone's
+    /// hidden states, and the 4-bit backbones are far off the reference (Q4_K_M logits ~0.4 rel vs 0.009
+    /// for Q8_0 in audio.cpp's validation), which shows up as babbled speech.
+    nonisolated static let preferredQuants = ["Q8_0", "F16", "BF16", "Q6_K", "Q5_K_M", "Q4_K_M", "Q4_K_S", "Q4_0"]
     nonisolated static let preferredMMProjQuants = ["Q8_0", "F16", "BF16", "F32"]
 
     struct RemoteFile: Decodable {
@@ -60,6 +62,24 @@ final class ModelStore: NSObject, ObservableObject {
     }
 
     var isReady: Bool { modelURL != nil && mmprojURL != nil }
+
+    /// A 4-bit (or smaller) backbone: text works, speech comes out as babble.
+    var backboneIsLowPrecision: Bool {
+        guard let name = modelURL?.lastPathComponent.uppercased() else { return false }
+        return ["Q4_", "Q3_", "Q2_", "IQ"].contains { name.contains($0) }
+    }
+
+    /// Removes 4-bit backbones once a better one is in place, to free the space.
+    private func removeSupersededBackbones() {
+        guard let current = modelURL, !backboneIsLowPrecision else { return }
+        let files = (try? FileManager.default.contentsOfDirectory(at: Self.modelsDirectory, includingPropertiesForKeys: nil)) ?? []
+        for url in files where url.pathExtension.lowercased() == "gguf" && url != current && !Self.isMMProj(url.lastPathComponent) {
+            let name = url.lastPathComponent.uppercased()
+            if ["Q4_", "Q3_", "Q2_", "IQ"].contains(where: { name.contains($0) }) {
+                try? FileManager.default.removeItem(at: url)
+            }
+        }
+    }
 
     private override init() {
         super.init()
@@ -205,6 +225,7 @@ final class ModelStore: NSObject, ObservableObject {
         if isReady {
             phase = .idle
             expected = [:]
+            removeSupersededBackbones()
             Notifier.post(title: "Model downloaded", body: "LFM3-Audio is ready. Tap to start speaking Mandarin.")
         } else if !phase.isFailed {
             phase = .failed("The download did not finish. Tap Try again to continue.")

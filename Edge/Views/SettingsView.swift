@@ -75,13 +75,37 @@ struct SettingsView: View {
                         .autocorrectionDisabled()
                     LabeledContent("Model", value: models.modelURL?.lastPathComponent ?? "—")
                     LabeledContent("mmproj", value: models.mmprojURL?.lastPathComponent ?? "—")
+                    if models.backboneIsLowPrecision {
+                        VStack(alignment: .leading, spacing: 6) {
+                            Label("This 4-bit model garbles the voice", systemImage: "exclamationmark.triangle.fill")
+                                .foregroundStyle(.orange)
+                            Text("Speech needs the more precise Q8_0 model (about 1.9 GB more). Your current files keep working until it is in place, then the 4-bit one is deleted.")
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                            switch models.phase {
+                            case .idle, .failed:
+                                Button("Download Q8_0 model") { Task { await models.download() } }
+                                    .buttonStyle(.borderedProminent)
+                                if case .failed(let msg) = models.phase {
+                                    Text(msg).font(.footnote).foregroundStyle(.red)
+                                }
+                            case .resolving:
+                                ProgressView("Looking up files…")
+                            case .downloading:
+                                ProgressView(value: models.progress) {
+                                    Text("\(Int(models.progress * 100))% · keeps going in the background")
+                                        .font(.caption)
+                                }
+                            }
+                        }
+                    }
                     if models.isReady {
                         Button("Delete downloaded model", role: .destructive) { confirmDelete = true }
                     }
                 } header: {
                     Text("Model")
                 } footer: {
-                    Text("Hugging Face repo with the LFM3-Audio GGUFs. The app prefers a Q4_K_M backbone and the mmproj file.")
+                    Text("Hugging Face repo with the LFM3-Audio GGUFs. The app uses the Q8_0 backbone and its mmproj; 4-bit backbones garble speech.")
                 }
                 Section {
                     Toggle("Generate speech on CPU", isOn: $speechOnCPU)

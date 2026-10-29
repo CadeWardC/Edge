@@ -35,8 +35,13 @@ struct ContentView: View {
     }
 
     private func loadIfNeeded() async {
-        guard let model = models.modelURL, let mmproj = models.mmprojURL, tutor.state == .notLoaded else { return }
-        await tutor.load(model: model, mmproj: mmproj)
+        guard let model = models.modelURL, let mmproj = models.mmprojURL else { return }
+        if tutor.state == .notLoaded {
+            await tutor.load(model: model, mmproj: mmproj)
+        } else if tutor.loadedModel != model, !tutor.state.isBusy, tutor.state != .listening {
+            // a better backbone finished downloading
+            await tutor.reload(model: model, mmproj: mmproj)
+        }
     }
 }
 

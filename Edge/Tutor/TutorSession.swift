@@ -54,6 +54,8 @@ final class TutorSession: ObservableObject {
     static let noSpeechTimeout: Double = 8
 
     private var runtime: LFMRuntime?
+    /// The backbone the runtime was loaded from, so a new download triggers a reload.
+    private(set) var loadedModel: URL?
     private let audio = AudioIO()
     private var history: [TutorPrompts.Exchange] = []
     private var meter: Timer?
@@ -69,6 +71,7 @@ final class TutorSession: ObservableObject {
         state = .loading
         do {
             runtime = try await LFMRuntime.load(modelPath: model.path, mmprojPath: mmproj.path, speechOnGPU: !speechOnCPU)
+            loadedModel = model
             state = .idle
         } catch {
             state = .failed(error.localizedDescription)
@@ -79,6 +82,7 @@ final class TutorSession: ObservableObject {
         stop()
         let old = runtime
         runtime = nil
+        loadedModel = nil
         state = .notLoaded
         await old?.close()
     }

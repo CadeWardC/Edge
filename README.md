@@ -16,11 +16,14 @@ after each reply, like a voice chat. You can also type Chinese instead of speaki
 Every push builds `Edge-unsigned.ipa` on GitHub Actions and attaches it to a release (`build-N`, under *Releases*).
 It is unsigned, so sign it while installing with AltStore / SideStore, Sideloadly, or install it with TrollStore.
 
-On first launch, tap **Download model**. That fetches the backbone GGUF (Q4_K_M preferred) and the `mmproj` GGUF
+On first launch, tap **Download model**. That fetches the backbone GGUF (Q8_0) and the `mmproj` GGUF
 (audio encoder, depthformer and codec) from `LiquidAI/LFM3-Audio-2B-GGUF`. You can change the repo in Settings,
 or copy both `.gguf` files into *Files › On My iPhone › Edge*.
 
-A device with 6 GB+ RAM (iPhone 13 Pro / 14 / 15 or newer) is recommended.
+Use the Q8_0 backbone, not a 4-bit one: speech is generated from the backbone's hidden states, and the 4-bit
+backbones are ~45x further off the reference ([audio.cpp's LFM3-Audio validation](https://github.com/0xShug0/audio.cpp/blob/main/docs/models/lfm3_audio.md)),
+which comes out as babble while text still looks fine. The Q8_0 model takes about 3 GB of memory while running,
+so an iPhone with 8 GB (15 Pro or newer) is the safe choice; 6 GB models may be closed by iOS.
 
 ## Tone check
 
