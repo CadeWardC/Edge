@@ -8,7 +8,8 @@ llama.cpp + Metal. It:
 3. replies in Mandarin (with pinyin and an optional English translation),
 4. **speaks the reply** with LFM3-Audio's own Chinese voice, streamed as it is generated.
 
-You can also type Chinese instead of speaking. Nothing leaves the phone except the one-time model download.
+Tap the mic once and talk; your turn is sent when you pause (1.6 s by default), and hands-free mode reopens the mic
+after each reply, like a voice chat. You can also type Chinese instead of speaking. Nothing leaves the phone except the one-time model download.
 
 ## Install the unsigned IPA
 

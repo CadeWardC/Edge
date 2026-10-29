@@ -75,16 +75,17 @@ struct ChatView: View {
                     .disabled(!canStart)
 
                     Spacer()
-                    MicButton(state: tutor.state, seconds: tutor.recordingSeconds) {
+                    MicButton(state: tutor.state, seconds: tutor.recordingSeconds,
+                              level: tutor.inputLevel, autoSend: tutor.autoSend) {
                         Task { await tutor.toggleRecording() }
                     }
                     Spacer()
 
                     Button { tutor.stop() } label: {
-                        Image(systemName: "stop.circle").font(.title3)
+                        Image(systemName: tutor.state == .listening ? "xmark.circle" : "stop.circle").font(.title3)
                     }
                     .frame(width: 60)
-                    .disabled(!(tutor.state.isBusy && tutor.state != .loading))
+                    .disabled(!((tutor.state.isBusy && tutor.state != .loading) || tutor.state == .listening))
                 }
                 .padding(.horizontal)
             }
@@ -118,8 +119,14 @@ struct ChatView: View {
             Text(tutor.turns.isEmpty ? "Tap the mic and say something in Mandarin" : "Tap the mic to answer")
                 .font(.footnote).foregroundStyle(.secondary)
         case .listening:
-            Text("Listening… tap again when you're done")
-                .font(.footnote).foregroundStyle(.red)
+            HStack(spacing: 6) {
+                if tutor.handsFree {
+                    Image(systemName: "infinity").font(.caption2)
+                }
+                Text(!tutor.autoSend ? "Listening… tap again when you're done"
+                     : tutor.heardSpeech ? "Listening… pause to send" : "Listening… go ahead")
+            }
+            .font(.footnote).foregroundStyle(.red)
         case .transcribing:
             Text("Transcribing…").font(.footnote).foregroundStyle(.secondary)
         case .thinking:
@@ -148,11 +155,21 @@ private struct EmptyChatHint: View {
 private struct MicButton: View {
     let state: TutorSession.State
     let seconds: Double
+    let level: Double
+    let autoSend: Bool
     let action: () -> Void
 
     var body: some View {
         Button(action: action) {
             ZStack {
+                if state == .listening {
+                    // pulses with the learner's voice
+                    Circle()
+                        .fill(Color.red.opacity(0.18))
+                        .frame(width: 76, height: 76)
+                        .scaleEffect(1 + level * 0.45)
+                        .animation(.easeOut(duration: 0.1), value: level)
+                }
                 Circle()
                     .fill(fill)
                     .frame(width: 76, height: 76)
@@ -187,7 +204,7 @@ private struct MicButton: View {
 
     private var icon: String {
         switch state {
-        case .listening: return "stop.fill"
+        case .listening: return autoSend ? "arrow.up" : "stop.fill"
         case .speaking: return "waveform"
         default: return "mic.fill"
         }

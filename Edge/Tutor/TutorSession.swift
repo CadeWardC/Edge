@@ -38,11 +38,19 @@ final class TutorSession: ObservableObject {
     @Published private(set) var state: State = .notLoaded
     @Published private(set) var turns: [Turn] = []
     @Published private(set) var recordingSeconds: Double = 0
+    @Published private(set) var inputLevel: Double = 0
+    @Published private(set) var heardSpeech = false
 
     @AppStorage("voice") var voiceRaw = Voice.female.rawValue
     @AppStorage("level") var levelRaw = LearnerLevel.beginner.rawValue
     @AppStorage("speakReplies") var speakReplies = true
     @AppStorage("checkTones") var checkTones = true
+    @AppStorage("autoSend") var autoSend = true
+    @AppStorage("pauseSeconds") var pauseSeconds = 1.6
+    @AppStorage("handsFree") var handsFree = false
+
+    /// Listening gives up when nothing is said for this long.
+    static let noSpeechTimeout: Double = 8
 
     private var runtime: LFMRuntime?
     private let audio = AudioIO()
@@ -81,7 +89,9 @@ final class TutorSession: ObservableObject {
             guard runtime != nil else { return }
             await startRecording()
         case .speaking:
+            // interrupting the tutor goes straight to listening
             stop()
+            await startRecording()
         default:
             break
         }
@@ -96,25 +106,52 @@ final class TutorSession: ObservableObject {
             try audio.startRecording(sampleRate: runtime?.inputSampleRate ?? 16_000)
             state = .listening
             recordingSeconds = 0
+            inputLevel = 0
+            heardSpeech = false
             meter = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
-                Task { @MainActor in
-                    guard let self else { return }
-                    self.recordingSeconds = self.audio.recordedSeconds
-                    if self.recordingSeconds >= AudioIO.maxRecordingSeconds {
-                        await self.finishRecording()
-                    }
-                }
+                Task { @MainActor in self?.meterTick() }
             }
         } catch {
             state = .failed(error.localizedDescription)
         }
     }
 
+    /// Every 0.1 s while listening: update the meter, and send once the learner has spoken and paused.
+    private func meterTick() {
+        guard state == .listening else { return }
+        let activity = audio.voiceActivity
+        recordingSeconds = audio.recordedSeconds
+        inputLevel = activity.level
+        heardSpeech = activity.speechDetected
+
+        if recordingSeconds >= AudioIO.maxRecordingSeconds {
+            Task { await finishRecording() }
+        } else if autoSend, activity.speechDetected, activity.silenceSeconds >= pauseSeconds {
+            Task { await finishRecording() }
+        } else if autoSend, !activity.speechDetected, recordingSeconds >= Self.noSpeechTimeout {
+            cancelListening()
+            if !handsFree {
+                state = .failed("I didn't hear anything. Tap the mic and try again.")
+            }
+        }
+    }
+
+    /// Stops listening without sending anything.
+    func cancelListening() {
+        guard state == .listening else { return }
+        meter?.invalidate()
+        meter = nil
+        _ = audio.stopRecording()
+        inputLevel = 0
+        state = .idle
+    }
+
     private func finishRecording() async {
         guard state == .listening else { return }
         meter?.invalidate()
         meter = nil
-        let samples = audio.stopRecording()
+        inputLevel = 0
+        let samples = audio.stopRecording(trimSilence: true)
         let minSamples = Int((runtime?.inputSampleRate ?? 16_000) * 0.4)
         guard samples.count >= minSamples else {
             state = .idle
@@ -240,6 +277,7 @@ final class TutorSession: ObservableObject {
         let speech = reply.speakableReply
         guard speakReplies, !speech.isEmpty, !cancelled, turns.contains(where: { $0.id == id }) else {
             state = .idle
+            if !cancelled { listenAgainIfHandsFree() }
             return
         }
         await speak(speech, into: id)
@@ -289,7 +327,14 @@ final class TutorSession: ObservableObject {
         audio.whenPlaybackDrained { [weak self] in
             guard let self, self.state == .speaking else { return }
             self.state = .idle
+            self.listenAgainIfHandsFree()
         }
+    }
+
+    /// Hands-free conversation: the mic opens again once the tutor has finished.
+    private func listenAgainIfHandsFree() {
+        guard handsFree, state == .idle, runtime != nil else { return }
+        Task { await startRecording() }
     }
 
     /// Keeps the last reply's audio in Files › Edge › Diagnostics, to tell a short voice from a playback problem.
@@ -310,6 +355,7 @@ final class TutorSession: ObservableObject {
 
     func stop() {
         cancelFlag.set(true)
+        cancelListening()
         audio.stopPlayback()
         if state == .speaking { state = .idle }
     }

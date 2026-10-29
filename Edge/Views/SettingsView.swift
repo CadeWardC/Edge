@@ -12,6 +12,9 @@ struct SettingsView: View {
     @AppStorage("showEnglish") private var showEnglish = false
     @AppStorage("checkTones") private var checkTones = true
     @AppStorage("hfRepo") private var hfRepo = ""
+    @AppStorage("autoSend") private var autoSend = true
+    @AppStorage("pauseSeconds") private var pauseSeconds = 1.6
+    @AppStorage("handsFree") private var handsFree = false
 
     @State private var confirmDelete = false
 
@@ -26,6 +29,23 @@ struct SettingsView: View {
                         ForEach(Voice.allCases) { Text($0.title).tag($0.rawValue) }
                     }
                     Toggle("Speak replies aloud", isOn: $speakReplies)
+                }
+                Section {
+                    Toggle("Send when I stop talking", isOn: $autoSend)
+                    if autoSend {
+                        Picker("Pause before sending", selection: $pauseSeconds) {
+                            Text("Short (1 s)").tag(1.0)
+                            Text("Normal (1.6 s)").tag(1.6)
+                            Text("Long (2.5 s)").tag(2.5)
+                        }
+                        Toggle("Hands-free conversation", isOn: $handsFree)
+                    }
+                } header: {
+                    Text("Voice")
+                } footer: {
+                    Text(autoSend
+                         ? "Tap the mic once and speak; your turn is sent when you pause. Hands-free opens the mic again after each reply, so you can keep talking. Tap ✕ to stop."
+                         : "Tap the mic to start, and again to send.")
                 }
                 Section {
                     Toggle("Show pinyin", isOn: $showPinyin)

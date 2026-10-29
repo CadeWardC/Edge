@@ -1,3 +1,4 @@
+import Accelerate
 import AVFoundation
 
 /// Microphone capture (resampled to the model's input rate) and streaming playback.
@@ -16,6 +17,17 @@ final class AudioIO: @unchecked Sendable {
     private var converter: AVAudioConverter?
     private var targetFormat: AVAudioFormat?
     private(set) var isRecording = false
+
+    /// Voice activity of the current recording, read by the session to send when the learner pauses.
+    struct VoiceActivity {
+        var speechDetected = false
+        var silenceSeconds: Double = 0
+        var level: Double = 0          // 0...1 for the mic meter
+    }
+    private var activity = VoiceActivity()
+    private var noiseFloorDB: Double?
+    private var speechSeconds: Double = 0
+    private var lastSpeechSample = 0
 
     // MARK: Playback state (touched on playQueue only, except where locked)
     private let playQueue = DispatchQueue(label: "edge.audio.playback")
@@ -78,7 +90,13 @@ final class AudioIO: @unchecked Sendable {
         converter = AVAudioConverter(from: inputFormat, to: target)
         targetFormat = target
 
-        lock.lock(); recorded.removeAll(keepingCapacity: true); lock.unlock()
+        lock.lock()
+        recorded.removeAll(keepingCapacity: true)
+        activity = VoiceActivity()
+        noiseFloorDB = nil
+        speechSeconds = 0
+        lastSpeechSample = 0
+        lock.unlock()
 
         input.installTap(onBus: 0, bufferSize: 4096, format: inputFormat) { [weak self] buffer, _ in
             self?.append(buffer)
@@ -109,10 +127,40 @@ final class AudioIO: @unchecked Sendable {
         guard error == nil, let data = out.floatChannelData?[0], out.frameLength > 0 else { return }
 
         let maxSamples = Int(Self.maxRecordingSeconds * targetFormat.sampleRate)
+        let chunk = UnsafeBufferPointer(start: data, count: Int(out.frameLength))
         lock.lock()
         let room = max(0, maxSamples - recorded.count)
-        recorded.append(contentsOf: UnsafeBufferPointer(start: data, count: min(room, Int(out.frameLength))))
+        recorded.append(contentsOf: chunk.prefix(room))
+        updateActivity(chunk, sampleRate: targetFormat.sampleRate)
         lock.unlock()
+    }
+
+    /// Speech is anything 12 dB above an adaptive noise floor; the floor follows quieter audio
+    /// at once and louder audio slowly, so a steady background hum is learned. Called under `lock`.
+    private func updateActivity(_ x: UnsafeBufferPointer<Float>, sampleRate: Double) {
+        guard !x.isEmpty else { return }
+        var meanSquare: Float = 0
+        vDSP_measqv(x.baseAddress!, 1, &meanSquare, vDSP_Length(x.count))
+        let db = 10 * log10(Double(meanSquare) + 1e-12)
+        let dt = Double(x.count) / sampleRate
+
+        let floor = noiseFloorDB ?? min(db, -45)
+        if db > max(floor + 12, -55) {
+            speechSeconds += dt
+            activity.silenceSeconds = 0
+            if speechSeconds >= 0.2 { activity.speechDetected = true }
+            lastSpeechSample = recorded.count
+            noiseFloorDB = floor
+        } else {
+            activity.silenceSeconds += dt
+            noiseFloorDB = db < floor ? db : floor + min(db - floor, 3 * dt)
+        }
+        activity.level = min(1, max(0, (db + 60) / 45))
+    }
+
+    var voiceActivity: VoiceActivity {
+        lock.lock(); defer { lock.unlock() }
+        return activity
     }
 
     var recordedSeconds: Double {
@@ -122,7 +170,8 @@ final class AudioIO: @unchecked Sendable {
     }
 
     /// Stops and releases the microphone, returning the recording at the requested sample rate.
-    func stopRecording() -> [Float] {
+    /// With `trimSilence`, the silence after the last speech is cut down to a short tail.
+    func stopRecording(trimSilence: Bool = false) -> [Float] {
         if let engine = recordEngine {
             engine.inputNode.removeTap(onBus: 0)
             engine.stop()
@@ -130,8 +179,12 @@ final class AudioIO: @unchecked Sendable {
         recordEngine = nil
         isRecording = false
         lock.lock(); defer { lock.unlock() }
-        let samples = recorded
+        var samples = recorded
         recorded.removeAll()
+        if trimSilence, activity.speechDetected, let rate = targetFormat?.sampleRate {
+            let keep = min(samples.count, lastSpeechSample + Int(rate * 0.35))
+            samples.removeSubrange(keep...)
+        }
         return samples
     }
 
