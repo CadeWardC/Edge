@@ -1,0 +1,42 @@
+name: Mirror Kokoro voice files
+
+# The app downloads Kokoro's files one by one, but sherpa-onnx ships them as a .tar.bz2,
+# so this unpacks the archive once and attaches the files the app needs to a release.
+# Kokoro-82M v1.1-zh is Apache-2.0 (LICENSE is mirrored with it).
+
+on:
+  push:
+    paths: [".github/workflows/mirror-kokoro.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  TAG: models-kokoro-int8-v1_1
+  ARCHIVE: https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/kokoro-int8-multi-lang-v1_1.tar.bz2
+
+jobs:
+  mirror:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Unpack
+        run: |
+          curl -sSfL -o k.tar.bz2 "$ARCHIVE"
+          tar xjf k.tar.bz2
+          cd kokoro-int8-multi-lang-v1_1
+          ls -l model.int8.onnx voices.bin tokens.txt lexicon-zh.txt lexicon-us-en.txt date-zh.fst number-zh.fst phone-zh.fst LICENSE
+
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cd kokoro-int8-multi-lang-v1_1
+          FILES="model.int8.onnx voices.bin tokens.txt lexicon-zh.txt lexicon-us-en.txt date-zh.fst number-zh.fst phone-zh.fst LICENSE"
+          if gh release view "$TAG" -R "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            gh release upload "$TAG" $FILES --clobber -R "$GITHUB_REPOSITORY"
+          else
+            gh release create "$TAG" $FILES -R "$GITHUB_REPOSITORY" --latest=false \
+              --title "Kokoro voice files (int8, v1.1-zh)" \
+              --notes "Kokoro-82M v1.1-zh (Apache-2.0, hexgrad) as converted by sherpa-onnx (kokoro-int8-multi-lang-v1_1), unpacked so the app can download each file. Not an app build."
+          fi
