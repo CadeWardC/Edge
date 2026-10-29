@@ -39,7 +39,24 @@ struct TutorReply: Equatable {
         if !sawLabel {
             out.reply = text.trimmingCharacters(in: .whitespacesAndNewlines)
         }
+        // pinyin comes from the dictionary: free, and right where the model would guess
+        if out.pinyin.isEmpty, !out.reply.isEmpty {
+            out.pinyin = Pinyin.romanize(out.reply)
+        }
         return out
+    }
+
+    /// True once the Reply line is complete (another line has begun after it), so speech can start
+    /// while the rest of the answer is still being written.
+    static func replyLineFinished(_ raw: String) -> Bool {
+        let lines = raw.components(separatedBy: .newlines)
+        guard let i = lines.firstIndex(where: { line in
+            let ns = line as NSString
+            guard let m = label.firstMatch(in: line, range: NSRange(location: 0, length: ns.length)) else { return false }
+            return ns.substring(with: m.range(at: 1)).lowercased() == "reply"
+                && !ns.substring(from: m.range.upperBound).trimmingCharacters(in: .whitespaces).isEmpty
+        }) else { return false }
+        return i < lines.count - 1
     }
 
     private mutating func append(_ s: String, to field: Field?) {

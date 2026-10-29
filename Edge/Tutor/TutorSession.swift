@@ -172,7 +172,6 @@ final class TutorSession: ObservableObject {
         let minSamples = Int((runtime?.inputSampleRate ?? 16_000) * 0.4)
         guard samples.count >= minSamples else {
             state = .idle
-            listenAgainIfHandsFree()
             return
         }
         await respond(toSpeech: samples)
@@ -235,12 +234,7 @@ final class TutorSession: ObservableObject {
         }
         if text.isEmpty {
             remove(id)
-            if handsFree {
-                state = .idle
-                listenAgainIfHandsFree()   // a noise, not a turn: keep listening
-            } else {
-                state = .failed("I didn't catch that. Hold the phone closer and try again.")
-            }
+            state = .failed("I didn't catch that. Hold the phone closer and try again.")
             return
         }
         if checkTones {
@@ -254,11 +248,19 @@ final class TutorSession: ObservableObject {
         await answer(learnerID: id, learner: text)
     }
 
+    /// Exchanges kept before the oldest are dropped. Until then each turn only adds to what the model
+    /// already holds; trimming makes it read the shortened conversation once.
+    static let maxHistory = 12
+    static let keptHistory = 6
+
     private func answer(learnerID: UUID, learner: String) async {
         guard let runtime else { return }
         cancelFlag.set(false)
         state = .thinking
 
+        if history.count >= Self.maxHistory {
+            history.removeFirst(history.count - Self.keptHistory)
+        }
         let prompt = TutorPrompts.chat(history: history, learner: learner, level: level)
         let turn = Turn(role: .tutor, text: "", isStreaming: true)
         let id = turn.id
@@ -266,29 +268,58 @@ final class TutorSession: ObservableObject {
 
         let raw = TextAccumulator()
         let flag = cancelFlag
-        do {
-            try await runtime.generate(prompt: prompt, maxTokens: 384, temperature: 0.3) { piece in
-                let sofar = raw.append(piece)
-                let parsed = TutorReply.parse(sofar)
-                Task { @MainActor in
-                    self.update(id) {
-                        guard $0.isStreaming else { return }
-                        $0.text = sofar
-                        $0.reply = parsed
-                    }
+        // the reply is written first: pause there once to start speaking it while the rest is written
+        let pauseForSpeech = AtomicFlag()
+        pauseForSpeech.set(speakReplies)
+        let onText: @Sendable (String) -> Bool = { piece in
+            let sofar = raw.append(piece)
+            let parsed = TutorReply.parse(sofar)
+            Task { @MainActor in
+                self.update(id) {
+                    guard $0.isStreaming else { return }
+                    $0.text = sofar
+                    $0.reply = parsed
                 }
-                return !flag.value
             }
+            if flag.value { return false }
+            if pauseForSpeech.value, TutorReply.replyLineFinished(sofar) {
+                pauseForSpeech.set(false)
+                return false
+            }
+            return true
+        }
+
+        var paused: Bool
+        do {
+            paused = try await runtime.chat(prompt: prompt, maxTokens: 320, temperature: 0.3, onText: onText)
         } catch {
             remove(id)
             state = .failed(error.localizedDescription)
             return
         }
 
-        let text = raw.value.trimmingCharacters(in: .whitespacesAndNewlines)
+        var spoke = false
+        if speakReplies, !cancelled {
+            let speech = TutorReply.parse(raw.value).speakableReply
+            if !speech.isEmpty, turns.contains(where: { $0.id == id }) {
+                await speak(speech, into: id)
+                spoke = true
+            }
+        }
+        // the feedback and translation are written while the voice plays
+        while paused, !cancelled {
+            do {
+                paused = try await runtime.chatContinue(maxTokens: 320, onText: onText)
+            } catch {
+                break   // keep what was written
+            }
+        }
+
+        // the reply goes into the history verbatim, so the next turn's prompt extends what the model holds
+        let text = raw.value
         let reply = TutorReply.parse(text)
         update(id) {
-            $0.text = text
+            $0.text = text.trimmingCharacters(in: .whitespacesAndNewlines)
             $0.reply = reply
             $0.isStreaming = false
         }
@@ -297,13 +328,21 @@ final class TutorSession: ObservableObject {
             history.append(.init(learner: learner, tutorRaw: text))
         }
 
-        let speech = reply.speakableReply
-        guard speakReplies, !speech.isEmpty, !cancelled, turns.contains(where: { $0.id == id }) else {
-            state = .idle
-            if !cancelled { listenAgainIfHandsFree() }
+        if cancelled || state.isFailedState {
+            // an interruption may already have started listening: only settle states this turn owns
+            if state == .thinking || state == .speaking { state = .idle }
             return
         }
-        await speak(speech, into: id)
+        guard spoke else {
+            state = .idle
+            listenAgainIfHandsFree()
+            return
+        }
+        audio.whenPlaybackDrained { [weak self] in
+            guard let self, self.state == .speaking else { return }
+            self.state = .idle
+            self.listenAgainIfHandsFree()
+        }
     }
 
     private func speak(_ text: String, into id: UUID) async {
@@ -335,16 +374,6 @@ final class TutorSession: ObservableObject {
             $0.audioSampleRate = rate
         }
         saveDiagnostics(samples, sampleRate: rate, text: text)
-        if cancelled {
-            state = .idle
-            return
-        }
-
-        audio.whenPlaybackDrained { [weak self] in
-            guard let self, self.state == .speaking else { return }
-            self.state = .idle
-            self.listenAgainIfHandsFree()
-        }
     }
 
     /// Hands-free conversation: the mic opens again once the tutor has finished, and waits for the

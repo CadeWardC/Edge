@@ -94,6 +94,51 @@ final class LFMRuntime: @unchecked Sendable {
         }
     }
 
+    /// The conversation: only the part of `prompt` not already in memory is evaluated. Streams the reply
+    /// to `onText`; returning false from it pauses the reply. Returns true when paused (see `chatContinue`).
+    func chat(prompt: String, maxTokens: Int32, temperature: Float,
+              onText: @escaping @Sendable (String) -> Bool) async throws -> Bool {
+        try await runChat(onText) { engine, callback, box, paused in
+            lfm_engine_chat(engine, prompt, maxTokens, temperature, callback, box, paused)
+        }
+    }
+
+    /// Resumes a paused reply. Returns true when paused again.
+    func chatContinue(maxTokens: Int32, onText: @escaping @Sendable (String) -> Bool) async throws -> Bool {
+        try await runChat(onText) { engine, callback, box, paused in
+            lfm_engine_chat_continue(engine, maxTokens, callback, box, paused)
+        }
+    }
+
+    /// Forgets the conversation held in the model's memory.
+    func chatReset() {
+        let engine = self.engine
+        queue.async { lfm_engine_chat_reset(engine) }
+    }
+
+    private func runChat(_ onText: @escaping @Sendable (String) -> Bool,
+                         _ call: @escaping (OpaquePointer, lfm_text_callback, UnsafeMutableRawPointer, UnsafeMutablePointer<Bool>) -> Int32) async throws -> Bool {
+        let box = Unmanaged.passRetained(TextSink(onText)).toOpaque()
+        defer { Unmanaged<TextSink>.fromOpaque(box).release() }
+        let engine = self.engine
+
+        return try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Bool, Error>) in
+            queue.async {
+                let callback: lfm_text_callback = { piece, userData in
+                    guard let piece, let userData else { return false }
+                    return Unmanaged<TextSink>.fromOpaque(userData).takeUnretainedValue().fn(String(cString: piece))
+                }
+                var paused = false
+                let ret = withUnsafeMutablePointer(to: &paused) { call(engine, callback, box, $0) }
+                if ret == 0 {
+                    cont.resume(returning: paused)
+                } else {
+                    cont.resume(throwing: LFMError.inference(String(cString: lfm_engine_last_error(engine))))
+                }
+            }
+        }
+    }
+
     /// Streams 24 kHz mono PCM chunks to `onAudio`; return false from it to stop early.
     func speak(prompt: String, maxFrames: Int32 = 600,
                onAudio: @escaping @Sendable ([Float], Double) -> Bool) async throws {

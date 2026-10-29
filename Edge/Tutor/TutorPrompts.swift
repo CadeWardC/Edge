@@ -55,12 +55,11 @@ enum TutorPrompts {
         The learner speaks Mandarin to you; their words come from speech recognition, so ignore missing punctuation. \
         Keep the conversation going about everyday life.
 
-        Reply to every learner message with exactly these five labeled lines and nothing else:
+        Reply to every learner message with exactly these four labeled lines, in this order, and nothing else:
+        Reply: Your conversational answer in Mandarin, simplified Chinese characters only (no pinyin, no English), one or two sentences, ending with a question.
+        English: The English translation of your Reply.
         Feedback: In English, point out any grammar, word-choice or measure-word mistakes in what the learner said and briefly explain the fix. If a word looks misheard, mention which word they may have mispronounced. If everything was correct and natural, write "Perfect!" plus a short compliment.
         Correct: The learner's sentence rewritten as natural Mandarin in simplified Chinese characters (repeat it unchanged if it was already correct).
-        Reply: Your conversational answer in Mandarin, simplified Chinese characters only (no pinyin, no English), one or two sentences, ending with a question.
-        Pinyin: The pinyin with tone marks for your Reply.
-        English: The English translation of your Reply.
 
         Learner level: \(level.title). \(level.replyGuidance)
         """
@@ -70,18 +69,18 @@ enum TutorPrompts {
     static let example = Exchange(
         learner: "我昨天去商店买了三个苹果们",
         tutorRaw: """
+        Reply: 你喜欢吃苹果吗？你还买了什么？
+        English: Do you like eating apples? What else did you buy?
         Feedback: Nice sentence! Just drop 们 after 苹果: 们 only goes on people (like 朋友们), never after a number + measure word.
         Correct: 我昨天去商店买了三个苹果。
-        Reply: 你喜欢吃苹果吗？你还买了什么？
-        Pinyin: Nǐ xǐhuan chī píngguǒ ma? Nǐ hái mǎi le shénme?
-        English: Do you like eating apples? What else did you buy?
         """
     )
 
-    /// The full chat prompt: system, example, recent history, and the new learner message.
-    static func chat(history: [Exchange], learner: String, level: LearnerLevel, maxHistory: Int = 6) -> String {
+    /// The full chat prompt: system, example, history, and the new learner message. Each turn's prompt
+    /// extends the previous one (with its reply verbatim), so the engine only evaluates what is new.
+    static func chat(history: [Exchange], learner: String, level: LearnerLevel) -> String {
         var p = bos + "<|im_start|>system\n\(system(level: level))<|im_end|>\n"
-        for ex in [example] + history.suffix(maxHistory) {
+        for ex in [example] + history {
             p += "<|im_start|>user\n\(ex.learner)<|im_end|>\n"
             // past assistant turns carry an empty think block, as the chat template renders them
             p += "<|im_start|>assistant\n<think></think>\(ex.tutorRaw)<|im_end|>\n"
