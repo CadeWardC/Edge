@@ -40,35 +40,64 @@ struct chat_engine {
     llama_model *       model = nullptr;
     llama_context *     lctx  = nullptr;
     const llama_vocab * vocab = nullptr;
-    int32_t n_ctx   = 0;
-    int32_t n_batch = 512;
+    std::string path;
+    bool    gpu       = false;
+    int32_t n_ctx_req = 0;
+    int32_t n_ctx     = 0;
+    int32_t n_batch   = 512;
     std::string error;
 };
 
-extern "C" chat_engine * chat_engine_create(const char * model_path, int32_t n_ctx, bool use_gpu,
-                                                    char * err, size_t err_len) {
-    static std::once_flag backend_once;
-    std::call_once(backend_once, [] { llama_backend_init(); });
+// the last error llama.cpp logged, added to our own messages so a failure on the phone says why
+static std::mutex  log_mutex;
+static std::string last_log_error;
 
-    auto fail = [&](chat_engine * e, const char * msg) -> chat_engine * {
-        if (err && err_len) {
-            snprintf(err, err_len, "%s", msg);
+static void log_callback(ggml_log_level level, const char * text, void *) {
+    if (level == GGML_LOG_LEVEL_ERROR && text) {
+        std::lock_guard<std::mutex> lock(log_mutex);
+        last_log_error = text;
+        while (!last_log_error.empty() && (last_log_error.back() == '\n' || last_log_error.back() == ' ')) {
+            last_log_error.pop_back();
         }
-        chat_engine_free(e);
-        return nullptr;
-    };
+    }
+    if (level >= GGML_LOG_LEVEL_WARN && level != GGML_LOG_LEVEL_CONT && text) {
+        fputs(text, stderr);
+    }
+}
 
-    chat_engine * e = new chat_engine();
+static std::string with_log(const std::string & msg) {
+    std::lock_guard<std::mutex> lock(log_mutex);
+    return last_log_error.empty() ? msg : msg + " " + last_log_error;
+}
+
+static void clear_log() {
+    std::lock_guard<std::mutex> lock(log_mutex);
+    last_log_error.clear();
+}
+
+static void unload(chat_engine * e) {
+    if (e->lctx)  llama_free(e->lctx);
+    if (e->model) llama_model_free(e->model);
+    e->lctx  = nullptr;
+    e->model = nullptr;
+    e->vocab = nullptr;
+}
+
+// Loads the model and a context, on the GPU (Metal) or on the CPU only.
+static bool load(chat_engine * e, bool use_gpu) {
+    unload(e);
+    e->gpu = use_gpu;
     llama_model_params mparams = llama_model_default_params();
     mparams.n_gpu_layers = use_gpu ? 999 : 0;
-    e->model = llama_model_load_from_file(model_path, mparams);
+    e->model = llama_model_load_from_file(e->path.c_str(), mparams);
     if (!e->model) {
-        return fail(e, "Could not load the chat model GGUF.");
+        e->error = with_log("Could not load the chat model GGUF.");
+        return false;
     }
     e->vocab = llama_model_get_vocab(e->model);
 
     llama_context_params cparams = llama_context_default_params();
-    cparams.n_ctx           = (uint32_t) n_ctx;
+    cparams.n_ctx           = (uint32_t) e->n_ctx_req;
     cparams.n_batch         = (uint32_t) e->n_batch;
     cparams.n_ubatch        = (uint32_t) e->n_batch;
     cparams.n_threads       = default_threads();
@@ -76,9 +105,32 @@ extern "C" chat_engine * chat_engine_create(const char * model_path, int32_t n_c
     cparams.no_perf         = true;
     e->lctx = llama_init_from_model(e->model, cparams);
     if (!e->lctx) {
-        return fail(e, "Could not create the chat model context (out of memory?).");
+        e->error = with_log("Could not create the chat model context (out of memory?).");
+        return false;
     }
     e->n_ctx = (int32_t) llama_n_ctx(e->lctx);
+    return true;
+}
+
+extern "C" chat_engine * chat_engine_create(const char * model_path, int32_t n_ctx, bool use_gpu,
+                                            char * err, size_t err_len) {
+    static std::once_flag backend_once;
+    std::call_once(backend_once, [] {
+        llama_log_set(log_callback, nullptr);
+        llama_backend_init();
+    });
+    clear_log();
+
+    chat_engine * e = new chat_engine();
+    e->path      = model_path;
+    e->n_ctx_req = n_ctx;
+    if (!load(e, use_gpu)) {
+        if (err && err_len) {
+            snprintf(err, err_len, "%s", e->error.c_str());
+        }
+        chat_engine_free(e);
+        return nullptr;
+    }
     return e;
 }
 
@@ -86,8 +138,7 @@ extern "C" void chat_engine_free(chat_engine * e) {
     if (!e) {
         return;
     }
-    if (e->lctx)  llama_free(e->lctx);
-    if (e->model) llama_model_free(e->model);
+    unload(e);
     delete e;
 }
 
@@ -108,8 +159,9 @@ extern "C" int32_t chat_engine_render(chat_engine * e, const char ** roles, cons
     return llama_chat_apply_template(tmpl, msgs.data(), msgs.size(), true, out, out_len);
 }
 
-extern "C" int32_t chat_engine_generate(chat_engine * e, const char * prompt, int32_t max_tokens,
-                                            float temperature, chat_text_callback on_text, void * user_data) {
+// Returns 0 on success, 1 on a failure, 2 when the prompt itself could not be evaluated (nothing was streamed yet).
+static int32_t generate(chat_engine * e, const char * prompt, int32_t max_tokens,
+                        float temperature, chat_text_callback on_text, void * user_data) {
     e->error.clear();
     llama_memory_clear(llama_get_memory(e->lctx), true);
 
@@ -147,8 +199,8 @@ extern "C" int32_t chat_engine_generate(chat_engine * e, const char * prompt, in
     }
     llama_batch_free(batch);
     if (rc != 0) {
-        e->error = "Could not evaluate the prompt (llama_decode returned " + std::to_string(rc) + ").";
-        return 1;
+        e->error = with_log("Could not evaluate the prompt (llama_decode returned " + std::to_string(rc) + ").");
+        return 2;
     }
 
     llama_sampler * smpl = llama_sampler_chain_init(llama_sampler_chain_default_params());
@@ -185,7 +237,7 @@ extern "C" int32_t chat_engine_generate(chat_engine * e, const char * prompt, in
         llama_batch one = llama_batch_get_one(&tok, 1);
         const int32_t step = llama_decode(e->lctx, one);
         if (step != 0) {
-            e->error = "Decoding failed during generation (llama_decode returned " + std::to_string(step) + ").";
+            e->error = with_log("Decoding failed during generation (llama_decode returned " + std::to_string(step) + ").");
             ret = 1;
             break;
         }
@@ -195,4 +247,22 @@ extern "C" int32_t chat_engine_generate(chat_engine * e, const char * prompt, in
     }
     llama_sampler_free(smpl);
     return ret;
+}
+
+extern "C" int32_t chat_engine_generate(chat_engine * e, const char * prompt, int32_t max_tokens,
+                                        float temperature, chat_text_callback on_text, void * user_data) {
+    clear_log();
+    int32_t rc = generate(e, prompt, max_tokens, temperature, on_text, user_data);
+    if (rc == 2 && e->gpu) {
+        // some phones' GPUs can't run every operation of this model: run it on the CPU from now on
+        const std::string gpu_error = e->error;
+        fprintf(stderr, "chat_engine: %s; switching to the CPU\n", gpu_error.c_str());
+        clear_log();
+        if (!load(e, false)) {
+            e->error = gpu_error + " CPU fallback failed: " + e->error;
+            return 1;
+        }
+        rc = generate(e, prompt, max_tokens, temperature, on_text, user_data);
+    }
+    return rc == 0 ? 0 : 1;
 }
