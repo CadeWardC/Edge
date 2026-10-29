@@ -10,6 +10,7 @@ struct Turn: Identifiable, Equatable {
     var reply = TutorReply()
     var audio: [Float] = []
     var audioSampleRate: Double = 24_000
+    var audioPlaybackRate = 1.0      // how much to slow `audio` down on replay (Kokoro's is already slowed)
     var isStreaming = false
     var feedback: TutorReply?        // shown under the learner's bubble once the tutor has answered
     var tones: [ToneCheck] = []      // pitch-based tone check of the learner's recording
@@ -58,10 +59,15 @@ final class TutorSession: ObservableObject {
 
     private var runtime: LFMRuntime?
     private let senseVoice = SenseVoiceRecognizer()
+    private let kokoro = KokoroSpeaker()
     /// "sensevoice" (default) or "lfm": which model turns the learner's speech into text.
     @AppStorage("asrEngine") var asrEngine = "sensevoice"
-    /// The backbone the runtime was loaded from, so a new download triggers a reload.
-    private(set) var loadedModel: URL?
+    /// "kokoro" (default) or "lfm": which model speaks the replies.
+    @AppStorage("ttsEngine") var ttsEngine = "kokoro"
+    /// The LFM3-Audio backbone and mmproj the runtime was loaded from; nil while LFM3-Audio is not loaded.
+    @Published private(set) var loadedModel: URL?
+    private var loadedMMProj: URL?
+    private var lfmError: String?
     private let audio = AudioIO()
     private var history: [TutorPrompts.Exchange] = []
     private var meter: Timer?
@@ -72,35 +78,96 @@ final class TutorSession: ObservableObject {
     var voice: Voice { Voice(rawValue: voiceRaw) ?? .female }
     var level: LearnerLevel { LearnerLevel(rawValue: levelRaw) ?? .beginner }
 
-    func load(model: URL, mmproj: URL) async {
-        guard runtime == nil, state != .loading else { return }
+    /// The models to keep in memory. LFM3-Audio is left out when SenseVoice, Qwen3.5 and Kokoro do
+    /// everything, which saves about 2 GB.
+    struct LoadPlan: Equatable {
+        var lfmModel: URL?
+        var lfmMMProj: URL?
+        var chatModel: URL?
+    }
+
+    /// Something can write the replies; hearing and speaking fall back to whichever model is there.
+    var canConverse: Bool { runtime != nil || chatRuntime != nil }
+
+    private var pendingPlan: LoadPlan?
+    private var applying = false
+
+    /// Loads, swaps or drops models to match `plan`; later plans wait for the one being applied.
+    func apply(_ plan: LoadPlan) async {
+        pendingPlan = plan
+        guard !applying else { return }
+        applying = true
+        while let next = pendingPlan {
+            pendingPlan = nil
+            await applyNow(next)
+        }
+        applying = false
+    }
+
+    private func applyNow(_ plan: LoadPlan) async {
+        let lfmChanged = plan.lfmModel != loadedModel || plan.lfmMMProj != loadedMMProj
+            || (plan.lfmModel != nil && runtime == nil)
+        let chatChanged = plan.chatModel != loadedChatModel || (plan.chatModel != nil && chatRuntime == nil)
+        guard lfmChanged || chatChanged || state == .notLoaded else { return }
+        stop()
         state = .loading
+        if lfmChanged {
+            await closeLFM()
+            if let model = plan.lfmModel, let mmproj = plan.lfmMMProj {
+                await loadLFM(model: model, mmproj: mmproj)
+            }
+        }
+        await loadChatModel(plan.chatModel)
+        settleAfterLoading()
+    }
+
+    private func loadLFM(model: URL, mmproj: URL) async {
         do {
             runtime = try await LFMRuntime.load(modelPath: model.path, mmprojPath: mmproj.path, speechOnGPU: !speechOnCPU)
             loadedModel = model
-            state = .idle
+            loadedMMProj = mmproj
+            lfmError = nil
         } catch {
-            state = .failed(error.localizedDescription)
+            lfmError = error.localizedDescription
+        }
+    }
+
+    private func closeLFM() async {
+        let old = runtime
+        runtime = nil
+        loadedModel = nil
+        loadedMMProj = nil
+        await old?.close()
+    }
+
+    private func settleAfterLoading() {
+        if let lfmError {
+            state = .failed(lfmError)
+        } else if canConverse {
+            state = .idle
+        } else {
+            state = .failed(chatModelError ?? "The models could not be loaded.")
         }
     }
 
     func unload() async {
         stop()
-        let old = runtime
-        runtime = nil
         senseVoice.unload()
+        kokoro.unload()
         await loadChatModel(nil)
-        loadedModel = nil
+        await closeLFM()
+        lfmError = nil
         state = .notLoaded
-        await old?.close()
     }
 
-    /// Loads the model again, e.g. after switching where speech runs.
-    func reload(model: URL, mmproj: URL) async {
-        let chat = loadedChatModel
-        await unload()
-        await load(model: model, mmproj: mmproj)
-        await loadChatModel(chat)
+    /// Loads LFM3-Audio again, e.g. after switching where its speech runs.
+    func reloadLFM() async {
+        guard let model = loadedModel, let mmproj = loadedMMProj else { return }
+        stop()
+        state = .loading
+        await closeLFM()
+        await loadLFM(model: model, mmproj: mmproj)
+        settleAfterLoading()
     }
 
     // MARK: Conversation
@@ -110,7 +177,7 @@ final class TutorSession: ObservableObject {
         case .listening:
             await finishRecording()
         case .idle, .failed:
-            guard runtime != nil else { return }
+            guard canConverse else { return }
             await startRecording()
         case .speaking:
             // interrupting the tutor goes straight to listening
@@ -209,7 +276,8 @@ final class TutorSession: ObservableObject {
     }
 
     private func respond(toSpeech samples: [Float]) async {
-        guard let runtime else { return }
+        guard canConverse else { return }
+        let sampleRate = runtime?.inputSampleRate ?? 16_000
         cancelFlag.set(false)
         state = .transcribing
 
@@ -218,10 +286,15 @@ final class TutorSession: ObservableObject {
         turns.append(turn)
         // SenseVoice is specialised in Mandarin; LFM3-Audio hears it too and is used when SenseVoice is missing
         var heard: String?
-        if asrEngine == "sensevoice" {
-            heard = await senseVoice.transcribe(samples, sampleRate: runtime.inputSampleRate)
+        if asrEngine == "sensevoice" || runtime == nil {
+            heard = await senseVoice.transcribe(samples, sampleRate: sampleRate)
         }
-        if heard == nil {
+        if heard == nil, runtime == nil {
+            remove(id)
+            state = .failed("Speech recognition isn't downloaded yet. Download SenseVoice in Settings.")
+            return
+        }
+        if heard == nil, let runtime {
             let transcript = TextAccumulator()
             let flag = cancelFlag
             do {
@@ -255,7 +328,6 @@ final class TutorSession: ObservableObject {
         }
         if checkTones {
             // pitch analysis runs on the CPU alongside the tutor's answer on the GPU
-            let sampleRate = runtime.inputSampleRate
             Task.detached(priority: .userInitiated) { [weak self] in
                 let checks = ToneChecker.check(samples: samples, sampleRate: sampleRate, transcript: text)
                 await self?.setTones(checks, for: id)
@@ -279,7 +351,7 @@ final class TutorSession: ObservableObject {
             onText?(sofar)
             return !flag.value
         }
-        if replyEngine == "qwen", let chat = chatRuntime {
+        if let chat = chatRuntime, replyEngine == "qwen" || runtime == nil {
             let prompt = try await chat.prompt(messages, prefill: prefill)
             try await chat.generate(prompt: prompt, maxTokens: maxTokens, temperature: temperature, onText: sink)
         } else if let runtime {
@@ -315,7 +387,7 @@ final class TutorSession: ObservableObject {
     }
 
     private func answer(learnerID: UUID, learner: String) async {
-        guard runtime != nil else { return }
+        guard canConverse else { return }
         cancelFlag.set(false)
         state = .thinking
 
@@ -419,32 +491,46 @@ final class TutorSession: ObservableObject {
     }
 
     private func speak(_ text: String, into id: UUID) async {
-        guard let runtime else { return }
+        // Kokoro when chosen (or when LFM3-Audio is not loaded) and downloaded, LFM3-Audio otherwise
+        let useKokoro = (ttsEngine == "kokoro" || runtime == nil) && ModelStore.shared.kokoroReady
+        guard useKokoro || runtime != nil else { return }
         state = .speaking
         let audio = self.audio
         let flag = cancelFlag
         let characters = Double(text.filter(Pinyin.isHanzi).count)
 
         let pcm = PCMAccumulator()
-        audio.setPlaybackRate(speechRate)
-        audio.beginStream(expectedSeconds: characters * 0.24)   // ~4 characters a second
-        do {
-            try await runtime.speak(prompt: TutorPrompts.tts(text, voice: voice)) { chunk, rate in
-                if flag.value { return false }
-                audio.enqueue(chunk, sampleRate: rate)
-                pcm.append(chunk, rate: rate)
-                return true
+        let sink: @Sendable ([Float], Double) -> Bool = { chunk, rate in
+            if flag.value { return false }
+            audio.enqueue(chunk, sampleRate: rate)
+            pcm.append(chunk, rate: rate)
+            return true
+        }
+        // Kokoro slows its own speech down, which sounds more natural than stretching it afterwards
+        let playbackRate = useKokoro ? 1.0 : speechRate
+        audio.setPlaybackRate(playbackRate)
+        audio.beginStream(expectedSeconds: characters * 0.24 / (useKokoro ? speechRate : 1))   // ~4 characters a second
+        if useKokoro {
+            guard await kokoro.speak(text, voice: voice, speed: Float(speechRate), onChunk: sink) else {
+                audio.stopPlayback()
+                state = .failed("Kokoro's voice files are missing. Download them in Settings.")
+                return
             }
-        } catch {
-            audio.stopPlayback()
-            state = .failed(error.localizedDescription)
-            return
+        } else if let runtime {
+            do {
+                try await runtime.speak(prompt: TutorPrompts.tts(text, voice: voice), onAudio: sink)
+            } catch {
+                audio.stopPlayback()
+                state = .failed(error.localizedDescription)
+                return
+            }
         }
         audio.endStream()
         let (samples, rate) = pcm.value
         update(id) {
             $0.audio = samples
             $0.audioSampleRate = rate
+            $0.audioPlaybackRate = playbackRate
         }
         saveDiagnostics(samples, sampleRate: rate, text: text)
     }
@@ -452,7 +538,7 @@ final class TutorSession: ObservableObject {
     /// Hands-free conversation: the mic opens again once the tutor has finished, and waits for the
     /// learner to start talking before the pause timer counts.
     private func listenAgainIfHandsFree() {
-        guard handsFree, state == .idle, runtime != nil else { return }
+        guard handsFree, state == .idle, canConverse else { return }
         Task {
             // let the speaker's last sound die away so it is not heard as the learner
             try? await Task.sleep(nanoseconds: 400_000_000)
@@ -474,7 +560,7 @@ final class TutorSession: ObservableObject {
 
     func replay(_ turn: Turn) {
         guard !turn.audio.isEmpty, !state.isBusy, state != .listening else { return }
-        audio.setPlaybackRate(speechRate)
+        audio.setPlaybackRate(turn.audioPlaybackRate)
         audio.play(turn.audio, sampleRate: turn.audioSampleRate)
     }
 
@@ -489,7 +575,7 @@ final class TutorSession: ObservableObject {
         stop()
         turns.removeAll()
         history.removeAll()
-        if runtime != nil { state = .idle }
+        if canConverse { state = .idle }
     }
 }
 

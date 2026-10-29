@@ -113,7 +113,7 @@ struct ChatView: View {
     @ViewBuilder private var statusLine: some View {
         switch tutor.state {
         case .notLoaded, .loading:
-            HStack(spacing: 8) { ProgressView(); Text("Loading LFM3-Audio…") }
+            HStack(spacing: 8) { ProgressView(); Text("Loading the models…") }
                 .font(.footnote).foregroundStyle(.secondary)
         case .idle:
             Text(tutor.turns.isEmpty ? "Tap the mic and say something in Mandarin" : "Tap the mic to answer")

@@ -1,12 +1,14 @@
-# Edge: Mandarin speaking practice with LFM3-Audio, on device
+# Edge: Mandarin speaking practice, on device
 
-Speak Mandarin to your iPhone. **LFM3-Audio-2B** (Liquid AI, released 2026-10-27) runs fully on device through
-llama.cpp + Metal. It:
+Speak Mandarin to your iPhone. Everything runs on the phone:
 
-1. transcribes what you said (`Perform ASR in Chinese.`),
-2. corrects you **in English** and rewrites your sentence as natural Mandarin,
-3. replies in Mandarin (with pinyin and an optional English translation),
-4. **speaks the reply** with LFM3-Audio's own Chinese voice, streamed as it is generated.
+1. [SenseVoice-Small](https://github.com/FunAudioLLM/SenseVoice) transcribes what you said,
+2. [Qwen3.5-2B](https://huggingface.co/unsloth/Qwen3.5-2B-GGUF) corrects you **in English**, rewrites your sentence as
+   natural Mandarin, and replies in Mandarin (with pinyin and an optional English translation),
+3. [Kokoro-82M v1.1-zh](https://huggingface.co/hexgrad/Kokoro-82M-v1.1-zh) **speaks the reply**, sentence by sentence.
+
+**LFM3-Audio-2B** (Liquid AI, 2026-10-27) can still do any of the three (Settings). It is only downloaded and loaded
+when it is picked for something, which saves about 2.5 GB of storage and 2 GB of memory.
 
 Tap the mic once and talk; your turn is sent when you pause (1.6 s by default), and hands-free mode reopens the mic
 after each reply, like a voice chat. You can also type Chinese instead of speaking. Nothing leaves the phone except the one-time model download.
@@ -16,10 +18,12 @@ after each reply, like a voice chat. You can also type Chinese instead of speaki
 Every push builds `Edge-unsigned.ipa` on GitHub Actions and attaches it to a release (`build-N`, under *Releases*).
 It is unsigned, so sign it while installing with AltStore / SideStore, Sideloadly, or install it with TrollStore.
 
-On first launch, tap **Download model**. That fetches the backbone GGUF (Q8_0) and the `mmproj` GGUF
-(audio encoder, depthformer and codec) from `LiquidAI/LFM3-Audio-2B-GGUF`. You can change the repo in Settings,
-or copy both `.gguf` files into *Files › On My iPhone › Edge*.
+On first launch, tap **Download models** (about 1.7 GB: SenseVoice int8 230 MB, Qwen3.5 Q4_K_M 1.3 GB, Kokoro int8
+180 MB). Kokoro's files come from this repo's `models-kokoro-int8-v1_1` release, unpacked from sherpa-onnx's
+`kokoro-int8-multi-lang-v1_1.tar.bz2` by `.github/workflows/mirror-kokoro.yml` (Apache-2.0).
 
+If you pick LFM3-Audio in Settings, it downloads the backbone GGUF (Q8_0) and the `mmproj` GGUF from
+`LiquidAI/LFM3-Audio-2B-GGUF`, or you can copy both `.gguf` files into *Files › On My iPhone › Edge*.
 Use the Q8_0 backbone, not a 4-bit one: speech is generated from the backbone's hidden states, and the 4-bit
 backbones are ~45x further off the reference ([audio.cpp's LFM3-Audio validation](https://github.com/0xShug0/audio.cpp/blob/main/docs/models/lfm3_audio.md)),
 which comes out as babble while text still looks fine. The Q8_0 model takes about 3 GB of memory while running,
@@ -48,7 +52,7 @@ A syllable is only marked wrong when the match is clear; otherwise it shows as u
 | Reply | plain chat: answer in one or two short Chinese sentences (retried once if it has no Chinese), written by [Qwen3.5-2B](https://huggingface.co/unsloth/Qwen3.5-2B-GGUF) (Q4_K_M, its own chat template, thinking off) or LFM3-Audio | `lfm_text_engine_generate` / `lfm_engine_generate` |
 | Correct | the learner's sentence alone, answer prefilled with `Correct:` then `Feedback:` | text generation |
 | Translate | right after the reply, when English is switched on | text generation |
-| Speak | `Perform TTS in Chinese using a female/male voice.` + `<\|audio_start\|>` | `mtmd_helper_gen_audio_*` (streaming PCM, 24 kHz) |
+| Speak | Kokoro v1.1-zh (int8, speaker 3 female / 58 male, its own speed control); or LFM3-Audio `Perform TTS in Chinese using a female/male voice.` | `SherpaOnnxOfflineTtsWrapper` per sentence / `mtmd_helper_gen_audio_*` (both 24 kHz) |
 
 - `Edge/Engine/LFMEngine.{h,cpp}` is a small C API over llama.cpp/libmtmd that Swift calls through the bridging header.
 - `Edge/Tutor/` holds the prompts, the reply parser and the conversation state machine.

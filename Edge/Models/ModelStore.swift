@@ -2,8 +2,9 @@ import Foundation
 import UIKit
 import UserNotifications
 
-/// Finds, downloads and imports the two GGUF files LFM3-Audio needs:
-/// the backbone ("LFM3-Audio-2B-Q4_K_M.gguf") and the mmproj (audio encoder, depthformer, codec).
+/// Finds, downloads and imports the models: SenseVoice (hearing), Qwen3.5 (writing) and Kokoro (speaking),
+/// and the two GGUF files LFM3-Audio needs when it is chosen for any of those:
+/// the backbone ("LFM3-Audio-2B-Q8_0.gguf") and the mmproj (audio encoder, depthformer, codec).
 @MainActor
 final class ModelStore: NSObject, ObservableObject {
     static let defaultRepo = "LiquidAI/LFM3-Audio-2B-GGUF"
@@ -61,7 +62,19 @@ final class ModelStore: NSObject, ObservableObject {
         FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
     }
 
-    var isReady: Bool { modelURL != nil && mmprojURL != nil }
+    /// LFM3-Audio's two files are in place.
+    var lfmReady: Bool { modelURL != nil && mmprojURL != nil }
+    /// SenseVoice, Qwen3.5 and Kokoro are all in place, so the tutor can work without LFM3-Audio.
+    var lightReady: Bool { senseVoiceReady && chatModelURL != nil && kokoroReady }
+    /// The tutor can start: with the light models, or with LFM3-Audio doing whatever they can't.
+    var isReady: Bool { lfmReady || lightReady }
+
+    /// LFM3-Audio is picked in Settings for hearing, writing or speaking.
+    nonisolated static var lfmChosen: Bool {
+        let d = UserDefaults.standard
+        return d.string(forKey: "asrEngine") == "lfm" || d.string(forKey: "replyEngine") == "lfm"
+            || d.string(forKey: "ttsEngine") == "lfm"
+    }
 
     /// A 4-bit (or smaller) backbone: text works, speech comes out as babble.
     var backboneIsLowPrecision: Bool {
@@ -107,6 +120,7 @@ final class ModelStore: NSObject, ObservableObject {
         let chatFiles = ((try? FileManager.default.contentsOfDirectory(atPath: chatDir.path)) ?? [])
             .filter { $0.lowercased().hasSuffix(".gguf") }
         chatModelURL = Self.pickChatModel(chatFiles).map { chatDir.appendingPathComponent($0) }
+        kokoroReady = Self.kokoroFiles.keys.allSatisfy { FileManager.default.fileExists(atPath: Self.kokoroURL($0).path) }
     }
 
     // MARK: Chat model (Qwen3.5, the tutor's replies)
@@ -142,6 +156,24 @@ final class ModelStore: NSObject, ObservableObject {
     private static let senseVoiceSizes: [String: Int64] = [senseVoiceFiles[0]: 229_000_000, senseVoiceFiles[1]: 316_000]
 
     @Published private(set) var senseVoiceReady = false
+
+    // MARK: Kokoro (the tutor's voice)
+
+    /// Kokoro-82M v1.1-zh as converted by sherpa-onnx, unpacked into a release of this repo
+    /// (.github/workflows/mirror-kokoro.yml) since the original is a single .tar.bz2.
+    nonisolated static let kokoroBaseURL = "https://github.com/CadeWardC/Edge/releases/download/models-kokoro-int8-v1_1"
+    nonisolated static let kokoroDirectory = "Kokoro"
+    /// File name and size (for the progress bar).
+    nonisolated static let kokoroFiles: [String: Int64] = [
+        "model.int8.onnx": 114_203_914, "voices.bin": 53_790_720, "tokens.txt": 1_111,
+        "lexicon-zh.txt": 2_120_131, "lexicon-us-en.txt": 5_956_885, "date-zh.fst": 59_154,
+        "number-zh.fst": 64_482, "phone-zh.fst": 88_630, "LICENSE": 11_358,
+    ]
+    nonisolated static func kokoroURL(_ name: String) -> URL {
+        modelsDirectory.appendingPathComponent(kokoroDirectory, isDirectory: true).appendingPathComponent(name)
+    }
+
+    @Published private(set) var kokoroReady = false
 
     nonisolated static func isMMProj(_ name: String) -> Bool {
         name.lowercased().contains("mmproj")
@@ -180,10 +212,12 @@ final class ModelStore: NSObject, ObservableObject {
         }
 
         do {
-            // the LFM3-Audio files: listed from the repo, only when they are missing or 4-bit
+            // the LFM3-Audio files: listed from the repo, only when it is chosen in Settings and its files
+            // are missing or 4-bit
             var jobs: [(name: String, url: URL)] = []
             var sizes: [String: Int64] = Self.senseVoiceSizes
-            if !isReady || backboneIsLowPrecision {
+            for (file, size) in Self.kokoroFiles { sizes["\(Self.kokoroDirectory)/\(file)"] = size }
+            if Self.lfmChosen && (!lfmReady || backboneIsLowPrecision) {
                 let remote = try await listRemoteFiles(repo: repo)
                 let names = remote.map(\.path)
                 guard let backbone = Self.pickBackbone(names) else {
@@ -205,6 +239,10 @@ final class ModelStore: NSObject, ObservableObject {
             // the SenseVoice files, kept in their own folder
             jobs += Self.senseVoiceFiles.filter(missing).map {
                 (name: $0, url: resolveURL(Self.senseVoiceRepo, String($0.split(separator: "/").last!)))
+            }
+            // the Kokoro files, from this app's own release
+            jobs += Self.kokoroFiles.keys.sorted().filter { !FileManager.default.fileExists(atPath: Self.kokoroURL($0).path) }.map {
+                (name: "\(Self.kokoroDirectory)/\($0)", url: URL(string: "\(Self.kokoroBaseURL)/\($0)")!)
             }
             let wanted = jobs.map(\.name)
             guard !wanted.isEmpty else {
@@ -289,7 +327,7 @@ final class ModelStore: NSObject, ObservableObject {
             phase = .idle
             expected = [:]
             removeSupersededBackbones()
-            Notifier.post(title: "Model downloaded", body: "LFM3-Audio is ready. Tap to start speaking Mandarin.")
+            Notifier.post(title: "Models downloaded", body: "Your tutor is ready. Tap to start speaking Mandarin.")
         } else if !phase.isFailed {
             phase = .failed("The download did not finish. Tap Try again to continue.")
         }
@@ -323,12 +361,22 @@ final class ModelStore: NSObject, ObservableObject {
         refresh()
     }
 
+    /// Removes only LFM3-Audio's GGUFs, for when the other models do everything.
+    func deleteLFM() {
+        let files = (try? FileManager.default.contentsOfDirectory(at: Self.modelsDirectory, includingPropertiesForKeys: nil)) ?? []
+        for url in files where url.pathExtension.lowercased() == "gguf" {
+            try? FileManager.default.removeItem(at: url)
+        }
+        refresh()
+    }
+
     func deleteModels() {
         for url in [modelURL, mmprojURL].compactMap({ $0 }) {
             try? FileManager.default.removeItem(at: url)
         }
         try? FileManager.default.removeItem(at: Self.senseVoiceModelURL.deletingLastPathComponent())
         try? FileManager.default.removeItem(at: Self.modelsDirectory.appendingPathComponent(Self.chatDirectory))
+        try? FileManager.default.removeItem(at: Self.modelsDirectory.appendingPathComponent(Self.kokoroDirectory))
         refresh()
     }
 

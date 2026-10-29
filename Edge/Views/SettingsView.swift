@@ -19,9 +19,29 @@ struct SettingsView: View {
     @AppStorage("speechRate") private var speechRate = 1.0
     @AppStorage("asrEngine") private var asrEngine = "sensevoice"
     @AppStorage("replyEngine") private var replyEngine = "qwen"
+    @AppStorage("ttsEngine") private var ttsEngine = "kokoro"
     @State private var reloading = false
 
     @State private var confirmDelete = false
+
+    private var lfmChosen: Bool { asrEngine == "lfm" || replyEngine == "lfm" || ttsEngine == "lfm" }
+
+    /// A download button, or the progress of the download that is running (one download fetches everything missing).
+    @ViewBuilder private func downloadRow(_ title: String) -> some View {
+        switch models.phase {
+        case .idle, .failed:
+            Button(title) { Task { await models.download() } }
+            if case .failed(let msg) = models.phase {
+                Text(msg).font(.footnote).foregroundStyle(.red)
+            }
+        case .resolving:
+            ProgressView("Looking up files…")
+        case .downloading:
+            ProgressView(value: models.progress) {
+                Text("\(Int(models.progress * 100))% · keeps going in the background").font(.caption)
+            }
+        }
+    }
 
     var body: some View {
         NavigationStack {
@@ -54,9 +74,26 @@ struct SettingsView: View {
                 } footer: {
                     Text(replyEngine == "qwen"
                          ? (models.chatModelURL != nil
-                            ? "Qwen3.5 writes the replies, corrections and translations; LFM3-Audio speaks them."
+                            ? "Qwen3.5 writes the replies, corrections and translations."
                             : "Until Qwen3.5 is downloaded, LFM3-Audio writes the replies.")
-                         : "LFM3-Audio writes and speaks the replies.")
+                         : "LFM3-Audio writes the replies.")
+                }
+                Section {
+                    Picker("Speak with", selection: $ttsEngine) {
+                        Text("Kokoro").tag("kokoro")
+                        Text("LFM3-Audio").tag("lfm")
+                    }
+                    if ttsEngine == "kokoro" && !models.kokoroReady {
+                        downloadRow("Download Kokoro (180 MB)")
+                    }
+                } header: {
+                    Text("Speaking")
+                } footer: {
+                    Text(ttsEngine == "kokoro"
+                         ? (models.kokoroReady
+                            ? "Kokoro is a small, clear Mandarin voice. With SenseVoice, Qwen3.5 and Kokoro, LFM3-Audio isn't loaded at all, which saves about 2 GB of memory."
+                            : "Until Kokoro is downloaded, LFM3-Audio speaks the replies.")
+                         : "LFM3-Audio speaks the replies with its own voice.")
                 }
                 Section("Tutor") {
                     Picker("Level", selection: $level) {
@@ -138,7 +175,7 @@ struct SettingsView: View {
                 } footer: {
                     Text(asrEngine == "sensevoice"
                          ? (models.senseVoiceReady
-                            ? "SenseVoice is a small model made for Mandarin; it usually hears learners better. LFM3-Audio still writes and speaks the replies."
+                            ? "SenseVoice is a small model made for Mandarin; it usually hears learners better."
                             : "Until SenseVoice is downloaded, LFM3-Audio hears you.")
                          : "LFM3-Audio hears you as well as replying.")
                 }
@@ -151,72 +188,85 @@ struct SettingsView: View {
                 } footer: {
                     Text("The tone check measures the pitch of each syllable you say. It is a rough guide: it only marks a tone wrong when it is fairly sure.")
                 }
-                Section {
-                    TextField(ModelStore.defaultRepo, text: $hfRepo)
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
-                    LabeledContent("Model", value: models.modelURL?.lastPathComponent ?? "—")
-                    LabeledContent("mmproj", value: models.mmprojURL?.lastPathComponent ?? "—")
-                    if models.backboneIsLowPrecision {
-                        VStack(alignment: .leading, spacing: 6) {
-                            Label("This 4-bit model garbles the voice", systemImage: "exclamationmark.triangle.fill")
-                                .foregroundStyle(.orange)
-                            Text("Speech needs the more precise Q8_0 model (about 1.9 GB more). Your current files keep working until it is in place, then the 4-bit one is deleted.")
-                                .font(.footnote)
-                                .foregroundStyle(.secondary)
-                            switch models.phase {
-                            case .idle, .failed:
-                                Button("Download Q8_0 model") { Task { await models.download() } }
-                                    .buttonStyle(.borderedProminent)
-                                if case .failed(let msg) = models.phase {
-                                    Text(msg).font(.footnote).foregroundStyle(.red)
-                                }
-                            case .resolving:
-                                ProgressView("Looking up files…")
-                            case .downloading:
-                                ProgressView(value: models.progress) {
-                                    Text("\(Int(models.progress * 100))% · keeps going in the background")
-                                        .font(.caption)
+                if lfmChosen || models.lfmReady {
+                    Section {
+                        if lfmChosen && !models.lfmReady {
+                            downloadRow("Download LFM3-Audio (about 2.5 GB)")
+                        }
+                        TextField(ModelStore.defaultRepo, text: $hfRepo)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                        LabeledContent("Model", value: models.modelURL?.lastPathComponent ?? "—")
+                        LabeledContent("mmproj", value: models.mmprojURL?.lastPathComponent ?? "—")
+                        if !lfmChosen && models.lfmReady && models.lightReady {
+                            Button("Delete LFM3-Audio (frees about 2.5 GB)", role: .destructive) { models.deleteLFM() }
+                        }
+                        if models.backboneIsLowPrecision && lfmChosen {
+                            VStack(alignment: .leading, spacing: 6) {
+                                Label("This 4-bit model garbles the voice", systemImage: "exclamationmark.triangle.fill")
+                                    .foregroundStyle(.orange)
+                                Text("Speech needs the more precise Q8_0 model (about 1.9 GB more). Your current files keep working until it is in place, then the 4-bit one is deleted.")
+                                    .font(.footnote)
+                                    .foregroundStyle(.secondary)
+                                switch models.phase {
+                                case .idle, .failed:
+                                    Button("Download Q8_0 model") { Task { await models.download() } }
+                                        .buttonStyle(.borderedProminent)
+                                    if case .failed(let msg) = models.phase {
+                                        Text(msg).font(.footnote).foregroundStyle(.red)
+                                    }
+                                case .resolving:
+                                    ProgressView("Looking up files…")
+                                case .downloading:
+                                    ProgressView(value: models.progress) {
+                                        Text("\(Int(models.progress * 100))% · keeps going in the background")
+                                            .font(.caption)
+                                    }
                                 }
                             }
                         }
+                    } header: {
+                        Text("LFM3-Audio")
+                    } footer: {
+                        Text(lfmChosen
+                             ? "Hugging Face repo with the LFM3-Audio GGUFs. The app uses the Q8_0 backbone and its mmproj; 4-bit backbones garble speech."
+                             : "LFM3-Audio isn't picked for anything above; it is only loaded while one of the other models is missing.")
                     }
-                    if models.isReady {
-                        Button("Delete downloaded model", role: .destructive) { confirmDelete = true }
-                    }
-                } header: {
-                    Text("Model")
-                } footer: {
-                    Text("Hugging Face repo with the LFM3-Audio GGUFs. The app uses the Q8_0 backbone and its mmproj; 4-bit backbones garble speech.")
                 }
-                Section {
-                    // never locked: switching stops whatever the tutor is doing and reloads
-                    Toggle("Generate speech on CPU", isOn: $speechOnCPU)
-                        .disabled(reloading || !models.isReady)
-                        .onChange(of: speechOnCPU) {
-                            guard let model = models.modelURL, let mmproj = models.mmprojURL else { return }
-                            reloading = true
-                            Task {
-                                await tutor.reload(model: model, mmproj: mmproj)
-                                reloading = false
+                if tutor.loadedModel != nil {
+                    Section {
+                        // never locked: switching stops whatever the tutor is doing and reloads
+                        Toggle("Run LFM3-Audio's audio on CPU", isOn: $speechOnCPU)
+                            .disabled(reloading)
+                            .onChange(of: speechOnCPU) {
+                                reloading = true
+                                Task {
+                                    await tutor.reloadLFM()
+                                    reloading = false
+                                }
                             }
+                        if reloading {
+                            HStack { ProgressView(); Text("Reloading the model…").foregroundStyle(.secondary) }
+                        } else {
+                            LabeledContent("Audio runs on", value: speechOnCPU ? "CPU" : "GPU")
                         }
-                    if reloading {
-                        HStack { ProgressView(); Text("Reloading the model…").foregroundStyle(.secondary) }
-                    } else if models.isReady {
-                        LabeledContent("Speech runs on", value: speechOnCPU ? "CPU" : "GPU")
+                    } header: {
+                        Text("Troubleshooting")
+                    } footer: {
+                        Text("Runs LFM3-Audio's audio encoder and voice on the CPU instead of the GPU. Slower; use it to check whether garbled speech comes from the GPU. Last reply's audio is saved in Files › Edge › Diagnostics.")
                     }
-                } header: {
-                    Text("Troubleshooting")
-                } footer: {
-                    Text("Runs the audio encoder and voice on the CPU instead of the GPU. Slower; use it to check whether garbled speech comes from the GPU. Last reply's audio is saved in Files › Edge › Diagnostics.")
+                }
+                if models.isReady {
+                    Section {
+                        Button("Delete downloaded models", role: .destructive) { confirmDelete = true }
+                    }
                 }
             }
             .navigationTitle("Settings")
             .toolbar {
                 Button("Done") { dismiss() }
             }
-            .confirmationDialog("Delete the model files? You'll need to download them again.", isPresented: $confirmDelete, titleVisibility: .visible) {
+            .confirmationDialog("Delete all the model files? You'll need to download them again.", isPresented: $confirmDelete, titleVisibility: .visible) {
                 Button("Delete", role: .destructive) {
                     Task {
                         await tutor.unload()

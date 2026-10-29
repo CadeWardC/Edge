@@ -15,7 +15,7 @@ struct SetupView: View {
                     VStack(alignment: .leading, spacing: 8) {
                         Text("你好！")
                             .font(.system(size: 44, weight: .bold))
-                        Text("Practice speaking Mandarin with LFM3-Audio, fully on your iPhone. It answers out loud in Mandarin and corrects you in English.")
+                        Text("Practice speaking Mandarin, fully on your iPhone. Your tutor answers out loud in Mandarin and corrects you in English.")
                             .font(.body)
                             .foregroundStyle(.secondary)
                     }
@@ -23,7 +23,7 @@ struct SetupView: View {
                     VStack(alignment: .leading, spacing: 12) {
                         Label("One-time model download", systemImage: "arrow.down.circle")
                             .font(.headline)
-                        Text("Two GGUF files from \(models.repo) on Hugging Face, about 2.3 GB in total (the tutor, plus SenseVoice for hearing you). Use Wi-Fi. It keeps downloading in the background if you leave the app.")
+                        Text("About 1.7 GB in total: SenseVoice hears you, Qwen3.5 writes the replies and Kokoro speaks them. Use Wi-Fi. It keeps downloading in the background if you leave the app.")
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
 
@@ -33,9 +33,9 @@ struct SetupView: View {
                     .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 16))
 
                     VStack(alignment: .leading, spacing: 12) {
-                        Label("Already have the files?", systemImage: "folder")
+                        Label("Using LFM3-Audio instead?", systemImage: "folder")
                             .font(.headline)
-                        Text("Import the model .gguf and the mmproj .gguf, or copy them into Files › On My iPhone › Edge.")
+                        Text("Pick it in Settings to download it, or import its model .gguf and mmproj .gguf (or copy them into Files › On My iPhone › Edge).")
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
                         Button("Import GGUF files…") { importing = true }
@@ -64,7 +64,7 @@ struct SetupView: View {
             Button {
                 Task { await models.download() }
             } label: {
-                Text("Download model").frame(maxWidth: .infinity)
+                Text("Download models").frame(maxWidth: .infinity)
             }
             .buttonStyle(.borderedProminent)
             .controlSize(.large)
