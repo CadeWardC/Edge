@@ -50,8 +50,9 @@ final class TutorSession: ObservableObject {
     @AppStorage("handsFree") var handsFree = false
     @AppStorage("speechOnCPU") var speechOnCPU = false
 
-    /// Listening gives up when nothing is said for this long.
+    /// Listening gives up when nothing is said for this long; hands-free waits much longer.
     static let noSpeechTimeout: Double = 8
+    static let handsFreeNoSpeechTimeout: Double = 120
 
     private var runtime: LFMRuntime?
     /// The backbone the runtime was loaded from, so a new download triggers a reload.
@@ -142,7 +143,8 @@ final class TutorSession: ObservableObject {
             Task { await finishRecording() }
         } else if autoSend, activity.speechDetected, activity.silenceSeconds >= pauseSeconds {
             Task { await finishRecording() }
-        } else if autoSend, !activity.speechDetected, recordingSeconds >= Self.noSpeechTimeout {
+        } else if autoSend, !activity.speechDetected,
+                  recordingSeconds >= (handsFree ? Self.handsFreeNoSpeechTimeout : Self.noSpeechTimeout) {
             cancelListening()
             if !handsFree {
                 state = .failed("I didn't hear anything. Tap the mic and try again.")
@@ -303,11 +305,12 @@ final class TutorSession: ObservableObject {
         let audio = self.audio
         let flag = cancelFlag
         // Mandarin runs at most ~6-7 syllables a second; much less audio than that means the voice stopped early
-        let minSeconds = Double(text.filter(Pinyin.isHanzi).count) * 0.12
+        let characters = Double(text.filter(Pinyin.isHanzi).count)
+        let minSeconds = characters * 0.12
 
         for attempt in 1...2 {
             let pcm = PCMAccumulator()
-            audio.beginStream()
+            audio.beginStream(expectedSeconds: characters * 0.24)   // ~4 characters a second
             do {
                 try await runtime.speak(prompt: TutorPrompts.tts(text, voice: voice)) { chunk, rate in
                     if flag.value { return false }
@@ -345,10 +348,16 @@ final class TutorSession: ObservableObject {
         }
     }
 
-    /// Hands-free conversation: the mic opens again once the tutor has finished.
+    /// Hands-free conversation: the mic opens again once the tutor has finished, and waits for the
+    /// learner to start talking before the pause timer counts.
     private func listenAgainIfHandsFree() {
         guard handsFree, state == .idle, runtime != nil else { return }
-        Task { await startRecording() }
+        Task {
+            // let the speaker's last sound die away so it is not heard as the learner
+            try? await Task.sleep(nanoseconds: 400_000_000)
+            guard handsFree, state == .idle else { return }
+            await startRecording()
+        }
     }
 
     /// Keeps the last reply's audio in Files › Edge › Diagnostics, to tell a short voice from a playback problem.

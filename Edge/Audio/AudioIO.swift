@@ -6,8 +6,8 @@ import AVFoundation
 /// so the playback engine never runs with an active input.
 final class AudioIO: @unchecked Sendable {
     static let maxRecordingSeconds: Double = 30
-    /// Audio queued before playback starts, so a slower-than-realtime voice does not stutter.
-    static let prebufferSeconds: Double = 0.6
+    /// Least audio queued before playback starts; more when the voice is generated slower than real time.
+    static let prebufferSeconds: Double = 0.4
 
     private let lock = NSLock()
 
@@ -35,6 +35,11 @@ final class AudioIO: @unchecked Sendable {
     private let player = AVAudioPlayerNode()
     private var playFormat: AVAudioFormat?
     private var streaming = false
+    // generation speed of the current stream, to decide how much to buffer
+    private var expectedSeconds: Double = 0
+    private var firstChunkAt: Date?
+    private var producedSeconds: Double = 0
+    private var producedAfterFirst: Double = 0
     private var started = false
     private var waiting: [AVAudioPCMBuffer] = []   // queued before playback starts
     /// Bumped by stopPlayback() so completions of flushed buffers are ignored.
@@ -190,13 +195,18 @@ final class AudioIO: @unchecked Sendable {
 
     // MARK: Playback
 
-    /// Starts a stream of chunks; playback begins once `prebufferSeconds` are queued or the stream ends.
-    func beginStream() {
+    /// Starts a stream of chunks. `expectedSeconds` is a guess of the whole stream's length (0 if unknown):
+    /// playback starts once enough is buffered that generation stays ahead of it, or when the stream ends.
+    func beginStream(expectedSeconds: Double = 0) {
         stopPlayback()
         playQueue.async {
             self.streaming = true
             self.started = false
             self.waiting.removeAll()
+            self.expectedSeconds = expectedSeconds
+            self.firstChunkAt = nil
+            self.producedSeconds = 0
+            self.producedAfterFirst = 0
         }
     }
 
@@ -205,17 +215,42 @@ final class AudioIO: @unchecked Sendable {
         guard !samples.isEmpty else { return }
         playQueue.async {
             guard let buffer = self.makeBuffer(samples, sampleRate: sampleRate) else { return }
+            let seconds = Double(buffer.frameLength) / sampleRate
+            if self.firstChunkAt == nil {
+                self.firstChunkAt = Date()
+            } else {
+                self.producedAfterFirst += seconds
+            }
+            self.producedSeconds += seconds
+
             if self.started || !self.streaming {
                 self.schedule(buffer)
                 self.startIfNeeded()
             } else {
                 self.waiting.append(buffer)
-                let queued = self.waiting.reduce(0) { $0 + Double($1.frameLength) / $1.format.sampleRate }
-                if queued >= Self.prebufferSeconds {
+                if self.enoughBuffered() {
                     self.startWaiting()
                 }
             }
         }
+    }
+
+    /// Whether playback can (re)start without running out before generation catches up.
+    private func enoughBuffered() -> Bool {
+        lock.lock(); let scheduled = pendingSeconds; lock.unlock()
+        let buffered = scheduled + waiting.reduce(0) { $0 + Double($1.frameLength) / $1.format.sampleRate }
+        guard buffered >= Self.prebufferSeconds, let first = firstChunkAt else { return false }
+
+        let elapsed = Date().timeIntervalSince(first)
+        guard elapsed >= 0.5 else { return buffered >= 3 }      // no speed measured yet
+        let rate = producedAfterFirst / elapsed                 // audio seconds per second
+        if rate >= 1.15 { return true }                         // comfortably faster than real time
+        guard rate > 0.05 else { return buffered >= 3 }
+
+        // remaining audio takes remaining/rate to generate but only buffered+remaining to play
+        let remaining = expectedSeconds > 0 ? max(expectedSeconds - producedSeconds, 0) : 4
+        let needed = remaining / rate - remaining + 0.4
+        return buffered >= needed
     }
 
     /// Marks the end of the stream: whatever is still waiting starts playing.
@@ -253,7 +288,7 @@ final class AudioIO: @unchecked Sendable {
         playQueue.async {
             self.lock.lock()
             let remaining = self.pendingSeconds + self.waiting.reduce(0) { $0 + Double($1.frameLength) / $1.format.sampleRate }
-            guard remaining > 0 else {
+            guard remaining > 0.05 else {
                 self.lock.unlock()
                 DispatchQueue.main.async(execute: completion)
                 return
@@ -325,8 +360,14 @@ final class AudioIO: @unchecked Sendable {
                 guard gen == self.generation else { return }
                 self.lock.lock()
                 self.pendingSeconds = max(0, self.pendingSeconds - seconds)
-                let done = self.pendingSeconds < 0.001 && self.waiting.isEmpty && !self.streaming ? self.onDrained : nil
+                let empty = self.pendingSeconds < 0.03
+                let done = empty && self.waiting.isEmpty && !self.streaming ? self.onDrained : nil
                 self.lock.unlock()
+                if empty && self.streaming && self.started {
+                    // ran dry while the voice is still being generated: pause and buffer again instead of stuttering
+                    self.player.pause()
+                    self.started = false
+                }
                 done?()
             }
         }
