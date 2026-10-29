@@ -17,11 +17,13 @@ typedef bool (*lfm_text_callback)(const char * utf8, void * user_data);
 typedef bool (*lfm_audio_callback)(const float * samples, int32_t n_samples, int32_t sample_rate, void * user_data);
 
 // Loads the backbone GGUF and the mmproj GGUF (audio encoder, depthformer and codec).
+// use_gpu runs the backbone on Metal, mmproj_use_gpu the audio encoder and speech generation.
 // On failure returns NULL and writes a message into err.
 lfm_engine * lfm_engine_create(const char * model_path,
                                const char * mmproj_path,
                                int32_t      n_ctx,
                                bool         use_gpu,
+                               bool         mmproj_use_gpu,
                                char *       err,
                                size_t       err_len);
 

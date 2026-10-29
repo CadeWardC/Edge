@@ -48,6 +48,7 @@ final class TutorSession: ObservableObject {
     @AppStorage("autoSend") var autoSend = true
     @AppStorage("pauseSeconds") var pauseSeconds = 1.6
     @AppStorage("handsFree") var handsFree = false
+    @AppStorage("speechOnCPU") var speechOnCPU = false
 
     /// Listening gives up when nothing is said for this long.
     static let noSpeechTimeout: Double = 8
@@ -67,16 +68,25 @@ final class TutorSession: ObservableObject {
         guard runtime == nil, state != .loading else { return }
         state = .loading
         do {
-            runtime = try await LFMRuntime.load(modelPath: model.path, mmprojPath: mmproj.path)
+            runtime = try await LFMRuntime.load(modelPath: model.path, mmprojPath: mmproj.path, speechOnGPU: !speechOnCPU)
             state = .idle
         } catch {
             state = .failed(error.localizedDescription)
         }
     }
 
-    func unload() {
+    func unload() async {
+        stop()
+        let old = runtime
         runtime = nil
         state = .notLoaded
+        await old?.close()
+    }
+
+    /// Loads the model again, e.g. after switching where speech runs.
+    func reload(model: URL, mmproj: URL) async {
+        await unload()
+        await load(model: model, mmproj: mmproj)
     }
 
     // MARK: Conversation

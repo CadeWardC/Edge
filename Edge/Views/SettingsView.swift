@@ -15,6 +15,8 @@ struct SettingsView: View {
     @AppStorage("autoSend") private var autoSend = true
     @AppStorage("pauseSeconds") private var pauseSeconds = 1.6
     @AppStorage("handsFree") private var handsFree = false
+    @AppStorage("speechOnCPU") private var speechOnCPU = false
+    @State private var reloading = false
 
     @State private var confirmDelete = false
 
@@ -33,10 +35,21 @@ struct SettingsView: View {
                 Section {
                     Toggle("Send when I stop talking", isOn: $autoSend)
                     if autoSend {
-                        Picker("Pause before sending", selection: $pauseSeconds) {
-                            Text("Short (1 s)").tag(1.0)
-                            Text("Normal (1.6 s)").tag(1.6)
-                            Text("Long (2.5 s)").tag(2.5)
+                        VStack(alignment: .leading, spacing: 4) {
+                            HStack {
+                                Text("Wait after I stop talking")
+                                Spacer()
+                                Text(String(format: "%.1f s", pauseSeconds))
+                                    .monospacedDigit()
+                                    .foregroundStyle(.secondary)
+                            }
+                            Slider(value: $pauseSeconds, in: 0.5...4.0, step: 0.1) {
+                                Text("Wait after I stop talking")
+                            } minimumValueLabel: {
+                                Image(systemName: "hare").font(.caption)
+                            } maximumValueLabel: {
+                                Image(systemName: "tortoise").font(.caption)
+                            }
                         }
                         Toggle("Hands-free conversation", isOn: $handsFree)
                     }
@@ -44,7 +57,7 @@ struct SettingsView: View {
                     Text("Voice")
                 } footer: {
                     Text(autoSend
-                         ? "Tap the mic once and speak; your turn is sent when you pause. Hands-free opens the mic again after each reply, so you can keep talking. Tap ✕ to stop."
+                         ? "Tap the mic once and speak; your turn is sent once you have been quiet this long. Raise it if it cuts you off while you think. Hands-free opens the mic again after each reply. Tap ✕ to stop."
                          : "Tap the mic to start, and again to send.")
                 }
                 Section {
@@ -70,6 +83,25 @@ struct SettingsView: View {
                 } footer: {
                     Text("Hugging Face repo with the LFM3-Audio GGUFs. The app prefers a Q4_K_M backbone and the mmproj file.")
                 }
+                Section {
+                    Toggle("Generate speech on CPU", isOn: $speechOnCPU)
+                        .disabled(reloading || tutor.state.isBusy || !models.isReady)
+                        .onChange(of: speechOnCPU) {
+                            guard let model = models.modelURL, let mmproj = models.mmprojURL else { return }
+                            reloading = true
+                            Task {
+                                await tutor.reload(model: model, mmproj: mmproj)
+                                reloading = false
+                            }
+                        }
+                    if reloading {
+                        HStack { ProgressView(); Text("Reloading the model…").foregroundStyle(.secondary) }
+                    }
+                } header: {
+                    Text("Troubleshooting")
+                } footer: {
+                    Text("Runs the audio encoder and voice on the CPU instead of the GPU. Slower; use it to check whether garbled speech comes from the GPU. Last reply's audio is saved in Files › Edge › Diagnostics.")
+                }
             }
             .navigationTitle("Settings")
             .toolbar {
@@ -77,9 +109,11 @@ struct SettingsView: View {
             }
             .confirmationDialog("Delete the model files? You'll need to download them again.", isPresented: $confirmDelete, titleVisibility: .visible) {
                 Button("Delete", role: .destructive) {
-                    tutor.unload()
-                    models.deleteModels()
-                    dismiss()
+                    Task {
+                        await tutor.unload()
+                        models.deleteModels()
+                        dismiss()
+                    }
                 }
             }
         }

@@ -24,12 +24,29 @@ final class LFMRuntime: @unchecked Sendable {
         self.inputSampleRate = Double(lfm_engine_input_sample_rate(engine))
     }
 
+    private var closed = false
+
     deinit {
         let engine = self.engine
-        queue.async { lfm_engine_free(engine) }
+        let closed = self.closed
+        queue.async { if !closed { lfm_engine_free(engine) } }
     }
 
-    static func load(modelPath: String, mmprojPath: String, contextSize: Int32 = 4096) async throws -> LFMRuntime {
+    /// Frees the model now, after any running call, so a reload never holds two copies in memory.
+    func close() async {
+        await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
+            queue.async {
+                if !self.closed {
+                    lfm_engine_free(self.engine)
+                    self.closed = true
+                }
+                cont.resume()
+            }
+        }
+    }
+
+    static func load(modelPath: String, mmprojPath: String, speechOnGPU: Bool = true,
+                     contextSize: Int32 = 4096) async throws -> LFMRuntime {
         try await withCheckedThrowingContinuation { cont in
             DispatchQueue.global(qos: .userInitiated).async {
                 var err = [CChar](repeating: 0, count: 512)
@@ -38,7 +55,7 @@ final class LFMRuntime: @unchecked Sendable {
                 #else
                 let useGPU = true
                 #endif
-                if let engine = lfm_engine_create(modelPath, mmprojPath, contextSize, useGPU, &err, err.count) {
+                if let engine = lfm_engine_create(modelPath, mmprojPath, contextSize, useGPU, useGPU && speechOnGPU, &err, err.count) {
                     cont.resume(returning: LFMRuntime(engine: engine))
                 } else {
                     cont.resume(throwing: LFMError.load(String(cString: err)))

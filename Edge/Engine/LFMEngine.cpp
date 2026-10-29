@@ -70,7 +70,7 @@ static int32_t default_threads() {
 }
 
 extern "C" lfm_engine * lfm_engine_create(const char * model_path, const char * mmproj_path, int32_t n_ctx,
-                                          bool use_gpu, char * err, size_t err_len) {
+                                          bool use_gpu, bool mmproj_use_gpu, char * err, size_t err_len) {
     static std::once_flag backend_once;
     std::call_once(backend_once, [] { llama_backend_init(); });
 
@@ -107,7 +107,7 @@ extern "C" lfm_engine * lfm_engine_create(const char * model_path, const char * 
     e->n_ctx = (int32_t) llama_n_ctx(e->lctx);
 
     mtmd_context_params mtparams = mtmd_context_params_default();
-    mtparams.use_gpu       = use_gpu;
+    mtparams.use_gpu       = mmproj_use_gpu;
     mtparams.n_threads     = default_threads();
     mtparams.print_timings = false;
     e->mctx = mtmd_init_from_file(mmproj_path, e->model, mtparams);
