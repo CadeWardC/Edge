@@ -1,4 +1,13 @@
 import Foundation
+#if canImport(ChatEngineC)
+import ChatEngineC   // the macOS test harness; the app sees ChatEngine.h through its bridging header
+#endif
+
+/// Anything that answers chat messages with text: the app's work queue (which moves the model between the GPU
+/// and the CPU) and the macOS test harness both provide one, so the paper and transcript pipelines are shared.
+protocol TextWriter {
+    func write(_ messages: [TextRuntime.Message], maxTokens: Int32, temperature: Float) async throws -> String
+}
 
 enum EngineError: LocalizedError {
     case load(String)

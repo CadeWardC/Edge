@@ -146,8 +146,13 @@ final class EnglishPhonemizer: @unchecked Sendable {
                 return known(String(ch)) ?? ""
             }.filter { !$0.isEmpty })
         }
-        return compound(w) ?? rules(w)
+        if let p = compound(w) { return p }
+        guessedWords.insert(w)
+        return rules(w)
     }
+
+    /// Words read with the spelling rules (not in the lexicon in any form); the test harness lists them.
+    private(set) var guessedWords = Set<String>()
 
     private func known(_ w: String) -> String? {
         if let p = Self.userWords[w] ?? lexicon[w] { return p }

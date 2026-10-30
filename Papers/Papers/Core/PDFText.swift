@@ -47,7 +47,11 @@ enum PDFText {
         let bounds = page.bounds(for: .mediaBox)
         let scale = 2000 / max(bounds.width, bounds.height, 1)
         let image = page.thumbnail(of: CGSize(width: bounds.width * scale, height: bounds.height * scale), for: .mediaBox)
+        #if canImport(UIKit)
         guard let cg = image.cgImage else { return nil }
+        #else
+        guard let cg = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else { return nil }
+        #endif
         let request = VNRecognizeTextRequest()
         request.recognitionLevel = .accurate
         request.usesLanguageCorrection = true
@@ -128,6 +132,37 @@ enum PDFText {
               !lower.hasSuffix(".pdf"), !lower.hasSuffix(".doc"), !lower.hasSuffix(".docx"), !lower.hasSuffix(".tex"),
               !lower.contains("microsoft word"), !lower.hasPrefix("untitled") else { return nil }
         return t
+    }
+
+    // MARK: Figures
+
+    struct Figure: Equatable {
+        /// "Figure 2" or "Table 1"
+        var label: String
+        var caption: String
+    }
+
+    /// The captions of the paper's figures and tables ("Figure 2. Accuracy of ..."), in order, one per label.
+    static func figures(in text: String, limit: Int = 6) -> [Figure] {
+        let pattern = "(?:^|\\n|\\. )\\s*((?:Figure|Fig\\.|FIGURE|Table|TABLE)\\s*(\\d{1,2}))\\s*[.:|—–-]\\s*([A-Z(][^\\n]{20,600})"
+        guard let regex = try? NSRegularExpression(pattern: pattern) else { return [] }
+        let ns = text as NSString
+        var seen = Set<String>()
+        var out: [Figure] = []
+        for m in regex.matches(in: text, range: NSRange(location: 0, length: ns.length)) {
+            let kind = ns.substring(with: m.range(at: 1)).lowercased().hasPrefix("t") ? "Table" : "Figure"
+            let label = "\(kind) \(ns.substring(with: m.range(at: 2)))"
+            guard !seen.contains(label) else { continue }
+            var caption = ns.substring(with: m.range(at: 3))
+            // keep the caption to its first few sentences
+            let sentences = caption.components(separatedBy: ". ")
+            if sentences.count > 3 { caption = sentences.prefix(3).joined(separator: ". ") + "." }
+            seen.insert(label)
+            out.append(Figure(label: label, caption: caption.trimmingCharacters(in: .whitespaces)))
+        }
+        // figures first (they carry the paper's evidence), then tables, each in order
+        let figuresFirst = out.filter { $0.label.hasPrefix("Figure") } + out.filter { $0.label.hasPrefix("Table") }
+        return Array(figuresFirst.prefix(limit))
     }
 
     // MARK: Chunks

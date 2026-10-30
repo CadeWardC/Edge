@@ -13,3 +13,7 @@ DerivedData/
 # research notes and reports (not part of the app)
 research_notes/
 reports/
+# the Papers test harness (Package.swift)
+Papers/.build/
+Papers/.llama/
+Papers/Package.resolved

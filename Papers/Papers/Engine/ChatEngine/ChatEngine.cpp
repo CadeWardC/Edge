@@ -1,4 +1,4 @@
-#include "ChatEngine.h"
+#include "include/ChatEngine.h"
 
 #if __has_include(<llama/llama.h>)
 #include <llama/llama.h>

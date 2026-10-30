@@ -9,6 +9,8 @@ on:
       - "Papers/**"
       - ".github/workflows/build-papers-ipa.yml"
       - ".github/workflows/mirror-kokoro-en.yml"
+      - ".github/workflows/mirror-parakeet.yml"
+      - ".github/workflows/papers-eval.yml"
       - "README.md"
   workflow_dispatch:
 

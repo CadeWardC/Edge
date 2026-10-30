@@ -1,0 +1,46 @@
+name: Mirror Parakeet speech recognition files
+
+# Papers' Audio tab downloads NVIDIA Parakeet TDT 0.6B v3 (int8, converted by sherpa-onnx) and Silero VAD file by
+# file from a release of this repo; sherpa-onnx publishes the model as one .tar.bz2, so this unpacks it once.
+# Parakeet TDT 0.6B v3 is CC-BY-4.0 (NVIDIA); Silero VAD is MIT.
+
+on:
+  push:
+    paths: [".github/workflows/mirror-parakeet.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  TAG: models-parakeet-v3
+  ARCHIVE: https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8.tar.bz2
+  VAD: https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/silero_vad.onnx
+
+jobs:
+  mirror:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Unpack
+        run: |
+          curl -sSfL -o p.tar.bz2 "$ARCHIVE"
+          tar xjf p.tar.bz2
+          mv sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8 parakeet
+          curl -sSfL -o parakeet/silero_vad.onnx "$VAD"
+          cd parakeet
+          ls -l
+          ls -l encoder.int8.onnx decoder.int8.onnx joiner.int8.onnx tokens.txt silero_vad.onnx
+
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cd parakeet
+          FILES="encoder.int8.onnx decoder.int8.onnx joiner.int8.onnx tokens.txt silero_vad.onnx"
+          if gh release view "$TAG" -R "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            gh release upload "$TAG" $FILES --clobber -R "$GITHUB_REPOSITORY"
+          else
+            gh release create "$TAG" $FILES -R "$GITHUB_REPOSITORY" --latest=false \
+              --title "Parakeet speech recognition files (TDT 0.6B v3, int8)" \
+              --notes "NVIDIA Parakeet TDT 0.6B v3 (CC-BY-4.0) as converted by sherpa-onnx (int8), and Silero VAD (MIT), unpacked so Papers can download each file. Not an app build."
+          fi

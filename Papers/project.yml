@@ -23,6 +23,9 @@ targets:
     platform: iOS
     sources:
       - path: Papers
+        excludes:
+          # the macOS test harness (Package.swift)
+          - "Core/Harness/**"
     info:
       path: Papers/Info.plist
       properties:
