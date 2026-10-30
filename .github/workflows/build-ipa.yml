@@ -1,8 +1,15 @@
-name: Build unsigned IPA
+name: Build unsigned IPA (Edge)
+
+# The Mandarin tutor in Edge/. Papers/ has its own workflow (build-papers-ipa.yml).
 
 on:
   push:
     branches: ["**"]
+    paths-ignore:
+      - "Papers/**"
+      - ".github/workflows/build-papers-ipa.yml"
+      - ".github/workflows/mirror-kokoro-en.yml"
+      - "README.md"
   workflow_dispatch:
 
 permissions:
@@ -41,13 +48,13 @@ jobs:
       - name: Generate the Xcode project
         run: |
           brew install xcodegen
-          xcodegen generate
+          cd Edge && xcodegen generate
 
       - name: Build the app (no code signing)
         run: |
           mkdir -p build
           xcodebuild \
-            -project Edge.xcodeproj \
+            -project Edge/Edge.xcodeproj \
             -scheme Edge \
             -configuration Release \
             -sdk iphoneos \
@@ -57,7 +64,7 @@ jobs:
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY="" \
             build > build/xcodebuild.log 2>&1 || { grep -E "error:" build/xcodebuild.log; tail -20 build/xcodebuild.log; exit 1; }
-          grep -E "warning: .*/Edge/Edge/" build/xcodebuild.log | sort -u || true
+          grep -E "warning: .*/Edge/Edge/Edge/" build/xcodebuild.log | sort -u || true
           grep -q "BUILD SUCCEEDED" build/xcodebuild.log
 
       - name: Package Edge-unsigned.ipa

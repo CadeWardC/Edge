@@ -1,14 +1,14 @@
 name: Test the chat engine
 
-# Runs the app's reply request through Edge/Engine/ChatEngine.cpp with the same llama.cpp commit and the same
+# Runs the tutor's reply request through Edge/Edge/Engine/ChatEngine.cpp with the same llama.cpp commit and the same
 # Qwen3.5 GGUF the app downloads, on CPU and on Metal, to reproduce on-device failures.
 
 on:
   push:
     paths:
       - ".github/workflows/test-chat-engine.yml"
-      - "scripts/chat-engine-test.cpp"
-      - "Edge/Engine/ChatEngine.*"
+      - "Edge/scripts/chat-engine-test.cpp"
+      - "Edge/Edge/Engine/ChatEngine.*"
   workflow_dispatch:
 
 jobs:
@@ -32,7 +32,7 @@ jobs:
         run: |
           LIBS=$(find llama/build -name '*.a' | tr '\n' ' ')
           clang++ -std=c++17 -O2 -Illama/include -Illama/ggml/include \
-            scripts/chat-engine-test.cpp Edge/Engine/ChatEngine.cpp \
+            Edge/scripts/chat-engine-test.cpp Edge/Edge/Engine/ChatEngine.cpp \
             -Wl,-force_load,llama/build/src/libllama.a $LIBS \
             -framework Metal -framework Foundation -framework Accelerate -framework MetalKit \
             -o chat-engine-test
