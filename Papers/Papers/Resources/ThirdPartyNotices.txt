@@ -1,0 +1,32 @@
+Papers runs these open models and libraries on your iPhone:
+
+== llama.cpp (ggml-org/llama.cpp) ==
+MIT License. Copyright (c) 2023-2026 The ggml authors.
+Runs the summary model.
+
+== Qwen3.5 (Qwen team, Alibaba Cloud) ==
+Apache License 2.0. Downloaded as a GGUF from Hugging Face (unsloth/Qwen3.5-2B-GGUF by default).
+Reads the paper and writes the summary.
+
+== sherpa-onnx (k2-fsa/sherpa-onnx) ==
+Apache License 2.0. Copyright (c) Xiaomi Corporation and the k2-fsa authors.
+Runs the voice model with ONNX Runtime (MIT License, Microsoft).
+
+== Kokoro-82M v1.0 (hexgrad/Kokoro-82M) ==
+Apache License 2.0. Converted for sherpa-onnx (kokoro-multi-lang-v1_0).
+Reads the summary out loud.
+
+== misaki (hexgrad/misaki) ==
+Apache License 2.0. The English pronunciation lexicon (lexicon-us-en.txt) is built from misaki's
+us_gold and us_silver dictionaries.
+
+== Parakeet TDT 0.6B v3 (NVIDIA) ==
+CC-BY-4.0. Converted to ONNX (int8) by sherpa-onnx. Transcribes recordings in the Audio tab.
+
+== Silero VAD (snakers4/silero-vad) ==
+MIT License. Copyright (c) 2020-present Silero Team. Finds the speech in recordings.
+
+The full texts of these licenses are at:
+https://opensource.org/license/mit
+https://www.apache.org/licenses/LICENSE-2.0
+https://creativecommons.org/licenses/by/4.0/

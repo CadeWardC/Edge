@@ -1,0 +1,132 @@
+name: Evaluate Papers on real inputs
+
+# Runs Papers' own pipeline code (Papers/Papers/Core, built by Papers/Package.swift for macOS) with the same models
+# the app downloads, on real papers and a synthetic meeting recording, and prints every note, script, question,
+# answer, transcript and summary. The recorded audio is uploaded as an artifact to listen to.
+
+on:
+  push:
+    paths:
+      - "Papers/Papers/Core/**"
+      - "Papers/Papers/Engine/**"
+      - "Papers/Package.swift"
+      - ".github/workflows/papers-eval.yml"
+  workflow_dispatch:
+    inputs:
+      pdf_urls:
+        description: "Space-separated PDF URLs"
+        required: false
+        default: ""
+      chat_repo:
+        description: "Hugging Face GGUF repo of the summary model"
+        required: false
+        default: "unsloth/Qwen3.5-2B-GGUF"
+      stream_weights:
+        description: "Run the model on the CPU from the mapped file, as the app does for a model too large for memory"
+        type: boolean
+        default: false
+      audio:
+        description: "Also test transcription"
+        type: boolean
+        default: true
+
+concurrency:
+  group: papers-eval-${{ github.ref }}-${{ github.event_name }}
+  cancel-in-progress: true
+
+jobs:
+  eval:
+    runs-on: macos-latest
+    timeout-minutes: 150
+    env:
+      PDF_URLS: ${{ github.event.inputs.pdf_urls || 'https://arxiv.org/pdf/1706.03762 https://journals.plos.org/plosmedicine/article/file?id=10.1371/journal.pmed.0020124&type=printable' }}
+      CHAT_REPO: ${{ github.event.inputs.chat_repo || 'unsloth/Qwen3.5-2B-GGUF' }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # built on every run (about 90 s) for this runner's own CPU: a cached -mcpu=native build crashes on older
+      # runners, and a generic build makes every model call about three times slower
+      - name: Build llama.cpp for macOS (pinned commit)
+        run: |
+          COMMIT=$(grep '^LLAMA_COMMIT=' scripts/build-llama-ios.sh | cut -d'"' -f2)
+          git init -q llama && cd llama
+          git remote add origin https://github.com/ggml-org/llama.cpp.git
+          git fetch -q --depth 1 origin "$COMMIT" && git checkout -q FETCH_HEAD
+          cmake -B build -DLLAMA_CURL=OFF -DLLAMA_BUILD_TESTS=OFF -DLLAMA_BUILD_EXAMPLES=OFF -DLLAMA_BUILD_SERVER=OFF \
+            -DLLAMA_BUILD_TOOLS=OFF -DBUILD_SHARED_LIBS=OFF -DCMAKE_BUILD_TYPE=Release > /dev/null
+          cmake --build build --target llama -j 4 > /dev/null
+          mkdir -p ../Papers/.llama/include ../Papers/.llama/lib
+          cp include/*.h ggml/include/*.h ../Papers/.llama/include/
+          libtool -static -o ../Papers/.llama/lib/libllama-all.a $(find build -name '*.a')
+          ls -l ../Papers/.llama/lib
+
+      - name: Build the harness
+        shell: bash
+        run: |
+          cd Papers
+          swift build -c release --product papers-harness 2>&1 | grep -E "error|warning: .*Core|Compiling|Build complete" | tail -60
+          test -x .build/release/papers-harness
+
+      - name: Download the models the app uses
+        run: |
+          mkdir -p models/chat models/kokoro models/asr inputs
+          FILE=$(curl -sSf "https://huggingface.co/api/models/$CHAT_REPO/tree/main" | python3 -c "
+          import sys, json
+          names = [f['path'] for f in json.load(sys.stdin) if f['type'] == 'file' and f['path'].lower().endswith('.gguf') and 'mmproj' not in f['path'].lower()]
+          print('available:', names, file=sys.stderr)
+          for q in ['Q4_K_M', 'UD-Q4_K_XL', 'Q5_K_M', 'Q4_K_S', 'Q6_K', 'Q8_0']:
+              hit = [n for n in names if q in n.upper()]
+              if hit: print(hit[0]); break")
+          echo "chat model: $FILE"
+          curl -sSfL -o models/chat/model.gguf "https://huggingface.co/$CHAT_REPO/resolve/main/$FILE"
+          gh release download models-kokoro-v1_0 -R "$GITHUB_REPOSITORY" -D models/kokoro \
+            -p model.onnx -p voices.bin -p tokens.txt -p lexicon-us-en.txt
+          # the Parakeet mirror may still be running when both workflows start on the same push
+          for i in $(seq 1 30); do
+            gh release download models-parakeet-v3 -R "$GITHUB_REPOSITORY" -D models/asr --clobber \
+              -p encoder.int8.onnx -p decoder.int8.onnx -p joiner.int8.onnx -p tokens.txt -p silero_vad.onnx && break
+            sleep 30
+          done
+          ls -l models/*
+
+      - name: Prepare inputs
+        run: |
+          i=0
+          for url in $PDF_URLS; do
+            i=$((i+1))
+            curl -sSfL -A "Mozilla/5.0" -o "inputs/paper$i.pdf" "$url"
+            file "inputs/paper$i.pdf"
+          done
+          # a synthetic meeting with numbers, names and action items
+          say -v Samantha -o inputs/meeting.aiff "Okay, let's get started. This is the weekly planning meeting for the Atlas project, on March 3rd. \
+            First, the budget. We spent 42,000 dollars of the 60,000 dollar budget, so we have 18,000 left for the quarter. \
+            Priya said the cloud costs went up by 15 percent because of the new training runs. \
+            Second, the launch date. Marcus thinks the beta can ship on April 14th if the login bug is fixed this week. \
+            The login bug affects about 3 percent of users on older Android phones. \
+            Decision: we will not add the export feature to the beta; it moves to version 2. \
+            Action items. Priya will move the training runs to spot instances by Friday to cut costs. \
+            Marcus will fix the login bug and send a test build to the team by Wednesday. \
+            I will email the customer advisory board about the April 14th date. \
+            Last thing, the hiring. We interviewed four candidates for the designer role and two made it to the final round. \
+            Final interviews are next Tuesday. Okay, thanks everyone."
+          ls -l inputs
+
+      - name: Run the pipeline
+        shell: bash
+        run: |
+          ARGS="--model models/chat/model.gguf --kokoro models/kokoro --asr models/asr --out out"
+          if [ "${{ github.event.inputs.stream_weights }}" = "true" ]; then ARGS="$ARGS --stream-weights"; else ARGS="$ARGS --gpu"; fi
+          if [ "${{ github.event.inputs.audio }}" != "false" ]; then ARGS="$ARGS --audio inputs/meeting.aiff"; fi
+          for f in inputs/*.pdf; do ARGS="$ARGS --pdf $f"; done
+          Papers/.build/release/papers-harness $ARGS 2>&1 | grep -v "^ggml_\|^llama_\|^load\|^print_info\|^llm_load\|^\s*$" | tee eval.log
+
+      - name: Upload the recordings and the log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: papers-eval
+          path: |
+            out/
+            eval.log
+          if-no-files-found: ignore

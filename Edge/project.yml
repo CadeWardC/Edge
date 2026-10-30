@@ -50,11 +50,11 @@ targets:
         CLANG_CXX_LANGUAGE_STANDARD: c++17
         GCC_OPTIMIZATION_LEVEL: s
         ENABLE_BITCODE: NO
-        # built by scripts/build-llama-ios.sh
-        FRAMEWORK_SEARCH_PATHS: $(inherited) $(PROJECT_DIR)/vendor
+        # built by ../scripts/build-llama-ios.sh (shared with Papers)
+        FRAMEWORK_SEARCH_PATHS: $(inherited) $(PROJECT_DIR)/../vendor
         LD_RUNPATH_SEARCH_PATHS: $(inherited) @executable_path/Frameworks
     dependencies:
-      - framework: vendor/llama.xcframework
+      - framework: ../vendor/llama.xcframework
         embed: true
       - package: SherpaOnnx
         product: sherpa-onnx

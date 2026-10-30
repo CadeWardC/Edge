@@ -1,0 +1,90 @@
+name: Papers
+options:
+  bundleIdPrefix: com.cadewardc
+  deploymentTarget:
+    iOS: "17.0"
+  createIntermediateGroups: true
+
+packages:
+  # Kokoro speech (prebuilt static iOS xcframework + Swift wrapper)
+  SherpaOnnx:
+    url: https://github.com/k2-fsa/sherpa-onnx
+    exactVersion: 2.0.1
+
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    MARKETING_VERSION: "1.0"
+    CURRENT_PROJECT_VERSION: "1"
+
+targets:
+  Papers:
+    type: application
+    platform: iOS
+    sources:
+      - path: Papers
+        excludes:
+          # the macOS test harness (Package.swift)
+          - "Core/Harness/**"
+    info:
+      path: Papers/Info.plist
+      properties:
+        CFBundleDisplayName: Papers
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        UIFileSharingEnabled: true
+        LSSupportsOpeningDocumentsInPlace: false
+        UILaunchScreen: {}
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+        UISupportedInterfaceOrientations~ipad:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        ITSAppUsesNonExemptEncryption: false
+        # audio: keep playing on the lock screen; processing: background summaries
+        UIBackgroundModes:
+          - audio
+          - processing
+        BGTaskSchedulerPermittedIdentifiers:
+          - com.cadewardc.papers.summarize
+        # "Open in Papers" / share sheet: PDFs for the Papers tab, audio and video for the Audio tab
+        CFBundleDocumentTypes:
+          - CFBundleTypeName: PDF
+            CFBundleTypeRole: Viewer
+            LSHandlerRank: Alternate
+            LSItemContentTypes:
+              - com.adobe.pdf
+          - CFBundleTypeName: Audio
+            CFBundleTypeRole: Viewer
+            LSHandlerRank: Alternate
+            LSItemContentTypes:
+              - public.audio
+              - public.movie
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.cadewardc.papers
+        PRODUCT_NAME: Papers
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        TARGETED_DEVICE_FAMILY: "1,2"
+        SWIFT_OBJC_BRIDGING_HEADER: Papers/Engine/Papers-Bridging-Header.h
+        CLANG_CXX_LANGUAGE_STANDARD: c++17
+        GCC_OPTIMIZATION_LEVEL: s
+        ENABLE_BITCODE: NO
+        # built by ../scripts/build-llama-ios.sh (shared with Edge)
+        FRAMEWORK_SEARCH_PATHS: $(inherited) $(PROJECT_DIR)/../vendor
+        LD_RUNPATH_SEARCH_PATHS: $(inherited) @executable_path/Frameworks
+    dependencies:
+      - framework: ../vendor/llama.xcframework
+        embed: true
+      - package: SherpaOnnx
+        product: sherpa-onnx
+      - sdk: Metal.framework
+      - sdk: Accelerate.framework
+      - sdk: AVFoundation.framework
+      - sdk: PDFKit.framework
+      - sdk: Vision.framework
+      - sdk: BackgroundTasks.framework
+      - sdk: MediaPlayer.framework
+    scheme: {}

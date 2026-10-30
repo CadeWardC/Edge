@@ -1,0 +1,104 @@
+name: Build unsigned IPA (Papers)
+
+# The paper summary listener in Papers/. Edge/ has its own workflow (build-ipa.yml).
+
+on:
+  push:
+    branches: ["**"]
+    paths:
+      - "Papers/**"
+      - "scripts/build-llama-ios.sh"
+      - ".github/workflows/build-papers-ipa.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: papers-ipa-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ipa:
+    runs-on: macos-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      - name: Ensure the iOS platform is installed
+        run: |
+          xcodebuild -version
+          xcodebuild -downloadPlatform iOS || true
+
+      - name: Cache llama.xcframework
+        uses: actions/cache@v4
+        with:
+          path: vendor
+          key: llama-xcframework-${{ hashFiles('scripts/build-llama-ios.sh') }}
+
+      - name: Build llama.cpp for iOS
+        run: ./scripts/build-llama-ios.sh
+
+      - name: Generate the Xcode project
+        run: |
+          brew install xcodegen
+          cd Papers && xcodegen generate
+
+      - name: Build the app (no code signing)
+        run: |
+          mkdir -p build
+          xcodebuild \
+            -project Papers/Papers.xcodeproj \
+            -scheme Papers \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath build/dd \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            build > build/xcodebuild.log 2>&1 || { grep -E "error:" build/xcodebuild.log; tail -20 build/xcodebuild.log; exit 1; }
+          grep -E "warning: .*/Papers/Papers/" build/xcodebuild.log | sort -u || true
+          grep -q "BUILD SUCCEEDED" build/xcodebuild.log
+
+      - name: Package Papers-unsigned.ipa
+        run: |
+          APP=build/dd/Build/Products/Release-iphoneos/Papers.app
+          test -f "$APP/Frameworks/llama.framework/llama"
+          test -f "$APP/ThirdPartyNotices.txt"
+          test -f "$APP/Assets.car" && plutil -extract CFBundleIcons xml1 -o - "$APP/Info.plist" > /dev/null
+          plutil -extract BGTaskSchedulerPermittedIdentifiers xml1 -o - "$APP/Info.plist"
+          rm -rf build/ipa && mkdir -p build/ipa/Payload
+          cp -R "$APP" build/ipa/Payload/
+          (cd build/ipa && zip -qry ../Papers-unsigned.ipa Payload)
+          ls -lh build/Papers-unsigned.ipa
+
+      - name: Upload build log on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: papers-xcodebuild-log
+          path: build/xcodebuild.log
+          if-no-files-found: ignore
+
+      - name: Upload IPA artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Papers-unsigned-ipa
+          path: build/Papers-unsigned.ipa
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="papers-build-${{ github.run_number }}"
+          gh release create "$TAG" build/Papers-unsigned.ipa \
+            --target "${{ github.sha }}" \
+            --title "Papers (unsigned) #${{ github.run_number }}" \
+            --notes "Unsigned Papers IPA built from ${{ github.ref_name }} @ ${GITHUB_SHA::7}. Sign it with your sideloading tool (AltStore, SideStore, Sideloadly, TrollStore) before installing." \
+            --prerelease --latest=false
