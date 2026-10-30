@@ -273,7 +273,7 @@ enum PaperPipeline {
         let scale = Double(total) / max(sum, 1)
         return items.map { item in
             var sized = item
-            sized.words = min(max(Int((base(item.kind) * scale / 10).rounded()) * 10, 110), 400)
+            sized.words = min(max(Int((base(item.kind) * scale / 10).rounded()) * 10, 110), 450)
             return sized
         }
     }
@@ -340,9 +340,10 @@ enum PaperPipeline {
                 excerpts = source.index.excerpts(for: "figure table shows plot panel", budget: 2800)
             } else {
                 task = """
-                    Explain \(item.subject), whose caption reads: "\(item.detail)". Describe what it shows in a way \
-                    a listener can picture without seeing it, then how it supports (or only partly supports) the \
-                    paper's conclusions.
+                    Explain \(item.subject), whose caption reads: "\(item.detail)". Say what it shows using only \
+                    what the caption and the excerpts state about it (its rows, columns, axes or panels and the values \
+                    the text reports); neither you nor the listener can see it, so never invent its layout, trends or \
+                    numbers. Then say how it supports (or only partly supports) the paper's conclusions.
                     """
                 // passages that refer to the figure by its label: "Figure 2", "Fig. 2", "Fig 2" or "Table 2"
                 let number = item.subject.components(separatedBy: " ").last ?? ""
