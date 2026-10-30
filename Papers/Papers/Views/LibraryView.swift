@@ -3,7 +3,7 @@ import UniformTypeIdentifiers
 
 struct LibraryView: View {
     @EnvironmentObject private var library: Library
-    @EnvironmentObject private var queue: SummaryQueue
+    @EnvironmentObject private var queue: WorkQueue
     @EnvironmentObject private var player: SummaryPlayer
     @State private var importing = false
     @State private var showSettings = false
@@ -45,11 +45,17 @@ struct LibraryView: View {
             }
             .sheet(isPresented: $showSettings) { SettingsView() }
             .safeAreaInset(edge: .bottom) {
-                if let id = player.paperID, let paper = library.paper(id), path.last != id {
-                    MiniPlayer(paper: paper) { path.append(id) }
+                if player.item != nil, !isShowingPlayingPaper {
+                    MiniPlayer()
+                        .onTapGesture { if case .paper(let id, _) = player.item { path.append(id) } }
                 }
             }
         }
+    }
+
+    private var isShowingPlayingPaper: Bool {
+        if case .paper(let id, _) = player.item { return path.last == id }
+        return false
     }
 
     private var emptyState: some View {
@@ -59,7 +65,7 @@ struct LibraryView: View {
                 .foregroundStyle(.secondary)
             Text("Add a research paper")
                 .font(.title2.bold())
-            Text("Pick a PDF, or share one to Papers from Safari, Mail or Files. Papers reads it on your iPhone and makes a five to six minute audio overview: the question, why it matters, what they did and what they found.")
+            Text("Pick a PDF, or share one to Papers from Safari, Mail or Files. Papers reads it on your iPhone and makes three things to listen to: a five to six minute overview, a ten to fifteen minute in-depth look at the findings, experiments, figures and limits, and study questions with answers.")
                 .multilineTextAlignment(.center)
                 .foregroundStyle(.secondary)
             Button {
@@ -76,7 +82,7 @@ struct LibraryView: View {
     private var list: some View {
         List {
             if queue.pausedInBackground {
-                Label("iOS paused the summary in the background. It carries on now that Papers is open.",
+                Label("iOS paused the work in the background. It carries on now that Papers is open.",
                       systemImage: "pause.circle")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
@@ -89,8 +95,7 @@ struct LibraryView: View {
             .onDelete { offsets in
                 for i in offsets {
                     let id = library.papers[i].id
-                    player.unload(id)
-                    queue.delete(id)
+                    queue.deletePaper(id)
                 }
             }
         }
@@ -122,42 +127,13 @@ struct PaperRow: View {
             .foregroundStyle(.secondary)
             if paper.isWorking {
                 ProgressView(value: paper.overallProgress)
-            } else if paper.stage == .ready, let duration = paper.duration, paper.playbackPosition > 1 {
-                ProgressView(value: min(paper.playbackPosition / max(duration, 1), 1))
-                    .tint(.secondary)
+                if paper.tracks[.overview] != nil {
+                    Label("Overview ready to play", systemImage: "play.circle")
+                        .font(.caption)
+                        .foregroundStyle(.tint)
+                }
             }
         }
         .padding(.vertical, 4)
-    }
-}
-
-/// A small bar above the bottom edge for the summary that is playing.
-struct MiniPlayer: View {
-    @EnvironmentObject private var player: SummaryPlayer
-    let paper: Paper
-    let open: () -> Void
-
-    var body: some View {
-        HStack(spacing: 12) {
-            Button(action: open) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(paper.displayTitle).font(.subheadline.bold()).lineLimit(1)
-                    Text("\(Paper.format(player.position)) / \(Paper.format(player.duration))")
-                        .font(.caption.monospacedDigit())
-                        .foregroundStyle(.secondary)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-            }
-            .buttonStyle(.plain)
-            Button { player.skip(-15) } label: { Image(systemName: "gobackward.15") }
-            Button { player.toggle() } label: {
-                Image(systemName: player.isPlaying ? "pause.fill" : "play.fill").font(.title2)
-            }
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 10)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14))
-        .padding(.horizontal, 12)
-        .padding(.bottom, 4)
     }
 }

@@ -6,7 +6,8 @@ struct PapersApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @ObservedObject private var models = ModelStore.shared
     @ObservedObject private var library = Library.shared
-    @ObservedObject private var queue = SummaryQueue.shared
+    @ObservedObject private var recordings = RecordingLibrary.shared
+    @ObservedObject private var queue = WorkQueue.shared
     @ObservedObject private var player = SummaryPlayer.shared
 
     var body: some Scene {
@@ -14,34 +15,55 @@ struct PapersApp: App {
             ContentView()
                 .environmentObject(models)
                 .environmentObject(library)
+                .environmentObject(recordings)
                 .environmentObject(queue)
                 .environmentObject(player)
         }
     }
 }
 
+enum AppTab: Hashable { case papers, audio }
+
 struct ContentView: View {
     @EnvironmentObject private var models: ModelStore
     @EnvironmentObject private var library: Library
-    @EnvironmentObject private var queue: SummaryQueue
+    @EnvironmentObject private var recordings: RecordingLibrary
+    @EnvironmentObject private var queue: WorkQueue
     @Environment(\.scenePhase) private var scenePhase
+    @State private var tab = AppTab.papers
 
     var body: some View {
         Group {
             if models.isReady {
-                LibraryView()
+                TabView(selection: $tab) {
+                    LibraryView()
+                        .tabItem { Label("Papers", systemImage: "doc.richtext") }
+                        .tag(AppTab.papers)
+                    RecordingsView()
+                        .tabItem { Label("Audio", systemImage: "waveform") }
+                        .tag(AppTab.audio)
+                }
             } else {
                 SetupView()
             }
         }
-        // "Open in Papers" from the share sheet or the Files app
+        // "Open in Papers" from the share sheet or the Files app: PDFs go to Papers, audio and video to Audio
         .onOpenURL { url in
             guard url.isFileURL else { return }
-            if library.importPDF(from: url) != nil {
-                queue.start()
+            if url.pathExtension.lowercased() == "pdf" {
+                tab = .papers
+                if library.importPDF(from: url) != nil { queue.start() }
+            } else {
+                tab = .audio
+                Task {
+                    if await recordings.importMedia(from: url) != nil { queue.start() }
+                }
             }
         }
         .onChange(of: models.isReady) { _, ready in
+            if ready { queue.start() }
+        }
+        .onChange(of: models.speechReady) { _, ready in
             if ready { queue.start() }
         }
         .onChange(of: scenePhase) { _, phase in

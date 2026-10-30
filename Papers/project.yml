@@ -49,13 +49,19 @@ targets:
           - processing
         BGTaskSchedulerPermittedIdentifiers:
           - com.cadewardc.papers.summarize
-        # "Open in Papers" / share sheet for PDFs
+        # "Open in Papers" / share sheet: PDFs for the Papers tab, audio and video for the Audio tab
         CFBundleDocumentTypes:
           - CFBundleTypeName: PDF
             CFBundleTypeRole: Viewer
             LSHandlerRank: Alternate
             LSItemContentTypes:
               - com.adobe.pdf
+          - CFBundleTypeName: Audio
+            CFBundleTypeRole: Viewer
+            LSHandlerRank: Alternate
+            LSItemContentTypes:
+              - public.audio
+              - public.movie
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.cadewardc.papers

@@ -6,7 +6,7 @@ its own unsigned IPA built by GitHub Actions:
 | Folder | App | What it does | IPA (Releases) |
 | --- | --- | --- | --- |
 | [`Edge/`](Edge/README.md) | **Edge** | Mandarin speaking practice: talk, and it answers out loud and checks your tones | `build-N` |
-| [`Papers/`](Papers/README.md) | **Papers** | Feed it a research PDF and listen to a 5–6 minute overview of the paper | `papers-build-N` |
+| [`Papers/`](Papers/README.md) | **Papers** | Listen to research papers (overview, in-depth audio, study questions) and turn recordings into transcripts and bullet points | `papers-build-N` |
 
 Both run their models entirely on the phone with llama.cpp and sherpa-onnx. `scripts/build-llama-ios.sh` builds the
 shared `vendor/llama.xcframework` that both projects link.

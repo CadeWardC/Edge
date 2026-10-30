@@ -11,7 +11,7 @@ struct SetupView: View {
                     VStack(alignment: .leading, spacing: 8) {
                         Text("Listen to papers")
                             .font(.system(size: 36, weight: .bold))
-                        Text("Give Papers a PDF and it makes a five to six minute audio overview, entirely on your iPhone: what question the researchers are asking, why it matters, what they did and what they found. A framework for your brain before you read the paper.")
+                        Text("Give Papers a PDF and, entirely on your iPhone, it makes a five to six minute overview (the question, why it matters, what they did, what they found), a ten to fifteen minute in-depth look at the findings, experiments, figures, limitations and open questions, and study questions with answers. The Audio tab turns recordings into transcripts and bullet-point summaries.")
                             .font(.body)
                             .foregroundStyle(.secondary)
                     }

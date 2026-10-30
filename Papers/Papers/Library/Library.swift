@@ -18,7 +18,7 @@ final class Library: ObservableObject {
 
     nonisolated static func pdfURL(_ id: UUID) -> URL { folder(id).appendingPathComponent("paper.pdf") }
     nonisolated static func textURL(_ id: UUID) -> URL { folder(id).appendingPathComponent("text.txt") }
-    nonisolated static func audioURL(_ id: UUID) -> URL { folder(id).appendingPathComponent("summary.m4a") }
+    nonisolated static func audioURL(_ id: UUID, _ track: TrackKind) -> URL { folder(id).appendingPathComponent(track.fileName) }
     nonisolated static func stateURL(_ id: UUID) -> URL { folder(id).appendingPathComponent("state.json") }
 
     private init() {
@@ -98,7 +98,7 @@ final class Library: ObservableObject {
         try? FileManager.default.removeItem(at: Self.folder(id))
     }
 
-    /// Starts over from the PDF (keeps the extracted text).
+    /// Starts over from the PDF.
     func resetSummary(_ id: UUID) {
         update(id) { p in
             p.stage = .queued
@@ -106,42 +106,48 @@ final class Library: ObservableObject {
             p.error = nil
             p.notes = []
             p.chunkCount = 0
-            p.sections = []
-            p.duration = nil
-            p.chapterStarts = []
-            p.playbackPosition = 0
+            p.overview = []
+            p.deepPlan = nil
+            p.deep = []
+            p.questionList = nil
+            p.questions = []
+            p.tracks = [:]
         }
-        try? FileManager.default.removeItem(at: Self.audioURL(id))
+        for track in TrackKind.allCases { try? FileManager.default.removeItem(at: Self.audioURL(id, track)) }
     }
 
-    /// Records the audio again (for example with another voice), keeping the script.
+    /// Records the audio again (for example with other voices), keeping the scripts.
     func resetAudio(_ id: UUID) {
         update(id) { p in
-            p.stage = p.sections.count == SectionKind.allCases.count ? .recording : .queued
-            p.stageProgress = 0
+            p.tracks = [:]
             p.error = nil
-            p.duration = nil
-            p.chapterStarts = []
-            p.playbackPosition = 0
+            p.stageProgress = 0
+            p.stage = p.overview.count == PaperPipeline.OverviewPart.allCases.count ? .recordOverview : .queued
         }
-        try? FileManager.default.removeItem(at: Self.audioURL(id))
+        for track in TrackKind.allCases { try? FileManager.default.removeItem(at: Self.audioURL(id, track)) }
     }
 
     /// Picks a failed summary up where it stopped.
     func retry(_ id: UUID) {
         update(id) { p in
-            if p.sections.count == SectionKind.allCases.count {
-                p.stage = .recording
-            } else if p.chunkCount > 0 && p.notes.count >= p.chunkCount {
-                p.stage = .writing
-            } else if p.chunkCount > 0 && FileManager.default.fileExists(atPath: Self.textURL(id).path) {
-                p.stage = .notes
-            } else {
-                p.stage = .queued
-            }
+            p.stage = Self.resumeStage(p)
             p.stageProgress = 0
             p.error = nil
         }
+    }
+
+    /// The first step that is not done yet.
+    nonisolated static func resumeStage(_ p: Paper) -> Paper.Stage {
+        let hasText = FileManager.default.fileExists(atPath: textURL(p.id).path)
+        if !hasText || p.chunkCount == 0 { return .queued }
+        if p.notes.count < p.chunkCount { return .notes }
+        if p.overview.count < PaperPipeline.OverviewPart.allCases.count { return .overview }
+        if p.tracks[.overview] == nil { return .recordOverview }
+        if p.deepPlan == nil || p.deep.count < (p.deepPlan?.count ?? 0) { return .deep }
+        if p.questionList == nil || p.questions.count < (p.questionList?.count ?? 0) { return .questions }
+        if p.tracks[.deep] == nil { return .recordDeep }
+        if p.tracks[.questions] == nil && !p.questions.isEmpty { return .recordQuestions }
+        return .ready
     }
 
     /// Papers still to be summarized, oldest first.

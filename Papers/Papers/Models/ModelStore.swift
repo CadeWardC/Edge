@@ -1,8 +1,10 @@
 import Foundation
+import os
 import UIKit
 import UserNotifications
 
-/// Downloads the models: Qwen3.5 (reads the paper and writes the summary) and Kokoro (reads it out).
+/// Downloads the models: Qwen3.5 (reads the paper and writes the summaries), Kokoro (reads them out) and, for the
+/// Audio tab, Parakeet with Silero VAD (transcribes recordings).
 /// Downloads run in a background URLSession, so they keep going while the app is suspended.
 @MainActor
 final class ModelStore: NSObject, ObservableObject {
@@ -69,11 +71,17 @@ final class ModelStore: NSObject, ObservableObject {
             .filter { $0.lowercased().hasSuffix(".gguf") }
         chatModelURL = Self.pickChatModel(chatFiles).map { chatDir.appendingPathComponent($0) }
         kokoroReady = Self.kokoroFiles.keys.allSatisfy { FileManager.default.fileExists(atPath: Self.kokoroURL($0).path) }
+        speechReady = Self.speechFiles.keys.allSatisfy {
+            FileManager.default.fileExists(atPath: Self.speechDirectoryURL.appendingPathComponent($0).path)
+        }
     }
 
     // MARK: Summary model (Qwen3.5)
 
     nonisolated static let defaultChatRepo = "unsloth/Qwen3.5-2B-GGUF"
+    nonisolated static let largerChatRepo = "unsloth/Qwen3.5-4B-GGUF"
+    /// Q4_K_M of Qwen3.5-4B, about 2.7 GB; it needs about 3.4 GB free while running.
+    nonisolated static let largerChatBytes: Int64 = 2_740_000_000
     nonisolated static let chatDirectory = "Chat"
     nonisolated static let preferredChatQuants = ["Q4_K_M", "UD-Q4_K_XL", "Q5_K_M", "Q4_K_S", "Q6_K", "Q8_0"]
 
@@ -98,20 +106,58 @@ final class ModelStore: NSObject, ObservableObject {
     /// of this repo (.github/workflows/mirror-kokoro-en.yml) since the original is a single .tar.bz2.
     nonisolated static let kokoroBaseURL = "https://github.com/CadeWardC/Edge/releases/download/models-kokoro-v1_0"
     nonisolated static let kokoroDirectory = "Kokoro"
-    /// File name and approximate size (for the progress bar until the server reports the real one).
+    /// File name and size (from the mirror workflow's listing), for the progress bar.
     nonisolated static let kokoroFiles: [String: Int64] = [
-        "model.onnx": 325_000_000, "voices.bin": 27_678_720, "tokens.txt": 1_100, "lexicon-us-en.txt": 5_910_000,
+        "model.onnx": 325_560_556, "voices.bin": 28_200_960, "tokens.txt": 687, "lexicon-us-en.txt": 5_956_885,
     ]
+    nonisolated static var kokoroDirectoryURL: URL {
+        modelsDirectory.appendingPathComponent(kokoroDirectory, isDirectory: true)
+    }
     nonisolated static func kokoroURL(_ name: String) -> URL {
         modelsDirectory.appendingPathComponent(kokoroDirectory, isDirectory: true).appendingPathComponent(name)
     }
 
     @Published private(set) var kokoroReady = false
 
+    // MARK: Speech recognition (Parakeet + Silero VAD), only for the Audio tab
+
+    /// NVIDIA Parakeet TDT 0.6B v3 (int8, sherpa-onnx) and Silero VAD, unpacked into a release of this repo by
+    /// .github/workflows/mirror-parakeet.yml.
+    nonisolated static let speechBaseURL = "https://github.com/CadeWardC/Edge/releases/download/models-parakeet-v3"
+    nonisolated static let speechDirectory = "Parakeet"
+    /// Approximate sizes for the progress bar until the server reports the real ones.
+    nonisolated static let speechFiles: [String: Int64] = [
+        "encoder.int8.onnx": 652_000_000, "decoder.int8.onnx": 12_000_000, "joiner.int8.onnx": 6_400_000,
+        "tokens.txt": 94_000, "silero_vad.onnx": 2_300_000,
+    ]
+    nonisolated static var speechDirectoryURL: URL {
+        modelsDirectory.appendingPathComponent(speechDirectory, isDirectory: true)
+    }
+
+    @Published private(set) var speechReady = false
+    /// Which set the current download is for.
+    @Published private(set) var downloadingSpeech = false
+
+    // MARK: Memory
+
+    /// What the app may still allocate before iOS stops it (os_proc_available_memory), in bytes.
+    nonisolated static var availableMemory: Int64 {
+        Int64(os_proc_available_memory())
+    }
+
+    /// Whether a model file of this size can be loaded now with room to spare for its working memory.
+    nonisolated static func fits(modelBytes: Int64) -> Bool {
+        let available = availableMemory
+        // 0 means the call is not supported (simulator); let it try
+        return available == 0 || available > modelBytes + 700_000_000
+    }
+
     // MARK: Download
 
-    func download() async {
+    /// Downloads the summary model and the voice, or (`speech`) the speech recognition files for the Audio tab.
+    func download(speech: Bool = false) async {
         guard phase == .idle || phase.isFailed else { return }
+        downloadingSpeech = speech
         phase = .resolving
         progress = 0
         Notifier.requestPermission()
@@ -128,8 +174,14 @@ final class ModelStore: NSObject, ObservableObject {
             var jobs: [(name: String, url: URL)] = []
             var sizes: [String: Int64] = [:]
             for (file, size) in Self.kokoroFiles { sizes["\(Self.kokoroDirectory)/\(file)"] = size }
+            for (file, size) in Self.speechFiles { sizes["\(Self.speechDirectory)/\(file)"] = size }
+            if speech {
+                jobs = Self.speechFiles.keys.sorted().map { "\(Self.speechDirectory)/\($0)" }.filter(missing).map {
+                    (name: $0, url: URL(string: "\(Self.speechBaseURL)/\(($0 as NSString).lastPathComponent)")!)
+                }
+            }
             // the summary model, kept in its own folder; its file name is looked up in the repo
-            if chatModelURL == nil {
+            if !speech && chatModelURL == nil {
                 let remote = try await listRemoteFiles(repo: chatRepo)
                 guard let file = Self.pickChatModel(remote.map(\.path)) else {
                     throw EngineError.load("No GGUF model found in \(chatRepo).")
@@ -139,9 +191,9 @@ final class ModelStore: NSObject, ObservableObject {
                 if missing(name) { jobs.append((name: name, url: resolveURL(chatRepo, file))) }
             }
             // the Kokoro files, from this repo's release
-            jobs += Self.kokoroFiles.keys.sorted().filter { !FileManager.default.fileExists(atPath: Self.kokoroURL($0).path) }.map {
+            if !speech { jobs += Self.kokoroFiles.keys.sorted().filter { !FileManager.default.fileExists(atPath: Self.kokoroURL($0).path) }.map {
                 (name: "\(Self.kokoroDirectory)/\($0)", url: URL(string: "\(Self.kokoroBaseURL)/\($0)")!)
-            }
+            } }
             let wanted = jobs.map(\.name)
             guard !wanted.isEmpty else {
                 phase = .idle
@@ -183,6 +235,7 @@ final class ModelStore: NSObject, ObservableObject {
             let names = tasks.filter { $0.state == .running || $0.state == .suspended }.compactMap(\.taskDescription)
             Task { @MainActor in
                 guard !names.isEmpty else { return }
+                self.downloadingSpeech = names.allSatisfy { $0.hasPrefix(Self.speechDirectory + "/") }
                 self.phase = .downloading(remaining: names.count)
                 self.updateProgress()
             }
@@ -221,10 +274,13 @@ final class ModelStore: NSObject, ObservableObject {
             return
         }
         refresh()
-        if isReady {
+        if downloadingSpeech ? speechReady : isReady {
             phase = .idle
             expected = [:]
-            Notifier.post(title: "Models downloaded", body: "Papers is ready. Add a PDF to hear its summary.")
+            Notifier.post(title: "Models downloaded", body: downloadingSpeech
+                ? "Speech recognition is ready. Add a recording to transcribe it."
+                : "Papers is ready. Add a PDF to hear its summary.")
+            downloadingSpeech = false
         } else if !phase.isFailed {
             phase = .failed("The download did not finish. Tap Try again to continue.")
         }
@@ -237,6 +293,11 @@ final class ModelStore: NSObject, ObservableObject {
             throw EngineError.load("Hugging Face returned \(http.statusCode) for \(repo). Check your connection and try again.")
         }
         return try JSONDecoder().decode([RemoteFile].self, from: data).filter { $0.type == "file" }
+    }
+
+    func deleteSpeechModel() {
+        try? FileManager.default.removeItem(at: Self.speechDirectoryURL)
+        refresh()
     }
 
     func deleteModels() {

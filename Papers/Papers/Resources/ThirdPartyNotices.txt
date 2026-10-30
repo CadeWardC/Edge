@@ -20,6 +20,13 @@ Reads the summary out loud.
 Apache License 2.0. The English pronunciation lexicon (lexicon-us-en.txt) is built from misaki's
 us_gold and us_silver dictionaries.
 
+== Parakeet TDT 0.6B v3 (NVIDIA) ==
+CC-BY-4.0. Converted to ONNX (int8) by sherpa-onnx. Transcribes recordings in the Audio tab.
+
+== Silero VAD (snakers4/silero-vad) ==
+MIT License. Copyright (c) 2020-present Silero Team. Finds the speech in recordings.
+
 The full texts of these licenses are at:
 https://opensource.org/license/mit
 https://www.apache.org/licenses/LICENSE-2.0
+https://creativecommons.org/licenses/by/4.0/

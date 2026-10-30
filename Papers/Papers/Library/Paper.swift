@@ -1,22 +1,65 @@
 import Foundation
 
-/// One imported PDF and everything made from it, saved as state.json in its own folder:
-/// Documents/Papers/<id>/ holds paper.pdf, text.txt (the extracted text) and summary.m4a.
-struct Paper: Codable, Identifiable, Equatable {
-    enum Stage: String, Codable {
-        case queued       // waiting for its turn
-        case reading      // pulling the text out of the PDF
-        case notes        // taking notes on each part of the paper
-        case writing      // writing the four parts of the script
-        case recording    // reading the script out loud into summary.m4a
-        case ready
-        case failed
+/// The three things a paper is turned into, each its own audio file.
+enum TrackKind: String, Codable, CaseIterable, Identifiable {
+    case overview, deep, questions
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .overview: return "Overview"
+        case .deep: return "In depth"
+        case .questions: return "Questions"
+        }
     }
 
-    struct Section: Codable, Equatable, Identifiable {
-        var kind: SectionKind
-        var text: String
-        var id: SectionKind { kind }
+    var subtitle: String {
+        switch self {
+        case .overview: return "5–6 min · the question, why it matters, what they did, what they found"
+        case .deep: return "10–15 min · findings, experiments, figures, limitations, open questions"
+        case .questions: return "Study questions with in-depth answers"
+        }
+    }
+
+    var fileName: String { "\(rawValue).m4a" }
+}
+
+struct Track: Codable, Equatable {
+    var duration: Double
+    var chapters: [Chapter]
+    var voice: NarratorVoice?
+    var position: Double = 0
+}
+
+/// A written part of a script, shown under the player.
+struct ScriptPart: Codable, Equatable, Identifiable {
+    var id: String
+    var heading: String
+    var text: String
+}
+
+struct QuestionAnswer: Codable, Equatable, Identifiable {
+    var question: String
+    var answer: String
+    var id: String { question }
+}
+
+/// One imported PDF and everything made from it, saved as state.json in its own folder:
+/// Documents/Papers/<id>/ holds paper.pdf, text.txt (the extracted text) and an .m4a per track.
+struct Paper: Codable, Identifiable, Equatable {
+    enum Stage: String, Codable {
+        case queued             // waiting for its turn
+        case reading            // pulling the text out of the PDF
+        case notes              // taking notes on each part of the paper
+        case overview           // writing the overview
+        case recordOverview     // reading the overview into overview.m4a
+        case deep               // writing the in-depth parts
+        case questions          // writing the study questions and their answers
+        case recordDeep         // recording deep.m4a
+        case recordQuestions    // recording questions.m4a
+        case ready
+        case failed
     }
 
     var id = UUID()
@@ -31,15 +74,19 @@ struct Paper: Codable, Identifiable, Equatable {
     /// Notes on each chunk of the paper (filled in order, so a restart picks up where it stopped).
     var chunkCount = 0
     var notes: [String] = []
-    var sections: [Section] = []
 
-    /// The finished audio.
-    var duration: Double?
-    /// Where each section starts in summary.m4a, in seconds (same order as `sections`).
-    var chapterStarts: [Double] = []
-    var voice: NarratorVoice?
-    var playbackPosition: Double = 0
+    var overview: [ScriptPart] = []
+    var deepPlan: [DeepItem]?
+    var deep: [ScriptPart] = []
+    var questionList: [String]?
+    var questions: [QuestionAnswer] = []
+
+    var tracks: [TrackKind: Track] = [:]
     var lastPlayed: Date?
+
+    init(fileName: String) {
+        self.fileName = fileName
+    }
 
     var displayTitle: String {
         if let title, !title.isEmpty { return title }
@@ -51,14 +98,18 @@ struct Paper: Codable, Identifiable, Equatable {
     /// Rough share of the whole job that is done, for progress bars.
     var overallProgress: Double {
         let p = min(max(stageProgress, 0), 1)
+        let weights: [(Stage, Double)] = [(.reading, 0.02), (.notes, 0.30), (.overview, 0.12), (.recordOverview, 0.06),
+                                          (.deep, 0.25), (.questions, 0.12), (.recordDeep, 0.09), (.recordQuestions, 0.04)]
         switch stage {
-        case .queued: return 0
-        case .reading: return 0.03 * p
-        case .notes: return 0.03 + 0.45 * p
-        case .writing: return 0.48 + 0.32 * p
-        case .recording: return 0.80 + 0.20 * p
+        case .queued, .failed: return 0
         case .ready: return 1
-        case .failed: return 0
+        default:
+            var done = 0.0
+            for (s, w) in weights {
+                if s == stage { return done + w * p }
+                done += w
+            }
+            return done
         }
     }
 
@@ -66,51 +117,52 @@ struct Paper: Codable, Identifiable, Equatable {
         switch stage {
         case .queued: return "Waiting"
         case .reading: return "Reading the PDF"
-        case .notes: return chunkCount > 0 ? "Taking notes, part \(min(notes.count + 1, chunkCount)) of \(chunkCount)" : "Taking notes"
-        case .writing: return "Writing the summary, \(min(sections.count + 1, SectionKind.allCases.count)) of \(SectionKind.allCases.count)"
-        case .recording: return "Recording the audio, \(Int(stageProgress * 100))%"
+        case .notes: return chunkCount > 0 ? "Reading part \(min(notes.count + 1, chunkCount)) of \(chunkCount)" : "Reading the paper"
+        case .overview: return "Writing the overview"
+        case .recordOverview: return "Recording the overview, \(Int(stageProgress * 100))%"
+        case .deep:
+            let total = deepPlan?.count ?? 0
+            return total > 0 ? "Writing the in-depth part \(min(deep.count + 1, total)) of \(total)" : "Planning the in-depth audio"
+        case .questions:
+            let total = questionList?.count ?? 0
+            return total > 0 ? "Answering question \(min(questions.count + 1, total)) of \(total)" : "Writing study questions"
+        case .recordDeep: return "Recording the in-depth audio, \(Int(stageProgress * 100))%"
+        case .recordQuestions: return "Recording the questions, \(Int(stageProgress * 100))%"
         case .ready:
-            guard let duration else { return "Ready" }
-            return "Ready · \(Self.format(duration))"
+            let total = tracks.values.reduce(0) { $0 + $1.duration }
+            return total > 0 ? "Ready · \(Self.format(total)) of audio" : "Ready"
         case .failed: return error ?? "Failed"
         }
     }
 
     static func format(_ seconds: Double) -> String {
         let s = Int(seconds.rounded())
-        return String(format: "%d:%02d", s / 60, s % 60)
-    }
-}
-
-/// The four parts of every summary: the framework for reading the paper.
-enum SectionKind: String, Codable, CaseIterable {
-    case question, importance, methods, findings
-
-    var heading: String {
-        switch self {
-        case .question: return "The question"
-        case .importance: return "Why it matters"
-        case .methods: return "What they did"
-        case .findings: return "What they found"
-        }
+        return s >= 3600 ? String(format: "%d:%02d:%02d", s / 3600, s / 60 % 60, s % 60) : String(format: "%d:%02d", s / 60, s % 60)
     }
 
-    /// Spoken before the section, as a signpost.
-    var spokenHeading: String {
-        switch self {
-        case .question: return "First, the question."
-        case .importance: return "Why it matters."
-        case .methods: return "What they did."
-        case .findings: return "What they found."
-        }
+    // Decoding tolerates missing keys, so state saved by an older build still loads.
+    private enum CodingKeys: String, CodingKey {
+        case id, fileName, added, title, stage, stageProgress, error, chunkCount, notes, overview, deepPlan, deep,
+             questionList, questions, tracks, lastPlayed
     }
 
-    var symbol: String {
-        switch self {
-        case .question: return "questionmark.circle"
-        case .importance: return "exclamationmark.circle"
-        case .methods: return "wrench.and.screwdriver"
-        case .findings: return "lightbulb"
-        }
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(UUID.self, forKey: .id)
+        fileName = try c.decodeIfPresent(String.self, forKey: .fileName) ?? "Paper.pdf"
+        added = try c.decodeIfPresent(Date.self, forKey: .added) ?? Date()
+        title = try c.decodeIfPresent(String.self, forKey: .title)
+        stage = (try? c.decodeIfPresent(Stage.self, forKey: .stage)) ?? .queued
+        stageProgress = try c.decodeIfPresent(Double.self, forKey: .stageProgress) ?? 0
+        error = try c.decodeIfPresent(String.self, forKey: .error)
+        chunkCount = try c.decodeIfPresent(Int.self, forKey: .chunkCount) ?? 0
+        notes = try c.decodeIfPresent([String].self, forKey: .notes) ?? []
+        overview = (try? c.decodeIfPresent([ScriptPart].self, forKey: .overview)) ?? []
+        deepPlan = try? c.decodeIfPresent([DeepItem].self, forKey: .deepPlan)
+        deep = (try? c.decodeIfPresent([ScriptPart].self, forKey: .deep)) ?? []
+        questionList = try? c.decodeIfPresent([String].self, forKey: .questionList)
+        questions = (try? c.decodeIfPresent([QuestionAnswer].self, forKey: .questions)) ?? []
+        tracks = (try? c.decodeIfPresent([TrackKind: Track].self, forKey: .tracks)) ?? [:]
+        lastPlayed = try c.decodeIfPresent(Date.self, forKey: .lastPlayed)
     }
 }

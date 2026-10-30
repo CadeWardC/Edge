@@ -4,9 +4,10 @@ import SwiftUI
 struct PaperView: View {
     let id: UUID
     @EnvironmentObject private var library: Library
-    @EnvironmentObject private var queue: SummaryQueue
+    @EnvironmentObject private var queue: WorkQueue
     @EnvironmentObject private var player: SummaryPlayer
     @Environment(\.dismiss) private var dismiss
+    @State private var track = TrackKind.overview
     @State private var showPDF = false
     @State private var confirmDelete = false
 
@@ -28,63 +29,86 @@ struct PaperView: View {
                     .toolbar { Button("Done") { showPDF = false } }
             }
         }
-        .confirmationDialog("Delete this paper and its summary?", isPresented: $confirmDelete, titleVisibility: .visible) {
+        .confirmationDialog("Delete this paper and its audio?", isPresented: $confirmDelete, titleVisibility: .visible) {
             Button("Delete", role: .destructive) {
-                player.unload(id)
-                queue.delete(id)
+                queue.deletePaper(id)
                 dismiss()
             }
+        }
+        .onAppear {
+            // continue with the track that was playing
+            if case .paper(let pid, let kind) = player.item, pid == id { track = kind }
         }
     }
 
     @ViewBuilder private func content(_ paper: Paper) -> some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 20) {
+            VStack(alignment: .leading, spacing: 18) {
                 Text(paper.displayTitle)
                     .font(.title2.bold())
                     .textSelection(.enabled)
 
-                switch paper.stage {
-                case .ready:
-                    PlayerCard(paper: paper)
-                case .failed:
+                if paper.stage == .failed {
                     failedCard(paper)
-                default:
+                } else if paper.isWorking {
                     progressCard(paper)
                 }
 
-                ForEach(Array(paper.sections.enumerated()), id: \.element.id) { index, section in
-                    SectionCard(paper: paper, index: index, section: section)
+                Picker("Track", selection: $track) {
+                    ForEach(TrackKind.allCases) { kind in
+                        Text(kind.title).tag(kind)
+                    }
+                }
+                .pickerStyle(.segmented)
+
+                Text(track.subtitle)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                if let t = paper.tracks[track] {
+                    PlayerCard(id: .paper(id, track), duration: t.duration, savedPosition: t.position)
+                } else if paper.isWorking {
+                    Label(track == .overview ? "Being written now." : "Comes after the overview.", systemImage: "hourglass")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+
+                switch track {
+                case .overview:
+                    ForEach(paper.overview) { part in
+                        PartCard(heading: part.heading, text: part.text, playable: .paper(id, .overview),
+                                 chapter: paper.tracks[.overview]?.chapters.first { $0.title == part.heading })
+                    }
+                case .deep:
+                    ForEach(paper.deep) { part in
+                        PartCard(heading: part.heading, text: part.text, playable: .paper(id, .deep),
+                                 chapter: paper.tracks[.deep]?.chapters.first { $0.title == part.heading })
+                    }
+                case .questions:
+                    ForEach(Array(paper.questions.enumerated()), id: \.element.id) { i, qa in
+                        QuestionCard(number: i + 1, qa: qa, playable: .paper(id, .questions),
+                                     chapter: paper.tracks[.questions]?.chapters.first { $0.title == "Question \(i + 1)" })
+                    }
                 }
             }
             .padding()
         }
-        .onAppear {
-            if paper.stage == .ready { player.load(paper) }
-        }
-        .onChange(of: paper.stage) { _, stage in
-            if stage == .ready, let p = library.paper(id) { player.load(p) }
-        }
         .toolbar {
             Menu {
                 Button { showPDF = true } label: { Label("View PDF", systemImage: "doc.text") }
-                if paper.stage == .ready {
-                    ShareLink(item: Library.audioURL(id)) { Label("Share audio", systemImage: "square.and.arrow.up") }
+                if let t = paper.tracks[track] {
+                    ShareLink(item: Library.audioURL(id, track)) {
+                        Label("Share \(track.title.lowercased()) audio (\(Paper.format(t.duration)))", systemImage: "square.and.arrow.up")
+                    }
                 }
                 if !paper.isWorking {
-                    if paper.sections.count == SectionKind.allCases.count {
-                        Button {
-                            player.unload(id)
-                            queue.regenerate(id, scriptToo: false)
-                        } label: {
-                            Label("Record again with \(NarratorVoice.current.label)", systemImage: "waveform")
+                    if paper.overview.count == PaperPipeline.OverviewPart.allCases.count {
+                        Button { queue.regenerate(id, scriptToo: false) } label: {
+                            Label("Record again with the current voices", systemImage: "waveform")
                         }
                     }
-                    Button {
-                        player.unload(id)
-                        queue.regenerate(id, scriptToo: true)
-                    } label: {
-                        Label("Make a new summary", systemImage: "arrow.clockwise")
+                    Button { queue.regenerate(id, scriptToo: true) } label: {
+                        Label("Make everything again", systemImage: "arrow.clockwise")
                     }
                 }
                 Button(role: .destructive) { confirmDelete = true } label: { Label("Delete", systemImage: "trash") }
@@ -97,9 +121,9 @@ struct PaperView: View {
     private func progressCard(_ paper: Paper) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             ProgressView(value: paper.overallProgress)
-            Text(queue.currentID == paper.id ? paper.statusText : (queue.isRunning ? "Waiting for the paper before it" : "Waiting"))
+            Text(queue.currentID == paper.id ? paper.statusText : (queue.isRunning ? "Waiting for the item before it" : "Waiting"))
                 .font(.subheadline)
-            Text("This runs entirely on your iPhone and takes several minutes. You can leave the app: it keeps going in the background, and you'll get a notification when the audio is ready.")
+            Text("This runs entirely on your iPhone and takes a while. The overview is ready first. You can leave the app: the work continues in the background, and you'll get a notification.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
             if !queue.isRunning {
@@ -113,12 +137,12 @@ struct PaperView: View {
 
     private func failedCard(_ paper: Paper) -> some View {
         VStack(alignment: .leading, spacing: 10) {
-            Label("The summary could not be made", systemImage: "exclamationmark.triangle")
+            Label("This could not be finished", systemImage: "exclamationmark.triangle")
                 .font(.headline)
             Text(paper.error ?? "Unknown error")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
-            Button("Try again") { queue.retry(paper.id) }
+            Button("Try again") { queue.retryPaper(paper.id) }
                 .buttonStyle(.borderedProminent)
         }
         .padding()
@@ -126,110 +150,87 @@ struct PaperView: View {
     }
 }
 
-struct PlayerCard: View {
-    let paper: Paper
-    @EnvironmentObject private var player: SummaryPlayer
-    @State private var scrubbing: Double?
-
-    private var isLoaded: Bool { player.paperID == paper.id }
-    private var position: Double { scrubbing ?? (isLoaded ? player.position : paper.playbackPosition) }
-    private var duration: Double { max(paper.duration ?? 0, 1) }
-
-    var body: some View {
-        VStack(spacing: 14) {
-            Slider(value: Binding(get: { position }, set: { scrubbing = $0 }), in: 0...duration, onEditingChanged: { editing in
-                if !editing, let s = scrubbing {
-                    player.load(paper)
-                    player.seek(to: s)
-                    scrubbing = nil
-                }
-            })
-            HStack {
-                Text(Paper.format(position))
-                Spacer()
-                Text(currentChapter.map { paper.sections.indices.contains($0) ? paper.sections[$0].kind.heading : "" } ?? "")
-                    .foregroundStyle(.secondary)
-                Spacer()
-                Text("-" + Paper.format(max(duration - position, 0)))
-            }
-            .font(.caption.monospacedDigit())
-
-            HStack(spacing: 36) {
-                Button { player.load(paper); player.skip(-15) } label: {
-                    Image(systemName: "gobackward.15").font(.title)
-                }
-                Button {
-                    if isLoaded { player.toggle() } else { player.play(paper) }
-                } label: {
-                    Image(systemName: isLoaded && player.isPlaying ? "pause.circle.fill" : "play.circle.fill")
-                        .font(.system(size: 64))
-                }
-                Button { player.load(paper); player.skip(15) } label: {
-                    Image(systemName: "goforward.15").font(.title)
-                }
-            }
-
-            Menu {
-                Picker("Speed", selection: $player.speed) {
-                    ForEach(SummaryPlayer.speeds, id: \.self) { s in
-                        Text(String(format: "%.1f×", s)).tag(s)
-                    }
-                }
-            } label: {
-                Label(String(format: "%.1f×", player.speed), systemImage: "speedometer")
-                    .font(.subheadline)
-            }
-        }
-        .padding()
-        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 16))
-    }
-
-    private var currentChapter: Int? {
-        paper.chapterStarts.lastIndex { $0 <= position + 0.25 }
-    }
-}
-
-struct SectionCard: View {
-    let paper: Paper
-    let index: Int
-    let section: Paper.Section
+/// A written part of a script, highlighted while it plays; its play button jumps to it.
+struct PartCard: View {
+    let heading: String
+    let text: String
+    let playable: PlayableID
+    let chapter: Chapter?
     @EnvironmentObject private var player: SummaryPlayer
 
     private var isCurrent: Bool {
-        guard player.paperID == paper.id, paper.stage == .ready else { return false }
-        let starts = paper.chapterStarts
-        return starts.lastIndex { $0 <= player.position + 0.25 } == index
+        guard player.item == playable, let chapter, let i = player.currentChapterIndex else { return false }
+        return player.chapters[i] == chapter
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
-                Label(section.kind.heading, systemImage: section.kind.symbol)
+                Text(heading)
                     .font(.headline)
                     .foregroundStyle(isCurrent ? AnyShapeStyle(.tint) : AnyShapeStyle(.primary))
                 Spacer()
-                if paper.stage == .ready, paper.chapterStarts.indices.contains(index) {
+                if let chapter {
                     Button {
-                        player.load(paper)
-                        player.seek(to: paper.chapterStarts[index])
+                        player.load(playable)
+                        player.seek(to: chapter.start)
                         player.play()
                     } label: {
-                        Label(Paper.format(paper.chapterStarts[index]), systemImage: "play.fill")
-                            .font(.caption.monospacedDigit())
+                        Label(Paper.format(chapter.start), systemImage: "play.fill").font(.caption.monospacedDigit())
                     }
                     .buttonStyle(.bordered)
                     .controlSize(.small)
                 }
             }
-            Text(section.text)
+            Text(text)
                 .font(.body)
                 .foregroundStyle(isCurrent ? .primary : .secondary)
                 .textSelection(.enabled)
         }
         .padding()
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(isCurrent ? AnyShapeStyle(.tint.opacity(0.08)) : AnyShapeStyle(.clear),
-                    in: RoundedRectangle(cornerRadius: 16))
+        .background(isCurrent ? AnyShapeStyle(.tint.opacity(0.08)) : AnyShapeStyle(.clear), in: RoundedRectangle(cornerRadius: 16))
+        .overlay(RoundedRectangle(cornerRadius: 16).stroke(.quaternary))
+    }
+}
+
+/// A study question; tap to show the answer (try answering it first).
+struct QuestionCard: View {
+    let number: Int
+    let qa: QuestionAnswer
+    let playable: PlayableID
+    let chapter: Chapter?
+    @EnvironmentObject private var player: SummaryPlayer
+    @State private var revealed = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .top) {
+                Text("\(number)").font(.headline.monospacedDigit()).foregroundStyle(.tint)
+                Text(qa.question).font(.headline)
+                Spacer()
+                if let chapter {
+                    Button {
+                        player.load(playable)
+                        player.seek(to: chapter.start)
+                        player.play()
+                    } label: { Image(systemName: "play.fill").font(.caption) }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                }
+            }
+            if revealed {
+                Text(qa.answer)
+                    .font(.body)
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
+            } else {
+                Button("Show answer") { withAnimation { revealed = true } }
+                    .font(.subheadline)
+            }
+        }
+        .padding()
+        .frame(maxWidth: .infinity, alignment: .leading)
         .overlay(RoundedRectangle(cornerRadius: 16).stroke(.quaternary))
     }
 }
