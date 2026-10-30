@@ -52,14 +52,19 @@ struct RecordingsView: View {
                     Button { importing = true } label: { Image(systemName: "plus") }
                 }
             }
-            .fileImporter(isPresented: $importing, allowedContentTypes: [.audio, .movie], allowsMultipleSelection: true) { result in
-                guard case .success(let urls) = result else { return }
-                Task {
-                    var added = 0
-                    for url in urls where await recordings.importMedia(from: url) != nil { added += 1 }
-                    if added < urls.count { importFailed = true }
-                    if added > 0 { queue.start() }
+            .sheet(isPresented: $importing) {
+                DocumentPicker(types: [.audio, .movie]) { urls in
+                    Task {
+                        var added = 0
+                        for url in urls {
+                            if await recordings.importMedia(from: url) != nil { added += 1 }
+                            DocumentPicker.discardCopy(url)
+                        }
+                        if added < urls.count { importFailed = true }
+                        if added > 0 { queue.start() }
+                    }
                 }
+                .ignoresSafeArea()
             }
             .alert("Some files could not be added", isPresented: $importFailed) {
                 Button("OK", role: .cancel) {}

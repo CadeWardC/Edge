@@ -8,6 +8,7 @@ struct LibraryView: View {
     @State private var importing = false
     @State private var showSettings = false
     @State private var importFailed = false
+    @State private var pendingFailure = false   // shown once the picker has gone
     @State private var path: [UUID] = []
 
     var body: some View {
@@ -31,12 +32,17 @@ struct LibraryView: View {
                     Button { importing = true } label: { Image(systemName: "plus") }
                 }
             }
-            .fileImporter(isPresented: $importing, allowedContentTypes: [.pdf], allowsMultipleSelection: true) { result in
-                guard case .success(let urls) = result else { return }
-                var added = 0
-                for url in urls where library.importPDF(from: url) != nil { added += 1 }
-                if added < urls.count { importFailed = true }
-                if added > 0 { queue.start() }
+            .sheet(isPresented: $importing, onDismiss: { if pendingFailure { pendingFailure = false; importFailed = true } }) {
+                DocumentPicker(types: [.pdf]) { urls in
+                    var added = 0
+                    for url in urls {
+                        if library.importPDF(from: url) != nil { added += 1 }
+                        DocumentPicker.discardCopy(url)
+                    }
+                    pendingFailure = added < urls.count
+                    if added > 0 { queue.start() }
+                }
+                .ignoresSafeArea()
             }
             .alert("Some files could not be added", isPresented: $importFailed) {
                 Button("OK", role: .cancel) {}
