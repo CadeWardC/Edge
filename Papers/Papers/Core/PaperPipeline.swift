@@ -441,7 +441,9 @@ enum PaperPipeline {
         paper itself says what it stands for.
         - Do not list the authors, their affiliations, the journal, the conference or the year; the listener wants \
         the science. Never guess at the authors' motives.
-        - Say numbers and symbols in words a listener can follow: no math notation, subscripts or symbols.
+        - Write every number in digits exactly as the paper gives it (28.4, 85%, 1 in 10,000, 4.4 × 10^-4), and \
+        never work out a new number yourself: no converting, rounding into a different form or multiplying. \
+        Apart from that, no math notation, formulas, subscripts or symbols.
         - Never mention "the notes", "the excerpts", "the script" or labels like "Experiment 1"; speak about the \
         research itself. No citations such as "Smith et al., 2019".
         - Explain each technical term or abbreviation briefly the first time you use it.
@@ -471,8 +473,8 @@ enum PaperPipeline {
         var best = ""
         for temperature: Float in [0.4, 0.6] {
             let reply = try await writer.write(messages, maxTokens: budget, temperature: temperature)
-            let text = trimOpening(Grounding.removeUnsupportedNumbers(spoken(clean(reply)), source: source.text),
-                                   previous: avoid)
+            let grounded = Grounding.removeUnsupportedNumbers(spoken(clean(reply)), source: source.text)
+            let text = capped(trimOpening(grounded, previous: avoid), words: words * 11 / 10)
             if wordCount(text) > wordCount(best) { best = text }
             if wordCount(best) >= words / 2 { break }   // long enough; a second try is only for a failed one
         }
@@ -539,12 +541,45 @@ enum PaperPipeline {
             // inline LaTeX the model copied from the notes: $d_k$ -> d k, \sqrt -> square root
             l = SpokenText.replace(l, "\\\\sqrt") { _ in "square root of " }
             l = SpokenText.replace(l, "\\\\(text|mathrm|mathbf|frac|cdot|left|right)") { _ in " " }
+            // powers of ten ("10^-4", "10^{18}", and "× 10−4" as PDFs print it) as superscripts, which SpokenText reads
+            l = SpokenText.replace(l, "(\\d)\\s?\\^\\s?\\{?([−-]?\\d{1,3})\\}?") { m in m[1] + superscript(m[2]) }
+            l = SpokenText.replace(l, "([×x]\\s?10)[−-](\\d{1,2})(?![\\d.])") { m in m[1] + superscript("-" + m[2]) }
             l = SpokenText.replace(l, "[$_{}\\\\^]") { _ in " " }
             l = SpokenText.replace(l, "\\s?\\(?[A-Z][A-Za-z-]+( et al\\.?| and [A-Z][A-Za-z-]+)?,? \\(?(19|20)\\d\\d[a-z]?\\)\\)?") { _ in "" }
+            // the model sometimes talks about its sources instead of the research
+            l = SpokenText.replace(l, "\\b([Tt])he (script|notes|excerpts)\\b") { m in m[1] + "he paper" }
+            l = SpokenText.replace(l, "\\b([Tt])hese (notes|excerpts)\\b") { m in m[1] + "he paper" }
             l = SpokenText.replace(l, "[ \\t]{2,}") { _ in " " }
             if l.hasSuffix(":"), l.split(separator: " ").count <= 5 { return nil }
             return l
         }.joined(separator: "\n")
+    }
+
+    /// "-4" -> "⁻⁴"
+    static func superscript(_ power: String) -> String {
+        let map: [Character: Character] = ["0": "⁰", "1": "¹", "2": "²", "3": "³", "4": "⁴", "5": "⁵", "6": "⁶",
+                                           "7": "⁷", "8": "⁸", "9": "⁹", "-": "⁻", "−": "⁻"]
+        return String(power.compactMap { map[$0] })
+    }
+
+    /// Ends `text` at the last sentence that fits in `words`, so a talkative model cannot stretch a track past
+    /// its length (the 4B writes about a third more than asked). The first sentence always stays.
+    static func capped(_ text: String, words: Int) -> String {
+        guard wordCount(text) > words else { return text }
+        var kept: [String] = []
+        var used = 0
+        for paragraph in text.components(separatedBy: "\n\n") {
+            var sentences: [String] = []
+            for sentence in PassageIndex.sentences(paragraph) {
+                let n = wordCount(sentence)
+                if used + n > words, used > 0 { break }
+                sentences.append(sentence)
+                used += n
+            }
+            if !sentences.isEmpty { kept.append(sentences.joined(separator: " ")) }
+            if used >= words || sentences.count < PassageIndex.sentences(paragraph).count { break }
+        }
+        return kept.joined(separator: "\n\n")
     }
 
     /// Drops a first sentence that opens with a stock metaphor ("Imagine ...") or repeats how an earlier part

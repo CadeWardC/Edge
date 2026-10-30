@@ -30,6 +30,12 @@ enum SpokenText {
             previous = s
             s = replace(s, "(\\d),(\\d{3})(?!\\d)") { m in m[1] + m[2] }
         }
+        // "× 10-4" as PDFs print 10⁻⁴ (the minus sign became "-" above): a power, not a range
+        s = replace(s, "([x×]\\s?10)-(\\d{1,2})(?![\\d.])") { m in "\(m[1]) to the minus \(m[2])" }
+        // ratios: "R = 1:10", "2:1"
+        s = replace(s, "(?<![\\d:])(\\d+):(\\d+)(?![\\d:])") { m in "\(m[1]) to \(m[2])" }
+        // "a 2 × 2 table"
+        s = replace(s, "(\\d)\\s?[x×]\\s?(\\d)(?=\\s+(?:table|matrix|grid|design|layout))") { m in "\(m[1]) by \(m[2])" }
         // number ranges: "10-20", "2019–2021"
         s = replace(s, "(\\d)\\s?[–-]\\s?(\\d)") { m in "\(m[1]) to \(m[2])" }
         // "3x faster", "2 × 3"

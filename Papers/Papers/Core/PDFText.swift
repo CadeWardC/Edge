@@ -116,6 +116,7 @@ enum PDFText {
                 text += " " + line
             }
         }
+        text = joinLigatures(text)
         text = SpokenText.replace(text, "[ \\t]{2,}") { _ in " " }
         text = SpokenText.replace(text, "\\n{3,}") { _ in "\n\n" }
         text = text.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -123,6 +124,18 @@ enum PDFText {
             text = String(text.prefix(maxCharacters))
         }
         return text
+    }
+
+    /// Some PDFs (PLOS among them) put a space after an "fi", "fl" or "ff" ligature glyph: "scientifi c fi ndings",
+    /// "eff ect". That breaks retrieval, grounding and pronunciation, so the halves are joined again.
+    static func joinLigatures(_ text: String) -> String {
+        // no English word ends in "fi" or "fl" except a few like "hi-fi", which a hyphen protects
+        var s = SpokenText.replace(text, "(?<![A-Za-z-])([A-Za-z]*f[il]) ([a-z]+)") { m in m[1] + m[2] }
+        // many words end in "ff" ("cutoff value"), so only the continuations of split ligatures are joined
+        s = SpokenText.replace(s, "(?<![A-Za-z-])([A-Za-z]*ff) ((?:ect|erent|erenc|er|ort|ici|usi|use|ord|ix)[a-z]*)") { m in
+            ["off", "staff", "stuff", "cliff", "tariff", "sheriff", "plaintiff"].contains(m[1].lowercased()) ? m[0] : m[1] + m[2]
+        }
+        return s
     }
 
     static func plausibleTitle(_ raw: String) -> String? {
