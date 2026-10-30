@@ -257,8 +257,9 @@ enum PaperPipeline {
         return sized(items)
     }
 
-    /// About 1,800 words in all (12 to 13 minutes, as Kokoro reads them): papers with few experiments and figures get longer parts.
-    static func sized(_ items: [DeepItem], total: Int = 1800) -> [DeepItem] {
+    /// About 1,950 words in all: the 2B writes a little under its targets (about 10 to 11 minutes), the 4B over them
+    /// until each part is cut at 110% (about 14). Papers with few experiments and figures get longer parts.
+    static func sized(_ items: [DeepItem], total: Int = 1950) -> [DeepItem] {
         func base(_ kind: DeepItem.Kind) -> Double {
             switch kind {
             case .findings: return 320
