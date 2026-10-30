@@ -35,6 +35,40 @@ final class Transcriber {
         vadPath = path("silero_vad.onnx")
     }
 
+    /// Pieces of at most about 28 s, cut at the quietest 100 ms between 15 s and 28 s into each piece.
+    static func split(_ samples: [Float], maxSeconds: Double = 28) -> [(Int, [Float])] {
+        let rate = sampleRate
+        let maxLength = Int(maxSeconds * Double(rate))
+        guard samples.count > maxLength else { return [(0, samples)] }
+        var pieces: [(Int, [Float])] = []
+        var start = 0
+        let frame = rate / 10
+        while samples.count - start > maxLength {
+            var bestCut = start + maxLength
+            var bestEnergy = Float.greatestFiniteMagnitude
+            var f = start + 15 * rate
+            while f + frame <= start + maxLength {
+                var energy: Float = 0
+                for i in f..<(f + frame) { energy += samples[i] * samples[i] }
+                if energy < bestEnergy {
+                    bestEnergy = energy
+                    bestCut = f + frame / 2
+                }
+                f += frame
+            }
+            pieces.append((start, Array(samples[start..<bestCut])))
+            start = bestCut
+        }
+        pieces.append((start, Array(samples[start...])))
+        return pieces
+    }
+
+    /// Parakeet sometimes writes "spent$42" for "spent $42".
+    static func tidy(_ text: String) -> String {
+        let t = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        return SpokenText.replace(t, "([A-Za-z,])\\$") { m in m[1] + " $" }
+    }
+
     /// The duration of a media file, in seconds (0 when it has no readable audio).
     static func duration(of url: URL) async -> Double {
         let asset = AVURLAsset(url: url)
@@ -70,8 +104,8 @@ final class Transcriber {
             throw EngineError.inference(reader.error?.localizedDescription ?? "This audio could not be read.")
         }
 
-        // speech stretches of up to 25 s, split at pauses of half a second
-        let silero = sherpaOnnxSileroVadModelConfig(model: vadPath, threshold: 0.45, minSilenceDuration: 0.5,
+        // speech stretches of up to 25 s, split at pauses of 0.3 s
+        let silero = sherpaOnnxSileroVadModelConfig(model: vadPath, threshold: 0.45, minSilenceDuration: 0.3,
                                                     minSpeechDuration: 0.25, windowSize: 512, maxSpeechDuration: 25)
         var vadConfig = sherpaOnnxVadModelConfig(sileroVad: silero, sampleRate: Int32(Self.sampleRate), numThreads: 1)
         let vad = SherpaOnnxVoiceActivityDetectorWrapper(config: &vadConfig, buffer_size_in_seconds: 60)
@@ -85,10 +119,13 @@ final class Transcriber {
                 let start = offset + Double(segment.start) / Double(Self.sampleRate)
                 let samples = segment.samples
                 vad.pop()
-                let text = recognizer.decode(samples: samples, sampleRate: Self.sampleRate).text
-                    .trimmingCharacters(in: .whitespacesAndNewlines)
-                let end = start + Double(samples.count) / Double(Self.sampleRate)
-                onSegment(text.isEmpty ? nil : TranscriptSegment(start: start, end: end, text: text), min(end / total, 1))
+                // a long stretch without pauses is cut at its quietest moments, so no piece is too long to decode
+                for (offset, piece) in Self.split(samples) {
+                    let text = Self.tidy(recognizer.decode(samples: piece, sampleRate: Self.sampleRate).text)
+                    let pieceStart = start + Double(offset) / Double(Self.sampleRate)
+                    let end = pieceStart + Double(piece.count) / Double(Self.sampleRate)
+                    onSegment(text.isEmpty ? nil : TranscriptSegment(start: pieceStart, end: end, text: text), min(end / total, 1))
+                }
             }
         }
 

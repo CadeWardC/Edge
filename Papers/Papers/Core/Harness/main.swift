@@ -36,6 +36,7 @@ final class HarnessWriter: TextWriter {
         tokensOut += sink.pieces
         let dt = Date().timeIntervalSince(t0)
         log("model call \(calls): prompt \(prompt.count) chars, reply \(sink.pieces) pieces in \(String(format: "%.1f", dt)) s")
+        if sink.pieces < 40 { print("   short reply: \(sink.text.debugDescription)") }
         return sink.text
     }
 }
@@ -82,11 +83,15 @@ for pdf in options["pdf"] ?? [] {
 
     var rawNotes: [String] = []
     for i in source.chunks.indices {
-        rawNotes.append(try await PaperPipeline.notes(source, part: i, writer: writer))
+        let note = try await PaperPipeline.notes(source, part: i, writer: writer)
+        rawNotes.append(note)
+        print("--- notes on part \(i + 1) (\(PaperNotes([note]).count) lines) ---\n\(note.prefix(2500))")
     }
     let notes = PaperNotes(rawNotes)
     banner("NOTES (merged)")
     print(notes.text(PaperNotes.Field.allCases, budget: 20_000))
+
+    if option("stop-after") == "notes" { continue }
 
     banner("OVERVIEW")
     var overview: [(PaperPipeline.OverviewPart, String)] = []

@@ -45,7 +45,8 @@ enum TranscriptPipeline {
                 </transcript>
 
                 Write bullet notes on this part: every main point, fact, number, decision and action item (with who \
-                and when, if said). One short line per bullet, each starting with "- ". Write nothing else.
+                and when, if said). When the speaker says "I will", write "the speaker will", not a name. One short \
+                line per bullet, each starting with "- ". Write nothing else.
                 """),
         ], maxTokens: 600, temperature: 0)
         return PaperPipeline.clean(reply)
@@ -70,6 +71,8 @@ enum TranscriptPipeline {
                 - the most important points, 5 to 12 bullets, most important first, each one specific and self-contained
                 ACTION ITEMS:
                 - each task, decision or follow-up that was stated, with who and when if said; or "- none"
+                Attribute a task to a person only if the transcript names them for it; when the speaker says "I \
+                will", write "The speaker will". Do not merge separate items.
                 """),
         ], maxTokens: 900, temperature: 0.2)
         return parse(PaperPipeline.clean(reply), source: transcript)

@@ -30,6 +30,8 @@ struct PaperNotes {
     enum Field: String, CaseIterable {
         case question = "QUESTION", motivation = "MOTIVATION", methods = "METHODS", experiments = "EXPERIMENTS"
         case figures = "FIGURES", findings = "FINDINGS", limitations = "LIMITATIONS"
+        /// Plain facts, when a part could not be noted under the headings.
+        case facts = "FACTS"
     }
 
     private(set) var lines: [Field: [String]] = [:]
@@ -41,7 +43,13 @@ struct PaperNotes {
                 var line = raw.trimmingCharacters(in: .whitespaces)
                     .replacingOccurrences(of: "**", with: "")
                     .trimmingCharacters(in: CharacterSet(charactersIn: "#").union(.whitespaces))
-                if let f = Field.allCases.first(where: { line.uppercased().hasPrefix($0.rawValue) }) {
+                // a heading is "QUESTION:" or "QUESTION" on its own, not a sentence that starts with the word
+                if let f = Field.allCases.first(where: { field in
+                    let upper = line.uppercased()
+                    guard upper.hasPrefix(field.rawValue) else { return false }
+                    let rest = upper.dropFirst(field.rawValue.count).trimmingCharacters(in: .whitespaces)
+                    return rest.isEmpty || rest.hasPrefix(":")
+                }) {
                     field = f
                     line = String(line.dropFirst(f.rawValue.count)).trimmingCharacters(in: CharacterSet(charactersIn: ": ").union(.whitespaces))
                 }
@@ -52,8 +60,13 @@ struct PaperNotes {
         }
     }
 
-    /// The lines under `fields`, as "HEADING:\n- line" blocks, at most `budget` characters.
+    /// The number of noted lines.
+    var count: Int { lines.values.reduce(0) { $0 + $1.count } }
+
+    /// The lines under `fields` (plus the plain facts, if any), as "HEADING:\n- line" blocks, at most `budget`
+    /// characters.
     func text(_ fields: [Field], budget: Int = 5000) -> String {
+        let fields = fields.contains(.facts) || (lines[.facts] ?? []).isEmpty ? fields : fields + [.facts]
         let share = budget / max(fields.count, 1)
         return fields.compactMap { field -> String? in
             guard let items = lines[field], !items.isEmpty else { return nil }
@@ -80,6 +93,8 @@ struct DeepItem: Codable, Equatable {
     /// For an experiment, its name and what it tests; for a figure, its label and caption.
     var subject: String = ""
     var detail: String = ""
+    /// How long this part should be, so the whole in-depth audio lasts 10 to 15 minutes.
+    var words: Int = 0
 }
 
 enum PaperPipeline {
@@ -102,22 +117,20 @@ enum PaperPipeline {
         return (5...250).contains(t.count) ? t : nil
     }
 
+    static let notesSystem = """
+        You extract facts from scientific papers. You copy facts exactly, including numbers, units, names and \
+        comparisons. You never add anything that is not in the text.
+        """
+
+    /// Notes on one part of the paper under fixed headings. A small model sometimes answers a long part with
+    /// almost nothing; then the part is asked about again as a plain list of facts.
     static func notes(_ source: PaperSource, part: Int, writer: TextWriter) async throws -> String {
-        let reply = try await writer.write([
-            .init(role: "system", content: """
-                You extract facts from scientific papers. You copy facts exactly, including numbers, units, names \
-                and comparisons. You never add anything that is not in the text.
-                """),
+        let raw = try await writer.write([
+            .init(role: "system", content: notesSystem),
             .init(role: "user", content: """
-                Paper: "\(source.title)" (part \(part + 1) of \(source.chunks.count))
+                Take notes on part \(part + 1) of \(source.chunks.count) of the paper "\(source.title)", printed below.
 
-                <text>
-                \(source.chunks[part])
-                </text>
-
-                Take notes on this part under exactly these headings. Under each heading write short factual lines \
-                starting with "- ". If the part says nothing about a heading, write "- none" under it.
-
+                Use these headings, in this order:
                 QUESTION: the research question, aim or hypothesis
                 MOTIVATION: why it matters; the problem or gap
                 METHODS: data, participants, materials, models and procedures
@@ -125,9 +138,30 @@ enum PaperPipeline {
                 FIGURES: each figure or table this part describes, as "Figure N: what it shows"
                 FINDINGS: the main results and conclusions, with numbers
                 LIMITATIONS: limitations or caveats the authors state
+                Under each heading write short factual lines starting with "- ", copying numbers and names exactly. \
+                Leave out a heading if this part says nothing about it. Cover everything important in this part.
+
+                PART \(part + 1):
+                \(source.chunks[part])
+
+                Now write the notes on part \(part + 1), starting with the first heading that applies.
                 """),
-        ], maxTokens: 650, temperature: 0)
-        return clean(reply)
+        ], maxTokens: 700, temperature: 0)
+        let reply = clean(raw)
+        if PaperNotes([reply]).count >= 3 { return reply }
+
+        let rawFacts = try await writer.write([
+            .init(role: "system", content: notesSystem),
+            .init(role: "user", content: """
+                Here is part \(part + 1) of \(source.chunks.count) of the paper "\(source.title)":
+
+                \(source.chunks[part])
+
+                List the 8 to 15 most important facts in this part: what the researchers asked, did and found, \
+                with numbers and names copied exactly. One fact per line, each starting with "- ".
+                """),
+        ], maxTokens: 700, temperature: 0.2)
+        return reply + "\n\nFACTS:\n" + clean(rawFacts)
     }
 
     // MARK: The overview (5 to 6 minutes)
@@ -154,7 +188,7 @@ enum PaperPipeline {
         }
     }
 
-    static let overviewWords = 210
+    static let overviewWords = 250
 
     static func overview(_ part: OverviewPart, source: PaperSource, notes: PaperNotes, previous: [String],
                          writer: TextWriter) async throws -> String {
@@ -218,7 +252,27 @@ enum PaperPipeline {
                               hostLine: "So where is this paper weakest?"))
         items.append(DeepItem(kind: .unknowns, id: "unknowns", heading: "What isn't established yet",
                               hostLine: "Last question. What hasn't this research established?"))
-        return items
+        return sized(items)
+    }
+
+    /// About 2,000 words in all (12 to 13 minutes): papers with few experiments and figures get longer parts.
+    static func sized(_ items: [DeepItem], total: Int = 2000) -> [DeepItem] {
+        func base(_ kind: DeepItem.Kind) -> Double {
+            switch kind {
+            case .findings: return 320
+            case .experiment: return 180
+            case .figure: return 140
+            case .limitations: return 300
+            case .unknowns: return 250
+            }
+        }
+        let sum = items.reduce(0) { $0 + base($1.kind) }
+        let scale = Double(total) / max(sum, 1)
+        return items.map { item in
+            var sized = item
+            sized.words = min(max(Int((base(item.kind) * scale / 10).rounded()) * 10, 110), 480)
+            return sized
+        }
     }
 
     static func experimentList(notes: PaperNotes, writer: TextWriter) async throws -> [(name: String, tests: String)] {
@@ -231,8 +285,10 @@ enum PaperPipeline {
                 \(source)
 
                 List the main experiments or analyses in this paper, at most 4, most important first. Merge notes \
-                that describe the same experiment. Write one per line, exactly as:
-                short name :: what it tests
+                that describe the same experiment. Give each a short descriptive name of 2 to 7 words that says what \
+                was tested (for example "English constituency parsing" or "Varying the number of attention heads"), \
+                not "Experiment 1", "Methods" or "Results". Write one per line, exactly as:
+                name :: what it tests
                 Write nothing else.
                 """),
         ], maxTokens: 220, temperature: 0)
@@ -241,8 +297,15 @@ enum PaperPipeline {
             let parts = line.components(separatedBy: "::")
             guard parts.count >= 2 else { continue }
             var name = parts[0].trimmingCharacters(in: .whitespaces)
-            name = SpokenText.replace(name, "^([-*•]|\\d+[.)]|Experiment\\s*\\d*:?)\\s*") { _ in "" }
-                .trimmingCharacters(in: CharacterSet(charactersIn: " \"'"))
+            var previous = ""
+            while previous != name {
+                previous = name
+                name = SpokenText.replace(name, "^([-*•]|\\d+[.)]|(Experiment|Analysis|Study)\\s*\\d*[:.]?)\\s*") { _ in "" }
+                    .trimmingCharacters(in: CharacterSet(charactersIn: " \"'()"))
+            }
+            let generic: Set<String> = ["methods", "method", "results", "result", "findings", "data", "experiments",
+                                        "experiment", "analysis", "evaluation", "setup", "training", "discussion"]
+            if generic.contains(name.lowercased()) { continue }
             let tests = parts[1...].joined(separator: " ").trimmingCharacters(in: .whitespaces)
             guard (3...80).contains(name.count), !out.contains(where: { $0.0.lowercased() == name.lowercased() }) else { continue }
             out.append((name, tests))
@@ -307,8 +370,8 @@ enum PaperPipeline {
             fields = [.findings, .limitations, .question]
             excerpts = source.index.excerpts(for: "future work remains unclear unknown further open question limitation generalize", budget: 2800)
         }
-        return try await writePart(task: task, words: words, source: source, notes: notes.text(fields),
-                                   excerpts: excerpts, avoid: covered, writer: writer)
+        return try await writePart(task: task, words: item.words > 0 ? item.words : words, source: source,
+                                   notes: notes.text(fields), excerpts: excerpts, avoid: covered, writer: writer)
     }
 
     // MARK: Questions
@@ -357,8 +420,12 @@ enum PaperPipeline {
         Rules:
         - Use only facts found in the NOTES and EXCERPTS. If something is not there, leave it out. Never invent \
         numbers, names, methods or results.
-        - Write for the ear: plain words, varied sentence length, concrete details from the paper, and now and then \
+        - Write for the ear: plain words, varied sentence length, concrete details from the paper, and only rarely \
         a rhetorical question. No lists, headings, markdown, citations, URLs, equations or figure numbers in brackets.
+        - Start with the substance of the task. Never open with "Imagine", "Picture", "Think of" or a metaphor, and \
+        do not re-introduce the paper or repeat background the listener has already heard.
+        - Keep abbreviations and names exactly as the paper writes them; do not expand an abbreviation unless the \
+        paper itself says what it stands for.
         - Explain each technical term or abbreviation briefly the first time you use it.
         - Be engaging but not hyped: no "groundbreaking", "revolutionary" or "game-changer".
         - Do not greet the listener, do not say "in this paper" or "in this episode", and do not end with a summary.
