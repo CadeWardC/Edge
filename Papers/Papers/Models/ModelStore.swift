@@ -80,7 +80,8 @@ final class ModelStore: NSObject, ObservableObject {
 
     nonisolated static let defaultChatRepo = "unsloth/Qwen3.5-2B-GGUF"
     nonisolated static let largerChatRepo = "unsloth/Qwen3.5-4B-GGUF"
-    /// Q4_K_M of Qwen3.5-4B, about 2.7 GB; it needs about 3.4 GB free while running.
+    /// Q4_K_M of Qwen3.5-4B, about 2.7 GB. Where it does not fit in the app's memory it runs on the CPU, reading
+    /// its weights from the file (see ChatEngine's stream_weights).
     nonisolated static let largerChatBytes: Int64 = 2_740_000_000
     nonisolated static let chatDirectory = "Chat"
     nonisolated static let preferredChatQuants = ["Q4_K_M", "UD-Q4_K_XL", "Q5_K_M", "Q4_K_S", "Q6_K", "Q8_0"]
@@ -145,7 +146,7 @@ final class ModelStore: NSObject, ObservableObject {
         Int64(os_proc_available_memory())
     }
 
-    /// Whether a model file of this size can be loaded now with room to spare for its working memory.
+    /// Whether a model file of this size can be loaded into memory now with room to spare for its working memory.
     nonisolated static func fits(modelBytes: Int64) -> Bool {
         let available = availableMemory
         // 0 means the call is not supported (simulator); let it try

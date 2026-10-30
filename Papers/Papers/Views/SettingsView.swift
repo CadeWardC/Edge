@@ -38,14 +38,14 @@ struct SettingsView: View {
                 Section {
                     Picker("Summary model", selection: modelChoice) {
                         Text("Standard · Qwen3.5-2B (1.3 GB)").tag(ModelStore.defaultChatRepo)
-                        Text("Larger · Qwen3.5-4B (2.7 GB)").tag(ModelStore.largerChatRepo)
+                        Text("Best · Qwen3.5-4B (2.7 GB, slower)").tag(ModelStore.largerChatRepo)
                         if !isPreset { Text(effectiveRepo).tag(effectiveRepo) }
                     }
                     LabeledContent("Free memory for Papers", value: ByteCountFormatter.string(fromByteCount: ModelStore.availableMemory, countStyle: .memory))
                     if wantsLarger && !largerFits {
-                        Text("The larger model needs about 3.4 GB of free memory, more than this iPhone gives one app right now, so it would be stopped by iOS. Keep the standard model.")
+                        Text("On this iPhone the larger model doesn't fit in the memory iOS gives one app, so it runs on the CPU and reads its weights from storage as it goes. It fits that way, but writing takes about two to three times as long.")
                             .font(.footnote)
-                            .foregroundStyle(.orange)
+                            .foregroundStyle(.secondary)
                     }
                     LabeledContent("Downloaded", value: models.chatModelURL?.lastPathComponent ?? "Not downloaded")
                     if models.chatModelURL != nil && !downloadedMatchesChoice {
@@ -53,7 +53,6 @@ struct SettingsView: View {
                             models.deleteChatModel()
                             Task { await models.download() }
                         }
-                        .disabled(wantsLarger && !largerFits)
                     }
                     DisclosureGroup("Another model") {
                         TextField(ModelStore.defaultChatRepo, text: $chatRepo)
@@ -67,7 +66,7 @@ struct SettingsView: View {
                 } header: {
                     Text("Summary model")
                 } footer: {
-                    Text("The model that reads papers and transcripts and writes the summaries. A larger model understands more and writes better, but is slower and needs more memory.")
+                    Text("The model that reads papers and transcripts and writes the summaries. The 4B model understands papers noticeably better and makes fewer mistakes; the 2B model is faster.")
                 }
 
                 Section {

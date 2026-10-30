@@ -73,9 +73,12 @@ then regular inflections (-s, -ed, -ing), compounds of known words and common pr
 CamelCase parts (PubMed), acronyms letter by letter (DNA), and spelling rules as a last resort. Numbers, years,
 percentages, symbols and abbreviations are spelled out first (`Core/SpokenText.swift`).
 
-Settings: the main and second voices (eight Kokoro voices), reading pace, and the summary model. Standard is
-Qwen3.5-2B. Larger is Qwen3.5-4B (2.7 GB, about 3.4 GB of memory while running); Settings shows how much memory
-iOS gives Papers and only offers the larger model when it fits, since a 6 GB iPhone 15 usually does not have room.
+Settings: the main and second voices (eight Kokoro voices), reading pace, and the summary model: **Standard**
+(Qwen3.5-2B, 1.3 GB, faster) or **Best** (Qwen3.5-4B, 2.7 GB, which understands papers noticeably better). A model
+that does not fit in the memory iOS gives the app (the 4B on a 6 GB iPhone 15) runs on the CPU with its weights
+memory-mapped from the file and weight repacking off: iOS counts those pages as clean file-backed memory, not the
+app's own, so the model fits, at two to three times the time. The model can also be chosen before the first
+download.
 
 Files are in Documents (visible in the Files app): `Models/`, `Papers/<id>/` (`paper.pdf`, `text.txt`,
 `state.json`, `overview.m4a`, `deep.m4a`, `questions.m4a`) and `Recordings/<id>/`.

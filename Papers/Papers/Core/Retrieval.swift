@@ -109,16 +109,42 @@ struct PassageIndex {
 /// Removes sentences that state a number the source never mentions: the commonest way a small model invents
 /// results. Only multi-digit numbers, decimals and percentages are checked ("1" or "two" are too common to judge).
 enum Grounding {
+    /// Removes sentences whose numbers the source does not back up: a number must appear in the source, and near
+    /// one of its appearances (within about two sentences) the source must use at least two of the sentence's
+    /// content words. That catches both invented numbers and real numbers attached to the wrong result.
     static func removeUnsupportedNumbers(_ text: String, source: String) -> String {
-        let sourceNumbers = Set(numbers(in: source))
+        let contexts = numberContexts(in: source)
         let paragraphs = text.components(separatedBy: "\n")
         return paragraphs.map { paragraph -> String in
             PassageIndex.sentences(paragraph)
-                .filter { sentence in numbers(in: sentence).allSatisfy { sourceNumbers.contains($0) } }
+                .filter { sentence in
+                    let cited = numbers(in: sentence)
+                    guard !cited.isEmpty else { return true }
+                    let terms = Set(PassageIndex.terms(sentence)).filter { !$0.allSatisfy(\.isNumber) }
+                    return cited.allSatisfy { n in
+                        (contexts[n] ?? []).contains { $0.intersection(terms).count >= 2 }
+                    }
+                }
                 .joined(separator: " ")
         }
         .filter { !$0.isEmpty }
         .joined(separator: "\n\n")
+    }
+
+    /// For each number in the source, the content words around each place it appears.
+    static func numberContexts(in source: String, radius: Int = 220) -> [String: [Set<String>]] {
+        let pattern = "(?<![A-Za-z0-9.])(\\d{1,3}(?:,\\d{3})+|\\d+\\.\\d+|\\d{2,})(?![A-Za-z0-9])"
+        guard let regex = try? NSRegularExpression(pattern: pattern) else { return [:] }
+        let ns = source as NSString
+        var out: [String: [Set<String>]] = [:]
+        for m in regex.matches(in: source, range: NSRange(location: 0, length: ns.length)) {
+            guard let n = normalize(ns.substring(with: m.range(at: 1))) else { continue }
+            let start = max(m.range.location - radius, 0)
+            let end = min(m.range.location + m.range.length + radius, ns.length)
+            let window = ns.substring(with: NSRange(location: start, length: end - start))
+            out[n, default: []].append(Set(PassageIndex.terms(window)).filter { !$0.allSatisfy(\.isNumber) })
+        }
+        return out
     }
 
     /// Numbers worth checking, normalized ("1,200" -> "1200", "0.50" -> "0.5").
@@ -127,14 +153,18 @@ enum Grounding {
         guard let regex = try? NSRegularExpression(pattern: pattern) else { return [] }
         let ns = text as NSString
         return regex.matches(in: text, range: NSRange(location: 0, length: ns.length)).compactMap { m in
-            var n = ns.substring(with: m.range(at: 1)).replacingOccurrences(of: ",", with: "")
-            if n.contains(".") {
-                while n.hasSuffix("0") { n.removeLast() }
-                if n.hasSuffix(".") { n.removeLast() }
-            }
-            // years and small counts are rarely invented results; keep the check on real measurements
-            if let v = Double(n), v < 10, !n.contains(".") { return nil }
-            return n
+            normalize(ns.substring(with: m.range(at: 1)))
         }
+    }
+
+    /// "1,200" -> "1200", "0.50" -> "0.5"; nil for small whole numbers, which are rarely invented results.
+    static func normalize(_ raw: String) -> String? {
+        var n = raw.replacingOccurrences(of: ",", with: "")
+        if n.contains(".") {
+            while n.hasSuffix("0") { n.removeLast() }
+            if n.hasSuffix(".") { n.removeLast() }
+        }
+        if let v = Double(n), v < 10, !n.contains(".") { return nil }
+        return n
     }
 }

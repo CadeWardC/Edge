@@ -42,6 +42,7 @@ struct chat_engine {
     const llama_vocab * vocab = nullptr;
     std::string path;
     bool    gpu       = false;
+    bool    stream    = false; // weights read from the memory-mapped file, CPU only
     int32_t n_ctx_req = 0;
     int32_t n_ctx     = 0;
     int32_t n_batch   = 512;
@@ -89,6 +90,15 @@ static bool load(chat_engine * e, bool use_gpu) {
     e->gpu = use_gpu;
     llama_model_params mparams = llama_model_default_params();
     mparams.n_gpu_layers = use_gpu ? 999 : 0;
+    if (e->stream) {
+        // the weights stay in the memory-mapped file: iOS counts those pages as clean, file-backed memory that it
+        // can drop and reread, not as the app's own, so a model larger than the app's memory limit still fits.
+        // Repacking would copy them into ordinary memory, so it is off.
+        mparams.n_gpu_layers    = 0;
+        mparams.load_mode       = LLAMA_LOAD_MODE_MMAP;
+        mparams.use_extra_bufts = false;
+        e->gpu = false;
+    }
     e->model = llama_model_load_from_file(e->path.c_str(), mparams);
     if (!e->model) {
         e->error = with_log("Could not load the chat model GGUF.");
@@ -112,7 +122,7 @@ static bool load(chat_engine * e, bool use_gpu) {
     return true;
 }
 
-extern "C" chat_engine * chat_engine_create(const char * model_path, int32_t n_ctx, bool use_gpu,
+extern "C" chat_engine * chat_engine_create(const char * model_path, int32_t n_ctx, bool use_gpu, bool stream_weights,
                                             char * err, size_t err_len) {
     static std::once_flag backend_once;
     std::call_once(backend_once, [] {
@@ -124,7 +134,8 @@ extern "C" chat_engine * chat_engine_create(const char * model_path, int32_t n_c
     chat_engine * e = new chat_engine();
     e->path      = model_path;
     e->n_ctx_req = n_ctx;
-    if (!load(e, use_gpu)) {
+    e->stream    = stream_weights;
+    if (!load(e, use_gpu && !stream_weights)) {
         if (err && err_len) {
             snprintf(err, err_len, "%s", e->error.c_str());
         }
@@ -260,7 +271,7 @@ extern "C" int32_t chat_engine_generate(chat_engine * e, const char * prompt, in
         return 1;
     }
     int32_t rc = generate(e, prompt, max_tokens, temperature, on_text, user_data);
-    if (rc == 2 && e->gpu) {
+    if (rc == 2 && e->gpu && !e->stream) {
         // some phones' GPUs can't run every operation of this model: run it on the CPU from now on
         const std::string gpu_error = e->error;
         fprintf(stderr, "chat_engine: %s; switching to the CPU\n", gpu_error.c_str());
@@ -275,6 +286,9 @@ extern "C" int32_t chat_engine_generate(chat_engine * e, const char * prompt, in
 }
 
 extern "C" bool chat_engine_set_gpu(chat_engine * e, bool use_gpu) {
+    if (e->stream) {
+        use_gpu = false;
+    }
     if (e->gpu == use_gpu && e->lctx) {
         return true;
     }

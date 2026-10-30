@@ -400,11 +400,14 @@ final class WorkQueue: ObservableObject {
             throw EngineError.load("The summary model is missing. Download it in Settings.")
         }
         let size = (try? FileManager.default.attributesOfItem(atPath: url.path))?[.size] as? NSNumber
-        guard ModelStore.fits(modelBytes: size?.int64Value ?? 0) else {
+        // a model that does not fit in the memory iOS gives the app runs on the CPU straight from the file
+        let stream = !ModelStore.fits(modelBytes: size?.int64Value ?? 0)
+        guard !stream || ModelStore.fits(modelBytes: 0) else {
             let free = ByteCountFormatter.string(fromByteCount: ModelStore.availableMemory, countStyle: .memory)
-            throw EngineError.load("There isn't enough free memory for this summary model (\(free) available). Choose the standard model in Settings.")
+            throw EngineError.load("There isn't enough free memory to run the summary model (\(free) available). Close other apps and try again.")
         }
-        let loaded = try await TextRuntime.load(modelPath: url.path, contextSize: 12288, useGPU: wantsGPU)
+        let loaded = try await TextRuntime.load(modelPath: url.path, contextSize: 12288, useGPU: wantsGPU && !stream,
+                                                streamWeights: stream)
         runtime = loaded
         return loaded
     }

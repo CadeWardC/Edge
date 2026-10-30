@@ -21,6 +21,14 @@ on:
         description: "Hugging Face GGUF repo of the summary model"
         required: false
         default: "unsloth/Qwen3.5-2B-GGUF"
+      stream_weights:
+        description: "Run the model on the CPU from the mapped file, as the app does for a model too large for memory"
+        type: boolean
+        default: false
+      audio:
+        description: "Also test transcription"
+        type: boolean
+        default: true
 
 concurrency:
   group: papers-eval-${{ github.ref }}
@@ -107,7 +115,9 @@ jobs:
       - name: Run the pipeline
         shell: bash
         run: |
-          ARGS="--model models/chat/model.gguf --kokoro models/kokoro --asr models/asr --out out --gpu --audio inputs/meeting.aiff"
+          ARGS="--model models/chat/model.gguf --kokoro models/kokoro --asr models/asr --out out"
+          if [ "${{ github.event.inputs.stream_weights }}" = "true" ]; then ARGS="$ARGS --stream-weights"; else ARGS="$ARGS --gpu"; fi
+          if [ "${{ github.event.inputs.audio }}" != "false" ]; then ARGS="$ARGS --audio inputs/meeting.aiff"; fi
           for f in inputs/*.pdf; do ARGS="$ARGS --pdf $f"; done
           Papers/.build/release/papers-harness $ARGS 2>&1 | grep -v "^ggml_\|^llama_\|^load\|^print_info\|^llm_load\|^\s*$" | tee eval.log
 

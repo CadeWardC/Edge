@@ -3,6 +3,7 @@ import SwiftUI
 struct SetupView: View {
     @EnvironmentObject private var models: ModelStore
     @State private var showSettings = false
+    @AppStorage("chatRepo") private var chatRepo = ""
 
     var body: some View {
         NavigationStack {
@@ -19,8 +20,20 @@ struct SetupView: View {
                     VStack(alignment: .leading, spacing: 12) {
                         Label("One-time model download", systemImage: "arrow.down.circle")
                             .font(.headline)
-                        Text("About 1.7 GB: Qwen3.5 reads the paper and writes the summary, and Kokoro reads it out. Use Wi-Fi. It keeps downloading in the background if you leave the app.")
+                        Text("Qwen3.5 reads the paper and writes the summaries, and Kokoro reads them out. Use Wi-Fi. It keeps downloading in the background if you leave the app.")
                             .font(.subheadline)
+                            .foregroundStyle(.secondary)
+
+                        Picker("Summary model", selection: $chatRepo) {
+                            Text("Standard · 1.7 GB in all").tag("")
+                            Text("Best · 3.1 GB in all").tag(ModelStore.largerChatRepo)
+                        }
+                        .pickerStyle(.segmented)
+                        .disabled(models.phase != .idle && !models.phase.isFailed)
+                        Text(chatRepo == ModelStore.largerChatRepo
+                             ? "Qwen3.5-4B understands papers noticeably better and makes fewer mistakes. It is two to three times slower, so a paper can take an hour or more; it carries on in the background."
+                             : "Qwen3.5-2B is two to three times faster but makes more mistakes. You can switch to the 4B model later in Settings.")
+                            .font(.caption)
                             .foregroundStyle(.secondary)
 
                         downloadSection

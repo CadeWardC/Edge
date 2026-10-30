@@ -43,7 +43,9 @@ final class TextRuntime: @unchecked Sendable {
         queue.async { if !closed { chat_engine_free(engine) } }
     }
 
-    static func load(modelPath: String, contextSize: Int32, useGPU: Bool) async throws -> TextRuntime {
+    /// `streamWeights`: run on the CPU only and read the weights from the memory-mapped file, for a model larger
+    /// than the memory iOS gives the app (slower, but it fits).
+    static func load(modelPath: String, contextSize: Int32, useGPU: Bool, streamWeights: Bool = false) async throws -> TextRuntime {
         try await withCheckedThrowingContinuation { cont in
             DispatchQueue.global(qos: .userInitiated).async {
                 var err = [CChar](repeating: 0, count: 512)
@@ -52,9 +54,9 @@ final class TextRuntime: @unchecked Sendable {
                 #else
                 let gpu = useGPU
                 #endif
-                if let engine = chat_engine_create(modelPath, contextSize, gpu, &err, err.count) {
+                if let engine = chat_engine_create(modelPath, contextSize, gpu, streamWeights, &err, err.count) {
                     cont.resume(returning: TextRuntime(engine: engine))
-                } else if gpu, let engine = chat_engine_create(modelPath, contextSize, false, &err, err.count) {
+                } else if gpu, let engine = chat_engine_create(modelPath, contextSize, false, streamWeights, &err, err.count) {
                     cont.resume(returning: TextRuntime(engine: engine))
                 } else {
                     cont.resume(throwing: EngineError.load(String(cString: err)))

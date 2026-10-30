@@ -45,7 +45,9 @@ let out = URL(fileURLWithPath: option("out") ?? "harness-out", isDirectory: true
 try FileManager.default.createDirectory(at: out, withIntermediateDirectories: true)
 
 guard let modelPath = option("model") else { fatalError("--model path/to/model.gguf is required") }
-let runtime = try await TextRuntime.load(modelPath: modelPath, contextSize: 12288, useGPU: options["gpu"] != nil)
+// --stream-weights: CPU only, weights read from the mapped file, as the app runs a model too large for its memory
+let runtime = try await TextRuntime.load(modelPath: modelPath, contextSize: 12288, useGPU: options["gpu"] != nil,
+                                         streamWeights: options["stream-weights"] != nil)
 let writer = HarnessWriter(runtime: runtime)
 let narrator = option("kokoro").map { KokoroNarrator(directory: URL(fileURLWithPath: $0, isDirectory: true)) }
 

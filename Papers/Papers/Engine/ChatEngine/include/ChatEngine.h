@@ -16,7 +16,9 @@ typedef bool (*chat_text_callback)(const char * utf8, void * user_data);
 
 typedef struct chat_engine chat_engine;
 
-chat_engine * chat_engine_create(const char * model_path, int32_t n_ctx, bool use_gpu, char * err, size_t err_len);
+// stream_weights: CPU only, weights read from the memory-mapped file (for models larger than the app's memory limit).
+chat_engine * chat_engine_create(const char * model_path, int32_t n_ctx, bool use_gpu, bool stream_weights,
+                                 char * err, size_t err_len);
 
 void chat_engine_free(chat_engine * engine);
 

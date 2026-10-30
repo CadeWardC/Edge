@@ -190,7 +190,7 @@ enum PaperPipeline {
         }
     }
 
-    static let overviewWords = 250
+    static let overviewWords = 210
 
     static func overview(_ part: OverviewPart, source: PaperSource, notes: PaperNotes, previous: [String],
                          writer: TextWriter) async throws -> String {
@@ -257,8 +257,8 @@ enum PaperPipeline {
         return sized(items)
     }
 
-    /// About 2,000 words in all (12 to 13 minutes): papers with few experiments and figures get longer parts.
-    static func sized(_ items: [DeepItem], total: Int = 2000) -> [DeepItem] {
+    /// About 1,800 words in all (12 to 13 minutes, as Kokoro reads them): papers with few experiments and figures get longer parts.
+    static func sized(_ items: [DeepItem], total: Int = 1800) -> [DeepItem] {
         func base(_ kind: DeepItem.Kind) -> Double {
             switch kind {
             case .findings: return 320
@@ -272,7 +272,7 @@ enum PaperPipeline {
         let scale = Double(total) / max(sum, 1)
         return items.map { item in
             var sized = item
-            sized.words = min(max(Int((base(item.kind) * scale / 10).rounded()) * 10, 110), 480)
+            sized.words = min(max(Int((base(item.kind) * scale / 10).rounded()) * 10, 110), 400)
             return sized
         }
     }
@@ -286,8 +286,9 @@ enum PaperPipeline {
                 NOTES:
                 \(source)
 
-                List the main experiments or analyses in this paper, at most 4, most important first. Merge notes \
-                that describe the same experiment. Give each a short descriptive name of 2 to 7 words that says what \
+                List the main experiments or analyses in this paper, at most 4, most important first. An \
+                experiment is something the researchers ran and measured, with a result; a part of their method or \
+                model is not an experiment. Merge notes that describe the same experiment. Give each a short descriptive name of 2 to 7 words that says what \
                 was tested (for example "English constituency parsing" or "Varying the number of attention heads"), \
                 not "Experiment 1", "Methods" or "Results". Write one per line, exactly as:
                 name :: what it tests
@@ -400,7 +401,8 @@ enum PaperPipeline {
                     """),
             ], maxTokens: 400, temperature: temperature)
             for line in clean(reply).components(separatedBy: .newlines) {
-                let q = SpokenText.replace(line.trimmingCharacters(in: .whitespaces), "^([-*•]|\\d+[.)]|Q\\d*[.:])\\s*") { _ in "" }
+                let q = spoken(SpokenText.replace(line.trimmingCharacters(in: .whitespaces), "^([-*•]|\\d+[.)]|Q\\d*[.:])\\s*") { _ in "" })
+                    .trimmingCharacters(in: .whitespaces)
                 let offTopic = ["author", "journal", "conference", "publish", "nips", "neurips", "affiliation", "venue"]
                 guard q.hasSuffix("?"), (15...300).contains(q.count),
                       !offTopic.contains(where: { q.lowercased().contains($0) }),
@@ -440,6 +442,8 @@ enum PaperPipeline {
         - Do not list the authors, their affiliations, the journal, the conference or the year; the listener wants \
         the science. Never guess at the authors' motives.
         - Say numbers and symbols in words a listener can follow: no math notation, subscripts or symbols.
+        - Never mention "the notes", "the excerpts", "the script" or labels like "Experiment 1"; speak about the \
+        research itself. No citations such as "Smith et al., 2019".
         - Explain each technical term or abbreviation briefly the first time you use it.
         - Be engaging but not hyped: no "groundbreaking", "revolutionary" or "game-changer".
         - Do not greet the listener, do not say "in this paper" or "in this episode", and do not end with a summary.
@@ -467,7 +471,8 @@ enum PaperPipeline {
         var best = ""
         for temperature: Float in [0.4, 0.6] {
             let reply = try await writer.write(messages, maxTokens: budget, temperature: temperature)
-            let text = Grounding.removeUnsupportedNumbers(spoken(clean(reply)), source: source.text)
+            let text = trimOpening(Grounding.removeUnsupportedNumbers(spoken(clean(reply)), source: source.text),
+                                   previous: avoid)
             if wordCount(text) > wordCount(best) { best = text }
             if wordCount(best) >= words / 2 { break }   // long enough; a second try is only for a failed one
         }
@@ -535,10 +540,33 @@ enum PaperPipeline {
             l = SpokenText.replace(l, "\\\\sqrt") { _ in "square root of " }
             l = SpokenText.replace(l, "\\\\(text|mathrm|mathbf|frac|cdot|left|right)") { _ in " " }
             l = SpokenText.replace(l, "[$_{}\\\\^]") { _ in " " }
+            l = SpokenText.replace(l, "\\s?\\(?[A-Z][A-Za-z-]+( et al\\.?| and [A-Z][A-Za-z-]+)?,? \\(?(19|20)\\d\\d[a-z]?\\)\\)?") { _ in "" }
             l = SpokenText.replace(l, "[ \\t]{2,}") { _ in " " }
             if l.hasSuffix(":"), l.split(separator: " ").count <= 5 { return nil }
             return l
         }.joined(separator: "\n")
+    }
+
+    /// Drops a first sentence that opens with a stock metaphor ("Imagine ...") or repeats how an earlier part
+    /// began, which a small model does again and again however it is asked.
+    static func trimOpening(_ text: String, previous: [String]) -> String {
+        var paragraphs = text.components(separatedBy: "\n\n")
+        guard var first = paragraphs.first else { return text }
+        var sentences = PassageIndex.sentences(first)
+        let earlierOpenings = previous.compactMap { PassageIndex.sentences($0).first }.map { Set(PassageIndex.terms($0)) }
+        while sentences.count > 1, let opening = sentences.first {
+            let lower = opening.lowercased()
+            let stock = ["imagine", "picture ", "think of", "think about"].contains { lower.hasPrefix($0) }
+            let terms = Set(PassageIndex.terms(opening))
+            let repeated = earlierOpenings.contains { earlier in
+                !terms.isEmpty && Double(terms.intersection(earlier).count) / Double(min(terms.count, max(earlier.count, 1))) > 0.6
+            }
+            guard stock || repeated else { break }
+            sentences.removeFirst()
+        }
+        first = sentences.joined(separator: " ")
+        paragraphs[0] = first
+        return paragraphs.joined(separator: "\n\n")
     }
 
     static func isNone(_ line: String) -> Bool {
