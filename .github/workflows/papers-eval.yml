@@ -42,9 +42,9 @@ jobs:
         uses: actions/cache@v4
         with:
           path: Papers/.llama
-          key: llama-macos-portable-${{ hashFiles('scripts/build-llama-ios.sh') }}
+          key: llama-macos-armv82-${{ hashFiles('scripts/build-llama-ios.sh') }}
 
-      # GGML_NATIVE=OFF: the cache is shared between runners with different Apple CPUs
+      # not -mcpu=native: the cache is shared between runners with different Apple CPUs (all have ARMv8.2 dotprod)
       - name: Build llama.cpp for macOS (pinned commit)
         if: steps.llama-cache.outputs.cache-hit != 'true'
         run: |
@@ -54,7 +54,7 @@ jobs:
           git fetch -q --depth 1 origin "$COMMIT" && git checkout -q FETCH_HEAD
           cmake -B build -DLLAMA_CURL=OFF -DLLAMA_BUILD_TESTS=OFF -DLLAMA_BUILD_EXAMPLES=OFF -DLLAMA_BUILD_SERVER=OFF \
             -DLLAMA_BUILD_TOOLS=OFF -DBUILD_SHARED_LIBS=OFF -DCMAKE_BUILD_TYPE=Release \
-            -DGGML_NATIVE=OFF > /dev/null
+            -DGGML_NATIVE=OFF -DGGML_CPU_ARM_ARCH=armv8.2-a+dotprod+fp16 > /dev/null
           cmake --build build --target llama -j 4 > /dev/null
           mkdir -p ../Papers/.llama/include ../Papers/.llama/lib
           cp include/*.h ggml/include/*.h ../Papers/.llama/include/

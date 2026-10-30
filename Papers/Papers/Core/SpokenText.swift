@@ -45,6 +45,16 @@ enum SpokenText {
         for (letter, name) in greek {
             s = s.replacingOccurrences(of: letter, with: " \(name) ")
         }
+        // powers written with superscripts: 10¹⁸ -> 10 to the 18
+        let superscripts: [Character: Character] = ["⁰": "0", "¹": "1", "²": "2", "³": "3", "⁴": "4", "⁵": "5",
+                                                     "⁶": "6", "⁷": "7", "⁸": "8", "⁹": "9", "⁻": "-"]
+        s = replace(s, "(\\d)([⁰¹²³⁴⁵⁶⁷⁸⁹⁻]+)") { m in
+            let power = String(m[2].compactMap { superscripts[$0] })
+            if power == "2" { return m[1] + " squared" }
+            if power == "3" { return m[1] + " cubed" }
+            return m[1] + " to the " + power.replacingOccurrences(of: "-", with: "minus ")
+        }
+        s = s.replacingOccurrences(of: "·", with: " times ")
         // ordinals: 1st, 22nd, 3rd, 4th
         s = replace(s, "\\b(\\d+)(st|nd|rd|th)\\b") { m in ordinal(cardinal(Int(m[1]) ?? 0)) }
         // decimals: 3.14 -> three point one four

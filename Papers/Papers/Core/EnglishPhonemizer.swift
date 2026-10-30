@@ -309,7 +309,7 @@ final class EnglishPhonemizer: @unchecked Sendable {
 
     /// Words the lexicon lacks that papers use a lot.
     private static let userWords: [String: String] = [
-        "a": "ə", "the": "ðə",
+        "a": "ə", "the": "ðə", "multi": "mˈʌlti",
         "arxiv": "ˈɑɹkˌIv", "covid": "kˈOvɪd", "github": "ɡˈɪthˌʌb", "pytorch": "pˈItˌɔɹʧ", "et": "ˈɛt",
         "biorxiv": "bˌIOˈɑɹkˌIv", "medrxiv": "mˌɛdˈɑɹkˌIv", "softmax": "sˈɔftmˌæks", "dataset": "dˈAɾəsˌɛt",
     ]
@@ -330,7 +330,7 @@ final class EnglishPhonemizer: @unchecked Sendable {
     ]
 
     private static let suffixes: [String: String] = [
-        "izer": "ˌIzəɹ", "izers": "ˌIzəɹz", "ize": "ˌIz", "ized": "ˌIzd", "izes": "ˌIzɪz", "izing": "ˌIzɪŋ",
+        "izable": "ˌIzəbᵊl", "izer": "ˌIzəɹ", "izers": "ˌIzəɹz", "ize": "ˌIz", "ized": "ˌIzd", "izes": "ˌIzɪz", "izing": "ˌIzɪŋ",
         "ization": "ɪzˈAʃən", "able": "əbᵊl", "ability": "əbˈɪlɪɾi", "ness": "nəs", "ment": "mənt",
         "ments": "mənts", "less": "ləs", "ful": "fəl", "ity": "ɪɾi", "al": "ᵊl", "ally": "ᵊli", "ic": "ɪk",
         "ics": "ɪks", "ism": "ˌɪzəm", "ist": "ɪst", "ists": "ɪsts", "wise": "wˌIz", "like": "lˌIk",

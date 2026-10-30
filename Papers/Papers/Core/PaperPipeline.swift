@@ -43,6 +43,8 @@ struct PaperNotes {
                 var line = raw.trimmingCharacters(in: .whitespaces)
                     .replacingOccurrences(of: "**", with: "")
                     .trimmingCharacters(in: CharacterSet(charactersIn: "#").union(.whitespaces))
+                // the model often writes the headings as bullets too: "- QUESTION: ..."
+                line = SpokenText.replace(line, "^([-*•]|\\d+[.)])\\s*") { _ in "" }
                 // a heading is "QUESTION:" or "QUESTION" on its own, not a sentence that starts with the word
                 if let f = Field.allCases.first(where: { field in
                     let upper = line.uppercased()
@@ -146,7 +148,7 @@ enum PaperPipeline {
 
                 Now write the notes on part \(part + 1), starting with the first heading that applies.
                 """),
-        ], maxTokens: 700, temperature: 0)
+        ], maxTokens: 900, temperature: 0)
         let reply = clean(raw)
         if PaperNotes([reply]).count >= 3 { return reply }
 
@@ -388,15 +390,20 @@ enum PaperPipeline {
                     NOTES:
                     \(input)
 
-                    Write 8 study questions that test deep understanding of this paper: why and how questions about \
-                    its research question, its methods, its key results, the evidence behind its claims, and its \
-                    limits. Each question must be answerable from the notes. Write one question per line, each \
-                    ending with a question mark. No numbering and no answers.
+                    Write 8 study questions that test deep understanding of this paper's science: why and how \
+                    questions about its research question, its methods, its key results, the evidence behind its \
+                    claims, and its limits. Good questions look like "Why does ... lead to ...?", "What evidence \
+                    shows that ...?", "How did the researchers test whether ...?" or "What does ... not show?". Each \
+                    question must be answerable from the notes. Never ask about the authors, the journal, the \
+                    conference, the year or why the paper was published. Write one question per line, each ending \
+                    with a question mark. No numbering and no answers.
                     """),
             ], maxTokens: 400, temperature: temperature)
             for line in clean(reply).components(separatedBy: .newlines) {
                 let q = SpokenText.replace(line.trimmingCharacters(in: .whitespaces), "^([-*•]|\\d+[.)]|Q\\d*[.:])\\s*") { _ in "" }
+                let offTopic = ["author", "journal", "conference", "publish", "nips", "neurips", "affiliation", "venue"]
                 guard q.hasSuffix("?"), (15...300).contains(q.count),
+                      !offTopic.contains(where: { q.lowercased().contains($0) }),
                       !found.contains(where: { $0.lowercased() == q.lowercased() }) else { continue }
                 found.append(q)
             }
@@ -406,7 +413,11 @@ enum PaperPipeline {
 
     static func answer(_ question: String, source: PaperSource, notes: PaperNotes, writer: TextWriter) async throws -> String {
         try await writePart(
-            task: "Answer this question in depth: \"\(question)\" If the paper does not fully settle it, say plainly what it does and does not show.",
+            task: """
+                Answer this question in depth: "\(question)" Answer from the excerpts and notes, starting with the \
+                direct answer. If the paper does not address it, say so in one or two sentences instead of guessing; \
+                if it only partly settles it, say plainly what it does and does not show.
+                """,
             words: 140, source: source,
             notes: notes.text([.findings, .experiments, .methods, .limitations], budget: 3000),
             excerpts: source.index.excerpts(for: question, budget: 2800), avoid: [], writer: writer)
@@ -426,6 +437,9 @@ enum PaperPipeline {
         do not re-introduce the paper or repeat background the listener has already heard.
         - Keep abbreviations and names exactly as the paper writes them; do not expand an abbreviation unless the \
         paper itself says what it stands for.
+        - Do not list the authors, their affiliations, the journal, the conference or the year; the listener wants \
+        the science. Never guess at the authors' motives.
+        - Say numbers and symbols in words a listener can follow: no math notation, subscripts or symbols.
         - Explain each technical term or abbreviation briefly the first time you use it.
         - Be engaging but not hyped: no "groundbreaking", "revolutionary" or "game-changer".
         - Do not greet the listener, do not say "in this paper" or "in this episode", and do not end with a summary.
@@ -516,7 +530,12 @@ enum PaperPipeline {
     /// `clean`, then drops list marks and lines that are only a heading, for text that will be read aloud.
     static func spoken(_ text: String) -> String {
         text.components(separatedBy: .newlines).compactMap { line -> String? in
-            let l = SpokenText.replace(line, "^([-*•]|\\d+[.)])\\s+") { _ in "" }
+            var l = SpokenText.replace(line, "^([-*•]|\\d+[.)])\\s+") { _ in "" }
+            // inline LaTeX the model copied from the notes: $d_k$ -> d k, \sqrt -> square root
+            l = SpokenText.replace(l, "\\\\sqrt") { _ in "square root of " }
+            l = SpokenText.replace(l, "\\\\(text|mathrm|mathbf|frac|cdot|left|right)") { _ in " " }
+            l = SpokenText.replace(l, "[$_{}\\\\^]") { _ in " " }
+            l = SpokenText.replace(l, "[ \\t]{2,}") { _ in " " }
             if l.hasSuffix(":"), l.split(separator: " ").count <= 5 { return nil }
             return l
         }.joined(separator: "\n")
