@@ -17,7 +17,7 @@ final class Transcriber {
     static let sampleRate = 16_000
 
     private let recognizer: SherpaOnnxOfflineRecognizer
-    private var vadConfig: SherpaOnnxVadModelConfig
+    private let vadPath: String
 
     init(directory: URL, threads: Int = 4) throws {
         let path = { (name: String) in directory.appendingPathComponent(name).path }
@@ -32,11 +32,7 @@ final class Transcriber {
         var config = sherpaOnnxOfflineRecognizerConfig(featConfig: sherpaOnnxFeatureConfig(sampleRate: Self.sampleRate, featureDim: 80),
                                                        modelConfig: model)
         recognizer = SherpaOnnxOfflineRecognizer(config: &config)
-        // speech stretches of up to 25 s, split at pauses of half a second
-        let silero = sherpaOnnxSileroVadModelConfig(model: path("silero_vad.onnx"), threshold: 0.45,
-                                                    minSilenceDuration: 0.5, minSpeechDuration: 0.25,
-                                                    windowSize: 512, maxSpeechDuration: 25)
-        vadConfig = sherpaOnnxVadModelConfig(sileroVad: silero, sampleRate: Int32(Self.sampleRate), numThreads: 1)
+        vadPath = path("silero_vad.onnx")
     }
 
     /// The duration of a media file, in seconds (0 when it has no readable audio).
@@ -74,6 +70,10 @@ final class Transcriber {
             throw EngineError.inference(reader.error?.localizedDescription ?? "This audio could not be read.")
         }
 
+        // speech stretches of up to 25 s, split at pauses of half a second
+        let silero = sherpaOnnxSileroVadModelConfig(model: vadPath, threshold: 0.45, minSilenceDuration: 0.5,
+                                                    minSpeechDuration: 0.25, windowSize: 512, maxSpeechDuration: 25)
+        var vadConfig = sherpaOnnxVadModelConfig(sileroVad: silero, sampleRate: Int32(Self.sampleRate), numThreads: 1)
         let vad = SherpaOnnxVoiceActivityDetectorWrapper(config: &vadConfig, buffer_size_in_seconds: 60)
         let offset = startSecond
         var pending: [Float] = []
