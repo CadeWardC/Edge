@@ -1,0 +1,57 @@
+name: Mirror the voice models
+
+# The app downloads each voice model as one uncompressed .tar from a release of this repo and unpacks it on the
+# phone. sherpa-onnx ships them as .tar.bz2 with extra files, so this repacks only what the app uses.
+#   zipvoice.tar (Best): ZipVoice-Distill (Apache-2.0), full precision, with the Vocos vocoder and espeak-ng data.
+#   pocket.tar (Fast): Kyutai Pocket TTS (non-commercial licence, see its LICENSE), int8.
+
+on:
+  push:
+    paths: [".github/workflows/mirror-voice-models.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  TAG: models-voice-v1
+  BASE: https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models
+
+jobs:
+  mirror:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Repack ZipVoice
+        run: |
+          curl -sSfL "$BASE/sherpa-onnx-zipvoice-distill-zh-en-emilia.tar.bz2" | tar xj
+          curl -sSfL "$BASE/sherpa-onnx-zipvoice-distill-int8-zh-en-emilia.tar.bz2" | tar xj
+          F=sherpa-onnx-zipvoice-distill-zh-en-emilia
+          I=sherpa-onnx-zipvoice-distill-int8-zh-en-emilia
+          mkdir -p out/zipvoice
+          cp $F/text_encoder.onnx $F/fm_decoder.onnx $F/vocos_24khz.onnx out/zipvoice/
+          cp $I/tokens.txt $I/lexicon.txt out/zipvoice/
+          cp -R $I/espeak-ng-data out/zipvoice/
+          (cd out && tar --format=ustar -cf ../zipvoice.tar zipvoice)
+          tar tf zipvoice.tar | head -5; ls -l zipvoice.tar
+
+      - name: Repack Pocket TTS
+        run: |
+          curl -sSfL "$BASE/sherpa-onnx-pocket-tts-int8-2026-01-26.tar.bz2" | tar xj
+          P=sherpa-onnx-pocket-tts-int8-2026-01-26
+          mkdir -p out/pocket
+          cp $P/lm_flow.int8.onnx $P/lm_main.int8.onnx $P/encoder.onnx $P/decoder.int8.onnx \
+             $P/text_conditioner.onnx $P/vocab.json $P/token_scores.json $P/LICENSE out/pocket/
+          (cd out && tar --format=ustar -cf ../pocket.tar pocket)
+          tar tf pocket.tar; ls -l pocket.tar
+
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "$TAG" -R "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            gh release upload "$TAG" zipvoice.tar pocket.tar --clobber -R "$GITHUB_REPOSITORY"
+          else
+            gh release create "$TAG" zipvoice.tar pocket.tar -R "$GITHUB_REPOSITORY" --latest=false \
+              --title "Voice models (v1)" \
+              --notes "ZipVoice-Distill (Best, Apache-2.0) and Kyutai Pocket TTS int8 (Fast, non-commercial licence) for sherpa-onnx 1.12.40, repacked as plain tar files for the app. Not an app build."
+          fi

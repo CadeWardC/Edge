@@ -1,0 +1,64 @@
+name: Edge
+options:
+  bundleIdPrefix: com.cadewardc
+  deploymentTarget:
+    iOS: "17.0"
+  createIntermediateGroups: true
+
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    MARKETING_VERSION: "2.0"
+    CURRENT_PROJECT_VERSION: "1"
+
+targets:
+  Edge:
+    type: application
+    platform: iOS
+    sources:
+      - path: Edge
+    info:
+      path: Edge/Info.plist
+      properties:
+        CFBundleDisplayName: Edge
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        NSMicrophoneUsageDescription: Edge records a voice sample so it can speak in that voice.
+        NSSpeechRecognitionUsageDescription: Edge writes down what is said in a voice sample, which the Best voice model needs.
+        UIBackgroundModes:
+          - audio
+          - processing
+        BGTaskSchedulerPermittedIdentifiers:
+          - com.cadewardc.edge.render
+        UIFileSharingEnabled: true
+        LSSupportsOpeningDocumentsInPlace: true
+        UILaunchScreen: {}
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+        UISupportedInterfaceOrientations~ipad:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        ITSAppUsesNonExemptEncryption: false
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.cadewardc.edge
+        PRODUCT_NAME: Edge
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        TARGETED_DEVICE_FAMILY: "1,2"
+        SWIFT_OBJC_BRIDGING_HEADER: Edge/Engine/Edge-Bridging-Header.h
+        ENABLE_BITCODE: NO
+        OTHER_LDFLAGS: $(inherited) -lc++
+    dependencies:
+      # from scripts/fetch-sherpa-ios.sh (static libraries, nothing to embed)
+      - framework: vendor/sherpa-onnx.xcframework
+        embed: false
+      - framework: vendor/onnxruntime.xcframework
+        embed: false
+      - sdk: Accelerate.framework
+      - sdk: AVFoundation.framework
+      - sdk: CoreML.framework
+      - sdk: PDFKit.framework
+      - sdk: Speech.framework
+    scheme: {}
