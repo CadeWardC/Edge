@@ -4,6 +4,7 @@ name: Mirror the voice models
 # phone. sherpa-onnx ships them as .tar.bz2 with extra files, so this repacks only what the app uses.
 #   zipvoice.tar (Best): ZipVoice-Distill (Apache-2.0), full precision, with the Vocos vocoder and espeak-ng data.
 #   pocket.tar (Fast): Kyutai Pocket TTS (non-commercial licence, see its LICENSE), int8.
+#   kokoro.tar (built-in voices): Kokoro-82M v1.0 (Apache-2.0), full precision, English lexicons and espeak-ng data.
 
 on:
   push:
@@ -44,14 +45,24 @@ jobs:
           (cd out && tar --format=ustar -cf ../pocket.tar pocket)
           tar tf pocket.tar; ls -l pocket.tar
 
+      - name: Repack Kokoro
+        run: |
+          curl -sSfL "$BASE/kokoro-multi-lang-v1_0.tar.bz2" | tar xj
+          K=kokoro-multi-lang-v1_0
+          mkdir -p out/kokoro
+          cp $K/model.onnx $K/voices.bin $K/tokens.txt $K/lexicon-us-en.txt $K/lexicon-gb-en.txt $K/LICENSE out/kokoro/
+          cp -R $K/espeak-ng-data out/kokoro/
+          (cd out && tar --format=ustar -cf ../kokoro.tar kokoro)
+          tar tf kokoro.tar | grep -v espeak-ng-data/; ls -l kokoro.tar
+
       - name: Publish
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           if gh release view "$TAG" -R "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
-            gh release upload "$TAG" zipvoice.tar pocket.tar --clobber -R "$GITHUB_REPOSITORY"
+            gh release upload "$TAG" zipvoice.tar pocket.tar kokoro.tar --clobber -R "$GITHUB_REPOSITORY"
           else
-            gh release create "$TAG" zipvoice.tar pocket.tar -R "$GITHUB_REPOSITORY" --latest=false \
+            gh release create "$TAG" zipvoice.tar pocket.tar kokoro.tar -R "$GITHUB_REPOSITORY" --latest=false \
               --title "Voice models (v1)" \
-              --notes "ZipVoice-Distill (Best, Apache-2.0) and Kyutai Pocket TTS int8 (Fast, non-commercial licence) for sherpa-onnx 1.12.40, repacked as plain tar files for the app. Not an app build."
+              --notes "ZipVoice-Distill (Best, Apache-2.0), Kyutai Pocket TTS int8 (Fast, non-commercial licence) and Kokoro v1.0 (built-in voices, Apache-2.0) for sherpa-onnx 1.12.40, repacked as plain tar files for the app. Not an app build."
           fi
