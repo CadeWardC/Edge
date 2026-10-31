@@ -75,7 +75,7 @@ final class PaperLibrary: ObservableObject {
             voiceID: d.string(forKey: AppSettings.Key.defaultVoice).flatMap(UUID.init(uuidString:)),
             model: AppSettings.voiceModel
         )
-        if paper.voiceID == nil { paper.voiceID = VoiceLibrary.shared.voices.first?.id }
+        if VoiceLibrary.shared.voice(paper.voiceID) == nil { paper.voiceID = Voice.defaultVoice.id }
         try FileManager.default.createDirectory(at: Self.folder(paper.id), withIntermediateDirectories: true)
         try FileManager.default.copyItem(at: url, to: Self.pdfURL(paper.id))
         papers.insert(paper, at: 0)

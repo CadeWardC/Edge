@@ -11,8 +11,11 @@ struct SpeakView: View {
     @AppStorage(AppSettings.Key.speed) private var speed = 1.0
     @FocusState private var editing: Bool
 
-    private var voice: Voice? { voices.voice(UUID(uuidString: voiceID)) ?? voices.voices.first }
-    private var model: VoiceModel { VoiceModel(rawValue: modelRaw) ?? .fast }
+    private var voice: Voice { voices.voice(UUID(uuidString: voiceID)) ?? Voice.defaultVoice }
+    /// The cloning model picked for cloned voices.
+    private var model: VoiceModel { VoiceModel.cloning.first { $0.rawValue == modelRaw } ?? .fast }
+    /// The model that will actually speak.
+    private var speakingModel: VoiceModel { voice.isBuiltIn ? .kokoro : model }
 
     var body: some View {
         NavigationStack {
@@ -32,29 +35,25 @@ struct SpeakView: View {
                 }
 
                 Section {
-                    if voices.voices.isEmpty {
-                        Text("Add a voice in the Voices tab first.").foregroundStyle(.secondary)
-                    } else {
-                        Picker("Voice", selection: Binding(get: { voice?.id.uuidString ?? "" }, set: { voiceID = $0 })) {
-                            ForEach(voices.voices) { v in Text(v.name).tag(v.id.uuidString) }
+                    VoicePicker(selection: Binding(get: { voice.id }, set: { voiceID = $0.uuidString }))
+                    if !voice.isBuiltIn {
+                        Picker("Cloning model", selection: $modelRaw) {
+                            ForEach(VoiceModel.cloning) { m in Text(m.title).tag(m.rawValue) }
                         }
+                        .pickerStyle(.segmented)
                     }
-                    Picker("Model", selection: $modelRaw) {
-                        ForEach(VoiceModel.allCases) { m in Text(m.title).tag(m.rawValue) }
-                    }
-                    .pickerStyle(.segmented)
                     HStack {
                         Image(systemName: "tortoise").font(.caption)
                         Slider(value: $speed, in: 0.7...1.4, step: 0.05)
                         Image(systemName: "hare").font(.caption)
                         Text(String(format: "%.2g×", speed)).font(.caption.monospacedDigit()).frame(width: 40)
                     }
-                    if !models.isReady(model) {
-                        Label("The \(model.title) model (\(model.modelName)) isn't downloaded. Get it in Settings.", systemImage: "arrow.down.circle")
+                    if !models.isReady(speakingModel) {
+                        Label("The \(speakingModel.modelName) model isn't downloaded. Get it in Settings.", systemImage: "arrow.down.circle")
                             .font(.footnote).foregroundStyle(.orange)
                     }
                 } footer: {
-                    Text(model.detail)
+                    Text(speakingModel.detail)
                 }
 
                 Section {
@@ -67,12 +66,12 @@ struct SpeakView: View {
                     } else {
                         Button {
                             editing = false
-                            if let voice { clips.generate(text: text, voice: voice, model: model, speed: speed) }
+                            clips.generate(text: text, voice: voice, model: model, speed: speed)
                         } label: {
                             Label("Speak", systemImage: "play.fill").frame(maxWidth: .infinity)
                         }
                         .buttonStyle(.borderedProminent)
-                        .disabled(voice == nil || !models.isReady(model) || text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                        .disabled(!models.isReady(speakingModel) || text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                     }
                     if let error = clips.error {
                         Text(error).font(.footnote).foregroundStyle(.red)
@@ -120,7 +119,7 @@ private struct ClipRow: View {
             .buttonStyle(.borderless)
             VStack(alignment: .leading, spacing: 2) {
                 Text(clip.text).lineLimit(2).font(.subheadline)
-                Text("\(clip.voiceName) · \(clip.model.title) · \(formatDuration(clip.duration))")
+                Text("\(clip.voiceName) · \(clip.model == .kokoro ? "Built-in" : clip.model.title) · \(formatDuration(clip.duration))")
                     .font(.caption).foregroundStyle(.secondary)
             }
             Spacer(minLength: 0)

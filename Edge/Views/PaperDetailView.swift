@@ -51,13 +51,20 @@ struct PaperDetailView: View {
                 Section {
                     Stepper("Audio parts: \(paper.partsCount)", value: binding(\.partsCount), in: 1...12)
                     Stepper("About \(paper.minutesPerPart) min each", value: binding(\.minutesPerPart), in: 1...20)
-                    Picker("Voice", selection: binding(\.voiceID)) {
-                        if voices.voices.isEmpty { Text("Add one in Voices").tag(UUID?.none) }
-                        ForEach(voices.voices) { v in Text(v.name).tag(Optional(v.id)) }
-                    }
-                    Picker("Voice model", selection: binding(\.model)) {
-                        ForEach(VoiceModel.allCases) { m in
-                            Text(m.title + (models.isReady(m) ? "" : " (not downloaded)")).tag(m)
+                    VoicePicker(selection: Binding(
+                        get: { voices.voice(paper.voiceID)?.id ?? Voice.defaultVoice.id },
+                        set: { id in library.update(self.id) { $0.voiceID = id } }))
+                    let voice = voices.voice(paper.voiceID) ?? Voice.defaultVoice
+                    if voice.isBuiltIn {
+                        if !models.isReady(.kokoro) {
+                            Label("Download Kokoro in Settings to use the built-in voices.", systemImage: "arrow.down.circle")
+                                .font(.footnote).foregroundStyle(.orange)
+                        }
+                    } else {
+                        Picker("Cloning model", selection: binding(\.model)) {
+                            ForEach(VoiceModel.cloning) { m in
+                                Text(m.title + (models.isReady(m) ? "" : " (not downloaded)")).tag(m)
+                            }
                         }
                     }
                     Button {

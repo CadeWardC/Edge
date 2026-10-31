@@ -95,18 +95,18 @@ struct SettingsView: View {
                 }
 
                 Section {
-                    ForEach(VoiceModel.allCases) { model in
+                    ForEach([VoiceModel.kokoro, .best, .fast]) { model in
                         ModelRow(model: model)
                     }
                 } header: {
                     Text("Voice models")
                 } footer: {
-                    Text("Both clone a voice from a short sample and run on this iPhone. Best is ZipVoice (Apache-2.0). Fast is Kyutai's Pocket TTS, licensed for non-commercial use only.")
+                    Text("All run on this iPhone. Kokoro has 27 ready-made English voices (Apache-2.0). Best (ZipVoice, Apache-2.0) and Fast (Kyutai's Pocket TTS, non-commercial use only) clone any voice from a short recording.")
                 }
 
                 Section {
-                    Picker("Default model", selection: $voiceModel) {
-                        ForEach(VoiceModel.allCases) { Text($0.title).tag($0.rawValue) }
+                    Picker("Cloning model", selection: $voiceModel) {
+                        ForEach(VoiceModel.cloning) { Text($0.title).tag($0.rawValue) }
                     }
                     Stepper("Best quality steps: \(bestSteps)", value: $bestSteps, in: 4...16, step: 2)
                     Stepper("Fast quality steps: \(fastSteps)", value: $fastSteps, in: 1...6)
@@ -118,7 +118,7 @@ struct SettingsView: View {
                 } header: {
                     Text("Voice")
                 } footer: {
-                    Text("More steps sound a little more natural but take longer. Best: 8 is a good balance (4 is quickest). Fast: 2 is the usual setting.")
+                    Text("The cloning model is the default for your own voices; built-in voices always use Kokoro. More steps sound a little more natural but take longer. Best: 8 is a good balance (4 is quickest). Fast: 2 is the usual setting.")
                 }
 
                 Section("Storage") {

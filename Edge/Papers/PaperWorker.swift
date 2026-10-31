@@ -113,14 +113,13 @@ final class PaperWorker: ObservableObject {
         }
 
         // voice the parts
-        guard let voice = VoiceLibrary.shared.voice(paper.voiceID) ?? VoiceLibrary.shared.voices.first else {
-            throw AppError("Add a voice in the Voices tab first.")
-        }
-        guard ModelStore.shared.isReady(paper.model) else {
-            throw AppError("Download the \(paper.model.title) voice model (\(paper.model.modelName)) in Settings first.")
+        let voice = VoiceLibrary.shared.voice(paper.voiceID) ?? Voice.defaultVoice
+        let voiceModel = voice.isBuiltIn ? VoiceModel.kokoro : paper.model
+        guard ModelStore.shared.isReady(voiceModel) else {
+            throw AppError("Download the \(voiceModel.modelName) voice model in Settings first.")
         }
         library.update(id) { $0.stage = .voicing }
-        let options = SpeechRenderer.Options(voice: voice, model: paper.model, steps: AppSettings.steps(paper.model))
+        let options = SpeechRenderer.Options(voice: voice, model: paper.model, steps: AppSettings.steps(voiceModel))
         let parts = library.paper(id)?.parts ?? paper.parts
         let todo = parts.filter { job != .make || $0.duration == nil || !FileManager.default.fileExists(atPath: PaperLibrary.audioURL(id, part: $0.id).path) }
         for (n, part) in todo.enumerated() {

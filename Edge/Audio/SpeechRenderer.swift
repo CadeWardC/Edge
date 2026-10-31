@@ -1,12 +1,15 @@
 import Foundation
 
-/// Voices text into an .m4a file with a cloned voice, chunk by chunk, reporting progress.
+/// Voices text into an .m4a file with a cloned or built-in voice, chunk by chunk, reporting progress.
 enum SpeechRenderer {
     struct Options {
         var voice: Voice
+        /// The cloning model for a cloned voice; built-in voices always use Kokoro.
         var model: VoiceModel
         var speed: Double = AppSettings.speed
         var steps: Int
+
+        var effectiveModel: VoiceModel { voice.isBuiltIn ? .kokoro : model }
     }
 
     /// Writes `text` spoken by `options.voice` to `url`; returns the seconds of audio.
@@ -15,7 +18,8 @@ enum SpeechRenderer {
                        progress: @escaping @Sendable (Double) -> Void) async throws -> Double {
         let chunks = self.chunks(clean(text))
         guard !chunks.isEmpty else { throw AppError("There is nothing to say.") }
-        if options.model == .best && options.voice.transcript.trimmingCharacters(in: .whitespaces).isEmpty {
+        let model = options.effectiveModel
+        if model == .best && options.voice.transcript.trimmingCharacters(in: .whitespaces).isEmpty {
             throw AppError("The Best voice needs the transcript of “\(options.voice.name)”. Add it in Voices, or use Fast.")
         }
         let reference = try await MainActor.run { try VoiceLibrary.shared.samples(for: options.voice) }
@@ -32,9 +36,10 @@ enum SpeechRenderer {
                 let before = done
                 let weight = Double(chunk.count) / totalCharacters
                 let request = VoiceEngine.Request(
-                    text: chunk, model: options.model, reference: reference,
+                    text: chunk, model: model, reference: reference,
                     referenceSampleRate: VoiceEngine.sampleRate, referenceText: options.voice.transcript,
-                    speed: Float(options.speed), steps: options.steps)
+                    speakerID: options.voice.builtInID ?? 0,
+                    speed: Float(options.speed), steps: AppSettings.steps(model))
                 try await VoiceEngine.shared.speak(request) { samples, p in
                     if cancelled.value { return false }
                     do {

@@ -2,16 +2,45 @@ import AVFoundation
 import Foundation
 import Speech
 
-/// A cloned voice: a short sample of someone speaking, and what they say in it.
+/// A voice to speak with: a clone made from a short sample of someone speaking, or one of Kokoro's built-in voices.
 struct Voice: Identifiable, Codable, Hashable {
     var id = UUID()
     var name: String
     /// The exact words of the sample. ZipVoice (Best) needs it to clone well.
     var transcript: String
-    /// Language of the sample, for transcribing it ("en-US", "zh-CN", ...).
+    /// Accent of the sample, for transcribing it ("en-US", "en-GB").
     var language: String
     var duration: Double
     var created = Date()
+    /// Kokoro's speaker id when this is a built-in voice (no sample).
+    var builtInID: Int?
+    /// e.g. "American woman"
+    var builtInDescription: String?
+
+    var isBuiltIn: Bool { builtInID != nil }
+
+    /// Kokoro v1.0's English voices (speaker ids 0-27), best rated first.
+    static let builtIn: [Voice] = {
+        let list: [(Int, String, String)] = [
+            (3, "Heart", "American woman"), (2, "Bella", "American woman"), (6, "Nicole", "American woman, soft"),
+            (16, "Michael", "American man"), (14, "Fenrir", "American man"), (18, "Puck", "American man"),
+            (21, "Emma", "British woman"), (26, "George", "British man"), (25, "Fable", "British man"),
+            (5, "Kore", "American woman"), (0, "Alloy", "American woman"), (1, "Aoede", "American woman"),
+            (4, "Jessica", "American woman"), (7, "Nova", "American woman"), (8, "River", "American woman"),
+            (9, "Sarah", "American woman"), (10, "Sky", "American woman"), (11, "Adam", "American man"),
+            (12, "Echo", "American man"), (13, "Eric", "American man"), (15, "Liam", "American man"),
+            (17, "Onyx", "American man"), (20, "Alice", "British woman"), (22, "Isabella", "British woman"),
+            (23, "Lily", "British woman"), (24, "Daniel", "British man"), (27, "Lewis", "British man"),
+        ]
+        return list.map { sid, name, description in
+            Voice(id: UUID(uuidString: String(format: "00000000-0000-4000-8000-%012d", sid))!, name: name, transcript: "",
+                  language: description.hasPrefix("British") ? "en-GB" : "en-US", duration: 0,
+                  created: Date(timeIntervalSince1970: 0), builtInID: sid, builtInDescription: description)
+        }
+    }()
+
+    /// The built-in voice used until another is chosen.
+    static var defaultVoice: Voice { builtIn[0] }
 }
 
 /// The saved voices, with their samples in Documents/Voices/<id>.wav (mono, 24 kHz).
@@ -19,7 +48,7 @@ struct Voice: Identifiable, Codable, Hashable {
 final class VoiceLibrary: ObservableObject {
     static let shared = VoiceLibrary()
     static let languages: [(code: String, name: String)] = [
-        ("en-US", "English (US)"), ("en-GB", "English (UK)"), ("zh-CN", "Chinese (Mandarin)"),
+        ("en-US", "English (US)"), ("en-GB", "English (UK)"),
     ]
 
     @Published private(set) var voices: [Voice] = []
@@ -39,10 +68,14 @@ final class VoiceLibrary: ObservableObject {
         }
     }
 
+    /// A cloned or built-in voice by id.
     func voice(_ id: UUID?) -> Voice? {
         guard let id else { return nil }
-        return voices.first { $0.id == id }
+        return voices.first { $0.id == id } ?? Voice.builtIn.first { $0.id == id }
     }
+
+    /// The cloned voices first, then the built-in ones.
+    var allVoices: [Voice] { voices + Voice.builtIn }
 
     /// Adds a voice from an audio file (imported or recorded): trims and saves the sample, then transcribes it.
     func add(from url: URL, name: String, language: String) async throws -> Voice {
@@ -87,6 +120,7 @@ final class VoiceLibrary: ObservableObject {
     }
 
     func samples(for voice: Voice) throws -> [Float] {
+        if voice.isBuiltIn { return [] }
         if let s = cache[voice.id] { return s }
         let s = try AudioClip.load(Self.sampleURL(voice.id))
         cache[voice.id] = s

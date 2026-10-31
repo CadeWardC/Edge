@@ -7,24 +7,55 @@ struct AppError: LocalizedError {
     var errorDescription: String? { message }
 }
 
-/// The two on-device voice-cloning models.
+/// The on-device voice models: two that clone a voice from a sample, and Kokoro with built-in voices.
 enum VoiceModel: String, CaseIterable, Identifiable, Codable {
-    /// ZipVoice-Distill, full precision: the most natural voice, needs the sample's transcript, slower.
+    /// ZipVoice-Distill, full precision: the most natural clone, needs the sample's transcript, slower.
     case best
     /// Kyutai Pocket TTS, int8: clones from the sample alone, about twice as fast.
     case fast
+    /// Kokoro-82M v1.0: 27 ready-made English voices, no sample needed.
+    case kokoro
+
+    /// The models that clone a voice from a sample.
+    static let cloning: [VoiceModel] = [.best, .fast]
 
     var id: String { rawValue }
-    var title: String { self == .best ? "Best" : "Fast" }
-    var modelName: String { self == .best ? "ZipVoice" : "Pocket TTS" }
+    var title: String {
+        switch self {
+        case .best: return "Best"
+        case .fast: return "Fast"
+        case .kokoro: return "Built-in voices"
+        }
+    }
+    var modelName: String {
+        switch self {
+        case .best: return "ZipVoice"
+        case .fast: return "Pocket TTS"
+        case .kokoro: return "Kokoro"
+        }
+    }
     var detail: String {
-        self == .best
-            ? "ZipVoice: the closest, most natural clone. Uses the sample's transcript. Slower."
-            : "Pocket TTS: a great clone from the sample alone, about twice as fast. English."
+        switch self {
+        case .best: return "ZipVoice: the closest, most natural clone of your voice. Uses the sample's transcript. Slower."
+        case .fast: return "Pocket TTS: a great clone from the sample alone, about twice as fast."
+        case .kokoro: return "Kokoro: 27 natural English voices, American and British, ready to use without a sample."
+        }
     }
     /// Name of the release asset (without .tar) and of the folder it unpacks into.
-    var pack: String { self == .best ? "zipvoice" : "pocket" }
-    var approximateBytes: Int64 { self == .best ? 575_000_000 : 125_000_000 }
+    var pack: String {
+        switch self {
+        case .best: return "zipvoice"
+        case .fast: return "pocket"
+        case .kokoro: return "kokoro"
+        }
+    }
+    var approximateBytes: Int64 {
+        switch self {
+        case .best: return 575_000_000
+        case .fast: return 125_000_000
+        case .kokoro: return 380_000_000
+        }
+    }
 }
 
 /// Downloads the voice models in the background and unpacks them into Documents/Models/<pack>.

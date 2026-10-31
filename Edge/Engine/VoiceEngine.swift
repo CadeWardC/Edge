@@ -1,6 +1,6 @@
 import Foundation
 
-/// Speaks text in a cloned voice with sherpa-onnx (ZipVoice or Pocket TTS), on the CPU.
+/// Speaks text with sherpa-onnx on the CPU: in a cloned voice (ZipVoice or Pocket TTS) or a built-in one (Kokoro).
 /// One model is kept in memory at a time; every call runs on a private serial queue.
 final class VoiceEngine: @unchecked Sendable {
     static let shared = VoiceEngine()
@@ -9,11 +9,13 @@ final class VoiceEngine: @unchecked Sendable {
     struct Request {
         var text: String
         var model: VoiceModel
-        /// The voice sample: mono, at `referenceSampleRate`.
-        var reference: [Float]
-        var referenceSampleRate: Int
+        /// The voice sample: mono, at `referenceSampleRate` (cloning models only).
+        var reference: [Float] = []
+        var referenceSampleRate: Int = VoiceEngine.sampleRate
         /// What is said in the sample (ZipVoice needs it; Pocket TTS ignores it).
-        var referenceText: String
+        var referenceText: String = ""
+        /// Kokoro's speaker id for a built-in voice.
+        var speakerID: Int = 0
         var speed: Float = 1
         var steps: Int
     }
@@ -42,11 +44,11 @@ final class VoiceEngine: @unchecked Sendable {
                     let config = SherpaOnnxGenerationConfigSwift(
                         silenceScale: 0.2,
                         speed: request.speed,
-                        sid: 0,
-                        referenceAudio: request.reference,
+                        sid: request.model == .kokoro ? request.speakerID : 0,
+                        referenceAudio: request.model == .kokoro ? [] : request.reference,
                         referenceSampleRate: request.referenceSampleRate,
                         referenceText: request.model == .best ? request.referenceText : "",
-                        numSteps: request.steps
+                        numSteps: request.model == .kokoro ? 1 : request.steps
                     )
                     let audio = tts.generateWithConfig(text: request.text, config: config, callback: callback, arg: box)
                     // some models only return the audio at the end instead of sentence by sentence
@@ -105,6 +107,16 @@ final class VoiceEngine: @unchecked Sendable {
                 tokenScoresJson: path("token_scores.json")
             )
             modelConfig = sherpaOnnxOfflineTtsModelConfig(numThreads: threads, pocket: pocket)
+        case .kokoro:
+            let kokoro = sherpaOnnxOfflineTtsKokoroModelConfig(
+                model: path("model.onnx"),
+                voices: path("voices.bin"),
+                tokens: path("tokens.txt"),
+                dataDir: path("espeak-ng-data"),
+                lexicon: path("lexicon-us-en.txt"),
+                lang: "en-us"
+            )
+            modelConfig = sherpaOnnxOfflineTtsModelConfig(kokoro: kokoro, numThreads: threads)
         }
         var config = sherpaOnnxOfflineTtsConfig(model: modelConfig, maxNumSentences: 1)
         let tts = SherpaOnnxOfflineTtsWrapper(config: &config)
@@ -122,6 +134,8 @@ final class VoiceEngine: @unchecked Sendable {
         case .fast:
             return ["lm_flow.int8.onnx", "lm_main.int8.onnx", "encoder.onnx", "decoder.int8.onnx",
                     "text_conditioner.onnx", "vocab.json", "token_scores.json"]
+        case .kokoro:
+            return ["model.onnx", "voices.bin", "tokens.txt", "lexicon-us-en.txt", "espeak-ng-data"]
         }
     }
 }

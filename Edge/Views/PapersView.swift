@@ -14,19 +14,22 @@ struct PapersView: View {
     var body: some View {
         NavigationStack(path: $path) {
             List {
-                if !hasKey || voices.voices.isEmpty || !VoiceModel.allCases.contains(where: models.isReady) {
-                    Section("Get started") {
+                if !hasKey || !VoiceModel.allCases.contains(where: models.isReady) {
+                    Section {
                         SetupRow(done: hasKey, title: "Add your DeepSeek API key", detail: "Settings › DeepSeek")
-                        SetupRow(done: VoiceModel.allCases.contains(where: models.isReady),
-                                 title: "Download a voice model", detail: "Settings › Voice models")
-                        SetupRow(done: !voices.voices.isEmpty, title: "Add a voice to clone", detail: "Voices tab")
+                        SetupRow(done: models.isReady(.kokoro) || VoiceModel.cloning.contains(where: models.isReady),
+                                 title: "Download the voices", detail: "Settings › Voice models (Kokoro has 27 built-in voices)")
+                    } header: {
+                        Text("Get started")
+                    } footer: {
+                        Text("To hear papers in your own voice, or anyone's, add a recording in the Voices tab and download a cloning model.")
                     }
                 }
                 if library.papers.isEmpty {
                     Section {
                         VStack(alignment: .leading, spacing: 8) {
                             Text("No papers yet").font(.headline)
-                            Text("Import a PDF. DeepSeek writes a script in as many parts as you like, and your cloned voice reads it so you can listen.")
+                            Text("Import a PDF. DeepSeek writes a script in as many parts as you like, and a natural voice, built in or cloned from a recording, reads it so you can listen.")
                                 .font(.subheadline).foregroundStyle(.secondary)
                             Button("Import a PDF") { importing = true }
                                 .buttonStyle(.borderedProminent)

@@ -4,13 +4,14 @@ import UniformTypeIdentifiers
 
 struct VoicesView: View {
     @EnvironmentObject private var voices: VoiceLibrary
+    @EnvironmentObject private var models: ModelStore
     @State private var adding = false
 
     var body: some View {
         NavigationStack {
             List {
                 if voices.voices.isEmpty {
-                    Section {
+                    Section("Your voices") {
                         VStack(alignment: .leading, spacing: 8) {
                             Text("Clone a voice").font(.headline)
                             Text("Import a voice recording or record one: 5 to 15 seconds of one person speaking clearly, with no music or background noise.")
@@ -22,20 +23,33 @@ struct VoicesView: View {
                         .padding(.vertical, 6)
                     }
                 } else {
-                    ForEach(voices.voices) { voice in
-                        NavigationLink {
-                            VoiceDetailView(voiceID: voice.id)
-                        } label: {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(voice.name).font(.headline)
-                                Text(voice.transcript.isEmpty ? "No transcript (Fast only)" : voice.transcript)
-                                    .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                    Section("Your voices") {
+                        ForEach(voices.voices) { voice in
+                            NavigationLink {
+                                VoiceDetailView(voiceID: voice.id)
+                            } label: {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(voice.name).font(.headline)
+                                    Text(voice.transcript.isEmpty ? "No transcript (Fast only)" : voice.transcript)
+                                        .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                                }
                             }
                         }
+                        .onDelete { offsets in
+                            for i in offsets { voices.delete(voices.voices[i]) }
+                        }
                     }
-                    .onDelete { offsets in
-                        for i in offsets { voices.delete(voices.voices[i]) }
+                }
+                Section {
+                    ForEach(Voice.builtIn) { voice in
+                        BuiltInVoiceRow(voice: voice)
                     }
+                } header: {
+                    Text("Built-in voices")
+                } footer: {
+                    Text(models.isReady(.kokoro)
+                         ? "Kokoro's English voices. Tap play to hear one."
+                         : "Download Kokoro in Settings › Voice models to use these.")
                 }
             }
             .navigationTitle("Voices")
@@ -52,7 +66,7 @@ struct AddVoiceView: View {
     @Environment(\.dismiss) private var dismiss
     @StateObject private var recorder = SampleRecorder()
     @State private var name = ""
-    @State private var language = Locale.current.identifier.hasPrefix("zh") ? "zh-CN" : "en-US"
+    @State private var language = Locale.current.region?.identifier == "GB" ? "en-GB" : "en-US"
     @State private var importing = false
     @State private var working = false
     @State private var error: String?
@@ -203,7 +217,7 @@ struct VoiceDetailView: View {
                 }
                 Section("Try it") {
                     TextField("Text", text: $testText, axis: .vertical).lineLimit(1...4)
-                    ForEach(VoiceModel.allCases) { model in
+                    ForEach(VoiceModel.cloning) { model in
                         Button {
                             test(model, voice)
                         } label: {
@@ -215,7 +229,7 @@ struct VoiceDetailView: View {
                         }
                         .disabled(testing != nil || !models.isReady(model) || (model == .best && transcript.isEmpty))
                     }
-                    if !VoiceModel.allCases.allSatisfy(models.isReady) {
+                    if !VoiceModel.cloning.allSatisfy(models.isReady) {
                         Text("Download the voice models in Settings to try them.").font(.caption).foregroundStyle(.secondary)
                     }
                 }
@@ -262,6 +276,91 @@ struct VoiceDetailView: View {
                 self.error = error.localizedDescription
             }
             testing = nil
+        }
+    }
+}
+
+/// Picks a voice: the cloned ones, then Kokoro's built-in voices.
+struct VoicePicker: View {
+    @Binding var selection: UUID
+    @EnvironmentObject private var voices: VoiceLibrary
+
+    var body: some View {
+        Picker("Voice", selection: $selection) {
+            if !voices.voices.isEmpty {
+                Section("Your voices") {
+                    ForEach(voices.voices) { v in Text(v.name).tag(v.id) }
+                }
+            }
+            Section("Built-in") {
+                ForEach(Voice.builtIn) { v in Text("\(v.name) · \(v.builtInDescription ?? "")").tag(v.id) }
+            }
+        }
+    }
+}
+
+/// One of Kokoro's voices, with a play button that says a short greeting in it.
+private struct BuiltInVoiceRow: View {
+    let voice: Voice
+    @EnvironmentObject private var models: ModelStore
+    @EnvironmentObject private var player: Player
+    @AppStorage(AppSettings.Key.defaultVoice) private var defaultVoice = ""
+    @State private var working = false
+    @State private var error: String?
+
+    private var url: URL {
+        FileManager.default.temporaryDirectory.appendingPathComponent("builtin-\(voice.builtInID ?? 0).m4a")
+    }
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Button(action: play) {
+                if working {
+                    ProgressView().frame(width: 28, height: 28)
+                } else {
+                    Image(systemName: player.isCurrent(url) && player.isPlaying ? "pause.circle.fill" : "play.circle.fill")
+                        .font(.title2)
+                }
+            }
+            .buttonStyle(.borderless)
+            .disabled(!models.isReady(.kokoro) || working)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(voice.name).font(.headline)
+                Text(error ?? voice.builtInDescription ?? "").font(.caption)
+                    .foregroundStyle(error == nil ? Color.secondary : Color.red)
+            }
+            Spacer()
+            if defaultVoice == voice.id.uuidString || (defaultVoice.isEmpty && voice.id == Voice.defaultVoice.id) {
+                Text("Default").font(.caption).foregroundStyle(.secondary)
+            }
+        }
+        .contextMenu {
+            Button("Use for new papers") { defaultVoice = voice.id.uuidString }
+        }
+    }
+
+    private func play() {
+        if player.isCurrent(url) {
+            player.toggle()
+            return
+        }
+        if FileManager.default.fileExists(atPath: url.path) {
+            player.play(.init(url: url, title: voice.name, subtitle: "Built-in voice"))
+            return
+        }
+        working = true
+        error = nil
+        Task {
+            do {
+                let options = SpeechRenderer.Options(voice: voice, model: .kokoro, steps: 1)
+                let text = "Hi, I'm \(voice.name). I can read your papers out loud, or say anything you type."
+                _ = try await SpeechRenderer.render(text, options: options, to: url) { _ in }
+                player.play(.init(url: url, title: voice.name, subtitle: "Built-in voice"))
+            } catch {
+                try? FileManager.default.removeItem(at: url)
+                self.error = error.localizedDescription
+            }
+            working = false
         }
     }
 }

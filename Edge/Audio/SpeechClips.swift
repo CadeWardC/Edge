@@ -45,7 +45,7 @@ final class SpeechClips: ObservableObject {
         UIApplication.shared.isIdleTimerDisabled = true
         BackgroundKeepAlive.shared.begin(title: "Speaking", subtitle: voice.name)
         task = Task {
-            var clip = SpeechClip(text: trimmed, voiceName: voice.name, model: model, duration: 0)
+            var clip = SpeechClip(text: trimmed, voiceName: voice.name, model: voice.isBuiltIn ? .kokoro : model, duration: 0)
             let url = Self.audioURL(clip.id)
             var ok = false
             do {

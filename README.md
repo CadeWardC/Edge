@@ -1,23 +1,25 @@
 # Edge: listen to scientific papers in any voice
 
-An iPhone app that turns research papers into audio read by a cloned voice:
+An iPhone app (English) that turns research papers into audio read by a natural voice: one of 27 built-in voices,
+or any voice cloned from a short recording.
 
 - **Papers:** import a PDF. DeepSeek writes an audio script in as many parts as you choose, each about as long as you
-  choose, following a prompt you can edit, and a cloned voice reads every part on the phone. Listen in the app (Lock
+  choose, following a prompt you can edit, and the voice you pick reads every part on the phone. Listen in the app (Lock
   Screen controls, speed, auto-next) or share the `.m4a` files.
-- **Speak:** type anything and hear it in a cloned voice.
-- **Voices:** clone a voice from a recording (import an audio or video file, or record 5 to 15 seconds in the app).
+- **Speak:** type anything and hear it in any of your voices.
+- **Voices:** Kokoro's 27 built-in English voices, and your own: clone a voice from a recording (import an audio or video file, or record 5 to 15 seconds in the app).
   The app writes down what is said with Apple's on-device speech recognition; you can correct it.
 - **Settings:** your DeepSeek API key (kept in the Keychain), the DeepSeek model (loaded from your account), the
   default prompt, parts and length, and the voice models.
 
-## Voice cloning on the iPhone
+## Voices on the iPhone
 
-Both models run on the CPU through [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx) and clone from a short sample
-with no training:
+All three models run on the CPU through [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx). The two cloning models
+copy a voice from a short sample with no training:
 
 | | Model | Download | Notes |
 | --- | --- | --- | --- |
+| **Built-in voices** | [Kokoro-82M v1.0](https://huggingface.co/hexgrad/Kokoro-82M) (full precision) | ~380 MB | 27 English voices (American and British). About 0.65× real time. Apache-2.0. |
 | **Best** | [ZipVoice-Distill](https://github.com/k2-fsa/ZipVoice) (flow matching, full precision) + Vocos vocoder | ~575 MB | Closest, most natural clone. Uses the sample's transcript. English and Chinese. Apache-2.0. |
 | **Fast** | [Kyutai Pocket TTS](https://github.com/kyutai-labs/pocket-tts) (int8) | ~125 MB | Clones from the sound alone, about twice as fast. English. Non-commercial licence. |
 
@@ -36,8 +38,8 @@ Every push builds `Edge-unsigned.ipa` on GitHub Actions and attaches it to a rel
 installing with AltStore / SideStore or Sideloadly, or install it with TrollStore. Then in the app:
 
 1. Settings › DeepSeek: paste your API key and tap **Save and check**.
-2. Settings › Voice models: download Best, Fast or both.
-3. Voices: add a voice.
+2. Settings › Voice models: download Kokoro for the built-in voices, and Best and/or Fast to clone voices.
+3. Voices: pick a built-in voice, or add a recording to clone one.
 4. Papers: import a PDF and tap **Make audio**.
 
 ## Build locally (macOS)
