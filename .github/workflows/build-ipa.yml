@@ -82,6 +82,12 @@ jobs:
           path: build/xcodebuild.log
           if-no-files-found: ignore
 
+      - name: Upload IPA artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Edge-unsigned-ipa
+          path: build/Edge-unsigned.ipa
+
       - name: Publish release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -91,4 +97,4 @@ jobs:
             --target "${{ github.sha }}" \
             --title "Edge (unsigned) #${{ github.run_number }}" \
             --notes "Unsigned IPA built from ${{ github.ref_name }} @ ${GITHUB_SHA::7}. Sign it with your sideloading tool (AltStore, SideStore, Sideloadly, TrollStore) before installing." \
-            --prerelease
+            --latest
