@@ -1,4 +1,5 @@
 import AVFoundation
+import CoreMedia
 
 /// Reading voice samples and writing generated speech.
 enum AudioClip {
@@ -7,6 +8,56 @@ enum AudioClip {
 
     /// Any audio (or video) file as mono float samples at `sampleRate`.
     static func load(_ url: URL, sampleRate: Double = Double(VoiceEngine.sampleRate)) throws -> [Float] {
+        do {
+            let samples = try loadWithAudioFile(url, sampleRate: sampleRate)
+            if !samples.isEmpty { return samples }
+        } catch {
+            // videos and some formats can't be opened as audio files; the asset reader decodes anything playable
+        }
+        return try loadWithAssetReader(url, sampleRate: sampleRate)
+    }
+
+    /// Decodes the first audio track of any media file AVFoundation can play (.m4a, .mp3, .mp4, .mov, ...).
+    static func loadWithAssetReader(_ url: URL, sampleRate: Double) throws -> [Float] {
+        let asset = AVURLAsset(url: url)
+        guard let track = asset.tracks(withMediaType: .audio).first else {
+            throw AppError("This file has no sound that can be read.")
+        }
+        let reader = try AVAssetReader(asset: asset)
+        let settings: [String: Any] = [
+            AVFormatIDKey: kAudioFormatLinearPCM,
+            AVLinearPCMIsFloatKey: true,
+            AVLinearPCMBitDepthKey: 32,
+            AVLinearPCMIsNonInterleaved: false,
+            AVLinearPCMIsBigEndianKey: false,
+            AVSampleRateKey: sampleRate,
+            AVNumberOfChannelsKey: 1,
+        ]
+        let output = AVAssetReaderTrackOutput(track: track, outputSettings: settings)
+        output.alwaysCopiesSampleData = false
+        reader.add(output)
+        guard reader.startReading() else {
+            throw reader.error ?? AppError("This recording can't be read.")
+        }
+        var samples: [Float] = []
+        while let buffer = output.copyNextSampleBuffer() {
+            guard let block = CMSampleBufferGetDataBuffer(buffer) else { continue }
+            let length = CMBlockBufferGetDataLength(block)
+            guard length > 0 else { continue }
+            var chunk = [Float](repeating: 0, count: length / MemoryLayout<Float>.size)
+            let status = chunk.withUnsafeMutableBytes { raw in
+                CMBlockBufferCopyDataBytes(block, atOffset: 0, dataLength: raw.count, destination: raw.baseAddress!)
+            }
+            if status == kCMBlockBufferNoErr { samples += chunk }
+        }
+        if reader.status == .failed {
+            throw reader.error ?? AppError("This recording can't be read.")
+        }
+        guard !samples.isEmpty else { throw AppError("This recording is empty.") }
+        return samples
+    }
+
+    private static func loadWithAudioFile(_ url: URL, sampleRate: Double) throws -> [Float] {
         let file = try AVAudioFile(forReading: url)
         let input = file.processingFormat
         guard let output = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: sampleRate, channels: 1, interleaved: false),

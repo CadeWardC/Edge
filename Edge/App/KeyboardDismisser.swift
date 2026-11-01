@@ -13,6 +13,8 @@ final class KeyboardDismisser: NSObject, UIGestureRecognizerDelegate {
             for window in windowScene.windows where !installed.contains(ObjectIdentifier(window)) {
                 let tap = UITapGestureRecognizer(target: self, action: #selector(tapped(_:)))
                 tap.cancelsTouchesInView = false   // buttons and rows still get the tap
+                tap.delaysTouchesBegan = false
+                tap.delaysTouchesEnded = false     // never hold back touches meant for pickers and buttons
                 tap.delegate = self
                 window.addGestureRecognizer(tap)
                 installed.insert(ObjectIdentifier(window))

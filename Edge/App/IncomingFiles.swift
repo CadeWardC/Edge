@@ -30,10 +30,26 @@ final class IncomingFiles: ObservableObject {
             Self.removeIfInbox(url)
         } else if type?.conforms(to: .audio) == true || type?.conforms(to: .audiovisualContent) == true {
             tab = .voices
-            voiceRecording = IdentifiedURL(url: url)
+            voiceRecording = IdentifiedURL(url: Self.copyIn(url))
         } else {
             error = "Edge can open PDFs and voice recordings, not \(url.lastPathComponent)."
         }
+    }
+
+    /// A private copy of a shared file, made while access to the original is granted.
+    static func copyIn(_ url: URL) -> URL {
+        let scoped = url.startAccessingSecurityScopedResource()
+        defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("Picked", isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let dest = dir.appendingPathComponent(UUID().uuidString + "-" + url.lastPathComponent)
+        var copied = false
+        NSFileCoordinator().coordinate(readingItemAt: url, options: .withoutChanges, error: nil) { readable in
+            copied = (try? FileManager.default.copyItem(at: readable, to: dest)) != nil
+        }
+        guard copied else { return url }
+        removeIfInbox(url)
+        return dest
     }
 
     /// Files shared with "Copy to Edge" land in Documents/Inbox; they are removed once used.

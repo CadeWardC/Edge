@@ -64,11 +64,6 @@ struct VoicesView: View {
 struct AddVoiceView: View {
     /// A recording shared to Edge (e.g. from Voice Memos), used right away.
     var initialURL: URL?
-    /// Voice Memos (.m4a), other recordings, and videos.
-    static let audioTypes: [UTType] = [
-        UTType("com.apple.m4a-audio"), .mpeg4Audio, .audio, .wav, .mp3, .aiff,
-        UTType("com.apple.coreaudio-format"), .movie, .mpeg4Movie, .quickTimeMovie,
-    ].compactMap { $0 }
     @EnvironmentObject private var voices: VoiceLibrary
     @Environment(\.dismiss) private var dismiss
     @StateObject private var recorder = SampleRecorder()
@@ -137,20 +132,20 @@ struct AddVoiceView: View {
                     }
                 }
             }
-            .fileImporter(isPresented: $importing, allowedContentTypes: Self.audioTypes) { result in
-                switch result {
-                case .success(let url):
-                    if name.isEmpty { name = url.deletingPathExtension().lastPathComponent }
+            .sheet(isPresented: $importing) {
+                DocumentPicker(types: UTType.voiceRecordings) { urls in
+                    importing = false
+                    guard let url = urls.first else { return }
+                    if name.isEmpty { name = url.pickedFileName }
                     add(url)
-                case .failure(let e):
-                    error = e.localizedDescription
                 }
+                .ignoresSafeArea()
             }
         }
         .interactiveDismissDisabled(working || recorder.isRecording)
         .onAppear {
             if let initialURL, !working {
-                name = initialURL.deletingPathExtension().lastPathComponent
+                name = initialURL.pickedFileName
                 add(initialURL)
             }
         }

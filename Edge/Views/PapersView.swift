@@ -57,17 +57,17 @@ struct PapersView: View {
                 Button { importing = true } label: { Image(systemName: "plus") }
             }
             .navigationDestination(for: UUID.self) { id in PaperDetailView(id: id) }
-            .fileImporter(isPresented: $importing, allowedContentTypes: [.pdf], allowsMultipleSelection: true) { result in
-                switch result {
-                case .success(let urls):
+            .sheet(isPresented: $importing) {
+                DocumentPicker(types: [.pdf], allowsMultiple: true) { urls in
+                    importing = false
                     var last: Paper?
                     for url in urls {
                         do { last = try library.importPDF(url) } catch { self.error = error.localizedDescription }
+                        try? FileManager.default.removeItem(at: url)
                     }
                     if urls.count == 1, let last { path = [last.id] }
-                case .failure(let e):
-                    error = e.localizedDescription
                 }
+                .ignoresSafeArea()
             }
             .alert("Couldn't import", isPresented: Binding(get: { error != nil }, set: { if !$0 { error = nil } })) {
                 Button("OK") { error = nil }

@@ -129,7 +129,7 @@ final class PaperLibrary: ObservableObject {
         defer { if scoped { url.stopAccessingSecurityScopedResource() } }
         let d = UserDefaults.standard
         var paper = Paper(
-            title: url.deletingPathExtension().lastPathComponent,
+            title: url.pickedFileName,
             prompts: AppSettings.audioPrompts,
             voiceID: d.string(forKey: AppSettings.Key.defaultVoice).flatMap(UUID.init(uuidString:)),
             model: AppSettings.voiceModel
