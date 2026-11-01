@@ -13,6 +13,7 @@ struct EdgeApp: App {
                 .environmentObject(PaperWorker.shared)
                 .environmentObject(SpeechClips.shared)
                 .environmentObject(Player.shared)
+                .environmentObject(IncomingFiles.shared)
         }
     }
 }
@@ -38,19 +39,37 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
 }
 
 struct ContentView: View {
+    @EnvironmentObject private var incoming: IncomingFiles
+
     var body: some View {
-        TabView {
+        TabView(selection: $incoming.tab) {
             PapersView()
                 .withMiniPlayer()
                 .tabItem { Label("Papers", systemImage: "doc.text.magnifyingglass") }
+                .tag(IncomingFiles.Tab.papers)
             SpeakView()
                 .withMiniPlayer()
                 .tabItem { Label("Speak", systemImage: "text.bubble") }
+                .tag(IncomingFiles.Tab.speak)
             VoicesView()
                 .withMiniPlayer()
                 .tabItem { Label("Voices", systemImage: "person.wave.2") }
+                .tag(IncomingFiles.Tab.voices)
             SettingsView()
                 .tabItem { Label("Settings", systemImage: "gearshape") }
+                .tag(IncomingFiles.Tab.settings)
+        }
+        .onOpenURL { incoming.handle($0) }
+        .sheet(item: $incoming.voiceRecording) { item in
+            AddVoiceView(initialURL: item.url)
+        }
+        .alert("Couldn't open the file", isPresented: Binding(get: { incoming.error != nil }, set: { if !$0 { incoming.error = nil } })) {
+            Button("OK") { incoming.error = nil }
+        } message: { Text(incoming.error ?? "") }
+        .onAppear { KeyboardDismisser.shared.install() }
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in
+            // sheets can live in their own window
+            KeyboardDismisser.shared.install()
         }
     }
 }

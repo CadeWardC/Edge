@@ -111,7 +111,7 @@ private struct PaperRow: View {
                     switch paper.stage {
                     case .done:
                         Image(systemName: "headphones")
-                        Text("\(paper.parts.count) part\(paper.parts.count == 1 ? "" : "s") · \(formatDuration(paper.totalDuration))")
+                        Text("\(paper.parts.map { $0.title }.joined(separator: " + ")) · \(formatDuration(paper.totalDuration))")
                     case .failed:
                         Image(systemName: "exclamationmark.triangle").foregroundStyle(.orange)
                         Text(paper.message ?? "Didn't finish")

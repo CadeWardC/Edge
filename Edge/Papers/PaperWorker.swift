@@ -107,7 +107,7 @@ final class PaperWorker: ObservableObject {
         guard var paper = library.paper(id) else { return }
         library.update(id) { $0.message = nil }
 
-        let needsScripts = job == .rewrite || !paper.hasScripts || paper.parts.count != paper.partsCount
+        let needsScripts = job == .rewrite || !paper.hasScripts || paper.parts.map(\.title) != paper.enabledPrompts.map(\.name)
         if needsScripts {
             try await writeScripts(&paper)
         }
@@ -124,7 +124,7 @@ final class PaperWorker: ObservableObject {
         let todo = parts.filter { job != .make || $0.duration == nil || !FileManager.default.fileExists(atPath: PaperLibrary.audioURL(id, part: $0.id).path) }
         for (n, part) in todo.enumerated() {
             try Task.checkCancellation()
-            let label = "Voicing part \(part.id) of \(parts.count)"
+            let label = "Voicing the \(part.title.lowercased())"
             report(label, 0)
             library.update(id) { p in
                 if let i = p.parts.firstIndex(where: { $0.id == part.id }) { p.parts[i].duration = nil }
@@ -148,11 +148,13 @@ final class PaperWorker: ObservableObject {
     private func writeScripts(_ paper: inout Paper) async throws {
         let id = paper.id
         let library = PaperLibrary.shared
+        let prompts = paper.enabledPrompts
+        guard !prompts.isEmpty else { throw AppError("Turn on at least one audio for this paper.") }
         library.update(id) {
             $0.stage = .writing
             $0.parts = []
         }
-        for part in 1...max(paper.partsCount, 1) {
+        for part in 1...max(paper.prompts.count, 1) {
             try? FileManager.default.removeItem(at: PaperLibrary.audioURL(id, part: part))
         }
 
@@ -161,8 +163,6 @@ final class PaperWorker: ObservableObject {
 
         let client = DeepSeekClient()
         let model = AppSettings.deepSeekModel
-        let system = DeepSeekClient.Message(role: "system", content: paper.customPrompt ?? AppSettings.prompt)
-        let maxTokens = model.contains("reasoner") ? 32_000 : min(8_000, ScriptPrompts.words(minutes: paper.minutesPerPart) * 2 + 800)
 
         // a better title than the file name
         if let title = try? await client.complete(model: DeepSeekClient.knownModels[0], messages: [
@@ -171,35 +171,27 @@ final class PaperWorker: ObservableObject {
             if (8...300).contains(clean.count) { library.update(id) { $0.title = clean } }
         }
 
-        var outline: [Paper.Part]
-        if paper.partsCount <= 1 {
-            outline = [Paper.Part(id: 1, title: library.paper(id)?.title ?? "The paper", focus: "The whole paper.")]
-        } else {
-            report("Planning \(paper.partsCount) parts", 0.05)
-            let answer = try await client.complete(model: model, messages: [
-                system, .init(role: "user", content: ScriptPrompts.outline(paper: text, parts: paper.partsCount, minutes: paper.minutesPerPart)),
-            ], maxTokens: model.contains("reasoner") ? 16_000 : 1_500, temperature: 0.4)
-            outline = ScriptPrompts.parseOutline(answer, parts: paper.partsCount)
-        }
-        library.update(id) { $0.parts = outline }
-
-        let partCount = outline.count
-        for i in outline.indices {
+        var parts = prompts.enumerated().map { Paper.Part(id: $0.offset + 1, title: $0.element.name) }
+        library.update(id) { $0.parts = parts }
+        let count = prompts.count
+        for (i, prompt) in prompts.enumerated() {
             try Task.checkCancellation()
-            let label = "Writing part \(i + 1) of \(partCount)"
-            report(label, 0.1 + 0.9 * Double(i) / Double(partCount))
-            let expectedWords = Double(ScriptPrompts.words(minutes: paper.minutesPerPart))
-            let request = ScriptPrompts.part(paper: text, outline: outline, index: i, minutes: paper.minutesPerPart)
+            let label = "Writing the \(prompt.name.lowercased())"
+            report(label, 0.05 + 0.95 * Double(i) / Double(count))
+            let expectedWords = Double(ScriptPrompts.words(minutes: prompt.maxMinutes))
+            let maxTokens = model.contains("reasoner") ? 32_000 : min(8_000, Int(expectedWords * 2) + 800)
+            let system = DeepSeekClient.Message(role: "system", content: prompt.prompt + "\n\n" + ScriptPrompts.speechRules)
+            let request = ScriptPrompts.script(paper: text, prompt: prompt)
             let script = try await client.complete(model: model, messages: [
                 system, .init(role: "user", content: request),
             ], maxTokens: maxTokens) { sofar in
                 let words = Double(sofar.split(separator: " ").count)
                 Task { @MainActor in
-                    PaperWorker.shared.report(label, 0.1 + 0.9 * (Double(i) + min(words / expectedWords, 0.98)) / Double(partCount))
+                    PaperWorker.shared.report(label, 0.05 + 0.95 * (Double(i) + min(words / expectedWords, 0.98)) / Double(count))
                 }
             }
-            outline[i].script = script.trimmingCharacters(in: .whitespacesAndNewlines)
-            library.update(id) { $0.parts = outline }
+            parts[i].script = script.trimmingCharacters(in: .whitespacesAndNewlines)
+            library.update(id) { $0.parts = parts }
         }
         paper = library.paper(id) ?? paper
     }

@@ -5,8 +5,6 @@ struct SettingsView: View {
     @EnvironmentObject private var voices: VoiceLibrary
     @AppStorage(AppSettings.Key.model) private var deepSeekModel = DeepSeekClient.knownModels[0]
     @AppStorage(AppSettings.Key.baseURL) private var baseURL = ""
-    @AppStorage(AppSettings.Key.parts) private var parts = 3
-    @AppStorage(AppSettings.Key.minutes) private var minutes = 4
     @AppStorage(AppSettings.Key.voiceModel) private var voiceModel = VoiceModel.fast.rawValue
     @AppStorage(AppSettings.Key.bestSteps) private var bestSteps = 8
     @AppStorage(AppSettings.Key.fastSteps) private var fastSteps = 2
@@ -77,21 +75,18 @@ struct SettingsView: View {
 
                 Section {
                     NavigationLink {
-                        PromptEditor()
+                        AudioPromptsView()
                     } label: {
-                        HStack {
-                            Text("Prompt")
-                            Spacer()
-                            Text(UserDefaults.standard.string(forKey: AppSettings.Key.prompt)?.isEmpty == false ? "Custom" : "Default")
-                                .foregroundStyle(.secondary)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Audios for each paper")
+                            Text(AppSettings.audioPrompts.filter(\.enabled).map { "\($0.name) (\($0.lengthLabel))" }.joined(separator: ", "))
+                                .font(.caption).foregroundStyle(.secondary)
                         }
                     }
-                    Stepper("Audio parts: \(parts)", value: $parts, in: 1...12)
-                    Stepper("About \(minutes) min each", value: $minutes, in: 1...20)
                 } header: {
                     Text("Paper audio")
                 } footer: {
-                    Text("Defaults for new papers; each paper can change them. A paper becomes \(parts) audio file\(parts == 1 ? "" : "s") of about \(minutes) minute\(minutes == 1 ? "" : "s").")
+                    Text("Each new PDF gets one audio per prompt here: by default a light introduction (5–6 min) and an in-depth recap (15–16 min). Each paper can change its own.")
                 }
 
                 Section {
@@ -127,6 +122,7 @@ struct SettingsView: View {
                     LabeledContent("Files", value: "Files › On My iPhone › Edge")
                 }
             }
+            .scrollDismissesKeyboard(.interactively)
             .navigationTitle("Settings")
         }
     }
@@ -204,28 +200,58 @@ private struct ModelRow: View {
     }
 }
 
-private struct PromptEditor: View {
-    @AppStorage(AppSettings.Key.prompt) private var stored = ""
-    @State private var text = ""
+/// The audios made for each new paper: their prompts and lengths.
+private struct AudioPromptsView: View {
+    @State private var prompts = AppSettings.audioPrompts
+    @State private var editing: IdentifiedUUID?
 
     var body: some View {
-        Form {
+        List {
             Section {
-                TextEditor(text: $text)
-                    .frame(minHeight: 320)
+                ForEach(prompts) { prompt in
+                    HStack {
+                        Button {
+                            editing = IdentifiedUUID(id: prompt.id)
+                        } label: {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(prompt.name).foregroundStyle(.primary)
+                                Text("\(prompt.lengthLabel) · \(prompt.prompt)").font(.caption).foregroundStyle(.secondary).lineLimit(2)
+                            }
+                        }
+                        Spacer()
+                        Toggle("", isOn: Binding(
+                            get: { prompt.enabled },
+                            set: { on in
+                                if let i = prompts.firstIndex(where: { $0.id == prompt.id }) { prompts[i].enabled = on }
+                            }))
+                            .labelsHidden()
+                    }
+                }
+                .onDelete { prompts.remove(atOffsets: $0) }
+                .onMove { prompts.move(fromOffsets: $0, toOffset: $1) }
             } footer: {
-                Text("How DeepSeek should write the audio scripts: style, depth, audience, what to focus on. The app adds the paper, the number of parts and their length. Each paper can also have its own prompt.")
+                Text("Tap an audio to edit its prompt and length. Swipe to delete.")
             }
             Section {
-                Button("Restore the default prompt") { text = AppSettings.defaultPrompt }
+                Button {
+                    let new = AudioPrompt(name: "New audio", prompt: "Describe what this audio should cover…", minMinutes: 5, maxMinutes: 6)
+                    prompts.append(new)
+                    editing = IdentifiedUUID(id: new.id)
+                } label: {
+                    Label("Add an audio", systemImage: "plus")
+                }
+                Button("Restore the two default audios") { prompts = AudioPrompt.defaults }
             }
         }
-        .navigationTitle("Prompt")
-        .navigationBarTitleDisplayMode(.inline)
-        .onAppear { text = stored.isEmpty ? AppSettings.defaultPrompt : stored }
-        .onDisappear {
-            let t = text.trimmingCharacters(in: .whitespacesAndNewlines)
-            stored = (t.isEmpty || t == AppSettings.defaultPrompt) ? "" : t
+        .navigationTitle("Audios")
+        .toolbar { EditButton() }
+        .onChange(of: prompts) { AppSettings.audioPrompts = prompts }
+        .sheet(item: $editing) { item in
+            if let prompt = prompts.first(where: { $0.id == item.id }) {
+                AudioPromptEditor(prompt: prompt, resetTo: AudioPrompt.defaults.first { $0.id == prompt.id }) { edited in
+                    if let i = prompts.firstIndex(where: { $0.id == edited.id }) { prompts[i] = edited }
+                }
+            }
         }
     }
 }

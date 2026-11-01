@@ -84,6 +84,7 @@ final class VoiceLibrary: ObservableObject {
         let samples = try await Task.detached(priority: .userInitiated) {
             AudioClip.prepareSample(try AudioClip.load(url))
         }.value
+        IncomingFiles.removeIfInbox(url)
         guard Double(samples.count) / Double(VoiceEngine.sampleRate) >= 2 else {
             throw AppError("The sample is too short. Use at least 3 seconds of clear speech (5 to 15 is best).")
         }

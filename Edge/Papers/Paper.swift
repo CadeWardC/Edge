@@ -1,15 +1,52 @@
 import Foundation
 
-/// An imported paper and its audio series.
+/// One audio made from a paper: what DeepSeek is asked to write, and how long it should be.
+struct AudioPrompt: Identifiable, Codable, Equatable {
+    var id = UUID()
+    var name: String
+    var prompt: String
+    var minMinutes: Int
+    var maxMinutes: Int
+    var enabled = true
+
+    var lengthLabel: String { minMinutes == maxMinutes ? "\(minMinutes) min" : "\(minMinutes)–\(maxMinutes) min" }
+
+    static let introduction = AudioPrompt(
+        id: UUID(uuidString: "00000000-0000-4000-8000-100000000001")!,
+        name: "Introduction",
+        prompt: """
+        Write a light, friendly introduction to this research paper for someone hearing about it for the first time. \
+        In plain language, say what the paper is about, the question it asks, why it matters, roughly how the authors \
+        went about it, and the headline finding. Keep it a very light overview: no deep methods, only the numbers that \
+        really matter, and a quick explanation for any technical term. End with a sentence on why it is worth knowing about.
+        """,
+        minMinutes: 5, maxMinutes: 6)
+
+    static let inDepth = AudioPrompt(
+        id: UUID(uuidString: "00000000-0000-4000-8000-100000000002")!,
+        name: "In-depth recap",
+        prompt: """
+        Write an in-depth recap of this research paper for a listener who wants to really understand it. Cover the \
+        background and motivation, the exact research question, the methods and data in enough detail to follow, the \
+        key results with the important numbers, how the authors interpret them, the limitations and open questions, and \
+        how the work fits into its field. Explain technical terms the first time they come up and use concrete examples. \
+        Stay faithful to the paper and don't invent details.
+        """,
+        minMinutes: 15, maxMinutes: 16)
+
+    static let defaults = [introduction, inDepth]
+}
+
+/// An imported paper and its audios.
 struct Paper: Identifiable, Codable, Equatable {
     enum Stage: String, Codable {
         case new, writing, voicing, done, failed
     }
 
+    /// One finished (or in-progress) audio of the paper.
     struct Part: Identifiable, Codable, Equatable {
-        var id: Int            // 1-based position in the series
+        var id: Int            // 1-based position
         var title: String
-        var focus: String
         var script: String = ""
         /// Seconds of audio, once it has been voiced.
         var duration: Double?
@@ -22,16 +59,39 @@ struct Paper: Identifiable, Codable, Equatable {
     var message: String?
     var parts: [Part] = []
 
-    // how this paper's series is made (starts from the defaults in Settings)
-    var partsCount: Int
-    var minutesPerPart: Int
+    /// The audios to make (a copy of the prompts in Settings, editable per paper).
+    var prompts: [AudioPrompt]
     var voiceID: UUID?
     var model: VoiceModel
-    /// nil uses the prompt from Settings.
-    var customPrompt: String?
 
+    var enabledPrompts: [AudioPrompt] { prompts.filter(\.enabled) }
     var totalDuration: Double { parts.compactMap(\.duration).reduce(0, +) }
     var hasScripts: Bool { !parts.isEmpty && parts.allSatisfy { !$0.script.isEmpty } }
+
+    init(title: String, prompts: [AudioPrompt], voiceID: UUID?, model: VoiceModel) {
+        self.title = title
+        self.prompts = prompts
+        self.voiceID = voiceID
+        self.model = model
+    }
+
+    // papers saved by earlier versions have no prompts
+    private enum CodingKeys: String, CodingKey {
+        case id, title, added, stage, message, parts, prompts, voiceID, model
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(UUID.self, forKey: .id)
+        title = try c.decode(String.self, forKey: .title)
+        added = try c.decodeIfPresent(Date.self, forKey: .added) ?? Date()
+        stage = try c.decodeIfPresent(Stage.self, forKey: .stage) ?? .new
+        message = try c.decodeIfPresent(String.self, forKey: .message)
+        parts = (try? c.decodeIfPresent([Part].self, forKey: .parts)) ?? []
+        prompts = (try? c.decodeIfPresent([AudioPrompt].self, forKey: .prompts)) ?? AppSettings.audioPrompts
+        voiceID = try c.decodeIfPresent(UUID.self, forKey: .voiceID)
+        model = (try? c.decodeIfPresent(VoiceModel.self, forKey: .model)) ?? .fast
+    }
 }
 
 /// The saved papers: Documents/Papers/<id>/paper.pdf, text.txt and part-N.m4a, indexed in papers.json.
@@ -70,8 +130,7 @@ final class PaperLibrary: ObservableObject {
         let d = UserDefaults.standard
         var paper = Paper(
             title: url.deletingPathExtension().lastPathComponent,
-            partsCount: AppSettings.partsCount,
-            minutesPerPart: AppSettings.minutesPerPart,
+            prompts: AppSettings.audioPrompts,
             voiceID: d.string(forKey: AppSettings.Key.defaultVoice).flatMap(UUID.init(uuidString:)),
             model: AppSettings.voiceModel
         )
@@ -108,9 +167,7 @@ enum AppSettings {
     enum Key {
         static let model = "deepseekModel"
         static let baseURL = "deepseekBaseURL"
-        static let prompt = "narrationPrompt"
-        static let parts = "partsCount"
-        static let minutes = "minutesPerPart"
+        static let prompts = "audioPrompts"
         static let defaultVoice = "defaultVoice"
         static let voiceModel = "voiceModel"
         static let bestSteps = "bestSteps"
@@ -118,22 +175,22 @@ enum AppSettings {
         static let speed = "speechSpeed"
     }
 
-    static let defaultPrompt = """
-    You write audio scripts that explain scientific papers to a curious, smart listener who is not an expert in the field. \
-    Sound like a great science podcast host: clear, warm and concrete. Explain jargon the first time it comes up, use \
-    examples and analogies, say what the results mean and how confident we can be in them, and point out limitations. \
-    Stay faithful to the paper and don't invent details. This will be read aloud by a text-to-speech voice, so write \
-    plain spoken prose only: no markdown, headings, bullet points, citations, URLs, or figure and table numbers. Write \
-    numbers, units, symbols and equations the way they would be said out loud.
-    """
-
     static var deepSeekModel: String { UserDefaults.standard.string(forKey: Key.model) ?? DeepSeekClient.knownModels[0] }
-    static var prompt: String {
-        let p = UserDefaults.standard.string(forKey: Key.prompt) ?? ""
-        return p.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? defaultPrompt : p
+
+    /// The audios made for each new paper (Introduction and In-depth recap unless changed).
+    static var audioPrompts: [AudioPrompt] {
+        get {
+            guard let data = UserDefaults.standard.data(forKey: Key.prompts),
+                  let list = try? JSONDecoder().decode([AudioPrompt].self, from: data), !list.isEmpty else {
+                return AudioPrompt.defaults
+            }
+            return list
+        }
+        set {
+            UserDefaults.standard.set(try? JSONEncoder().encode(newValue), forKey: Key.prompts)
+        }
     }
-    static var partsCount: Int { clamp(UserDefaults.standard.object(forKey: Key.parts) as? Int ?? 3, 1, 12) }
-    static var minutesPerPart: Int { clamp(UserDefaults.standard.object(forKey: Key.minutes) as? Int ?? 4, 1, 20) }
+
     static var voiceModel: VoiceModel { VoiceModel(rawValue: UserDefaults.standard.string(forKey: Key.voiceModel) ?? "") ?? .fast }
     static func steps(_ model: VoiceModel) -> Int {
         model == .best
@@ -148,73 +205,31 @@ enum AppSettings {
     private static func clamp(_ v: Int, _ lo: Int, _ hi: Int) -> Int { min(max(v, lo), hi) }
 }
 
-/// The DeepSeek requests for a paper's audio series. The paper text comes first in every request, so DeepSeek's
-/// prompt cache serves it again cheaply for the outline and each part.
+/// The DeepSeek requests for a paper's audios. The paper text comes first in every request, so DeepSeek's
+/// prompt cache serves it again cheaply for each audio.
 enum ScriptPrompts {
+    /// Rules every script follows, whatever the prompt says: it is read aloud by a voice model.
+    static let speechRules = """
+    The script will be read aloud by a text-to-speech voice, so write natural spoken prose only: no markdown, headings, \
+    bullet points, citations, URLs, or figure and table numbers. Write numbers, units, symbols and equations the way \
+    they are said out loud. Sound like a warm, clear podcast host talking to one curious listener.
+    """
+
     static func words(minutes: Int) -> Int { minutes * 150 }
 
     static func paperBlock(_ text: String) -> String {
         "Here is a scientific paper.\n\n<paper>\n\(text)\n</paper>\n\n"
     }
 
-    static func outline(paper: String, parts: Int, minutes: Int) -> String {
-        paperBlock(paper) + """
-        Plan an audio series of \(parts) parts about this paper, about \(minutes) minutes each, that together cover it \
-        well in a natural order for a listener. Reply with exactly \(parts) lines and nothing else, each in this form:
-        Part N: short title | one sentence on what this part covers
-        """
-    }
-
-    static func part(paper: String, outline: [Paper.Part], index: Int, minutes: Int) -> String {
-        let total = outline.count
-        let words = words(minutes: minutes)
-        let part = outline[index]
-        var position: String
-        if total == 1 {
-            position = "This is the only part: open by naming the paper and what question it answers, cover the whole paper, and end with the takeaways."
-        } else if index == 0 {
-            position = "This is the first part: open by naming the paper and the question it answers. Don't cover what later parts will."
-        } else if index == total - 1 {
-            position = "This is the last part: pick up where part \(index) left off without re-introducing the paper, and end with the takeaways and open questions."
-        } else {
-            position = "This is a middle part: pick up where part \(index) left off without re-introducing the paper, and don't cover what other parts will."
-        }
-        let plan = outline.map { "Part \($0.id): \($0.title) | \($0.focus)" }.joined(separator: "\n")
+    static func script(paper: String, prompt: AudioPrompt) -> String {
+        let low = words(minutes: prompt.minMinutes), high = words(minutes: prompt.maxMinutes)
         return paperBlock(paper) + """
-        The audio series has \(total) part\(total == 1 ? "" : "s"):
-        \(plan)
-
-        Write the script for part \(part.id), "\(part.title)": \(part.focus)
-        \(position)
-        Aim for about \(words) words (about \(minutes) minutes read aloud). Reply with the script only.
+        Write the script for "\(prompt.name)": \(prompt.lengthLabel) read aloud, about \(low)–\(high) words. \
+        Start by naming the paper. Reply with the script only.
         """
     }
 
-    /// Reads "Part N: title | focus" lines; fills in plain titles when the model ignored the format.
-    static func parseOutline(_ text: String, parts: Int) -> [Paper.Part] {
-        var out: [Paper.Part] = []
-        for raw in text.components(separatedBy: .newlines) {
-            var line = raw.trimmingCharacters(in: .whitespaces)
-            line = line.trimmingCharacters(in: CharacterSet(charactersIn: "*#-• "))
-            guard !line.isEmpty else { continue }
-            if let colon = line.firstIndex(of: ":"), line[..<colon].lowercased().contains("part") {
-                line = String(line[line.index(after: colon)...]).trimmingCharacters(in: .whitespaces)
-            } else if out.isEmpty && !line.contains("|") {
-                continue   // a preamble line
-            }
-            let pieces = line.split(separator: "|", maxSplits: 1).map { $0.trimmingCharacters(in: .whitespaces) }
-            let title = pieces[0].trimmingCharacters(in: CharacterSet(charactersIn: "*\"")).trimmingCharacters(in: .whitespaces)
-            out.append(Paper.Part(id: out.count + 1, title: title.isEmpty ? "Part \(out.count + 1)" : title,
-                                  focus: pieces.count > 1 ? pieces[1] : ""))
-            if out.count == parts { break }
-        }
-        while out.count < parts {
-            out.append(Paper.Part(id: out.count + 1, title: "Part \(out.count + 1)", focus: "Continue covering the paper."))
-        }
-        return out
-    }
-
-    /// The paper's title as DeepSeek reads it, from the first line of a short request.
+    /// The paper's title as DeepSeek reads it.
     static func title(paper: String) -> String {
         "<paper>\n\(paper.prefix(6000))\n</paper>\n\nWhat is the title of this paper? Reply with the title only."
     }

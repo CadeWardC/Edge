@@ -30,6 +30,24 @@ targets:
           - processing
         BGTaskSchedulerPermittedIdentifiers:
           - com.cadewardc.edge.render
+        CFBundleDocumentTypes:
+          # lets Voice Memos and Files share recordings and PDFs to Edge
+          - CFBundleTypeName: Voice recording
+            CFBundleTypeRole: Viewer
+            LSHandlerRank: Alternate
+            LSItemContentTypes:
+              - com.apple.m4a-audio
+              - public.mpeg-4-audio
+              - public.audio
+              - com.microsoft.waveform-audio
+              - public.mp3
+              - public.aiff-audio
+              - com.apple.coreaudio-format
+          - CFBundleTypeName: PDF document
+            CFBundleTypeRole: Viewer
+            LSHandlerRank: Alternate
+            LSItemContentTypes:
+              - com.adobe.pdf
         UIFileSharingEnabled: true
         LSSupportsOpeningDocumentsInPlace: true
         UILaunchScreen: {}

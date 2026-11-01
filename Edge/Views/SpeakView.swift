@@ -89,6 +89,7 @@ struct SpeakView: View {
                     }
                 }
             }
+            .scrollDismissesKeyboard(.interactively)
             .navigationTitle("Speak")
             .toolbar {
                 ToolbarItemGroup(placement: .keyboard) {

@@ -3,14 +3,15 @@
 An iPhone app (English) that turns research papers into audio read by a natural voice: one of 27 built-in voices,
 or any voice cloned from a short recording.
 
-- **Papers:** import a PDF. DeepSeek writes an audio script in as many parts as you choose, each about as long as you
-  choose, following a prompt you can edit, and the voice you pick reads every part on the phone. Listen in the app (Lock
-  Screen controls, speed, auto-next) or share the `.m4a` files.
+- **Papers:** import a PDF (or share one to Edge). DeepSeek writes two audios from two prompts you can edit: a light
+  **introduction** (5–6 minutes) and an **in-depth recap** (15–16 minutes). Add, remove or change the audios in
+  Settings or per paper. The voice you pick reads them on the phone; listen in the app (Lock Screen controls, speed,
+  auto-next) or share the `.m4a` files.
 - **Speak:** type anything and hear it in any of your voices.
-- **Voices:** Kokoro's 27 built-in English voices, and your own: clone a voice from a recording (import an audio or video file, or record 5 to 15 seconds in the app).
+- **Voices:** Kokoro's 27 built-in English voices, and your own: clone a voice from a recording (import an .m4a or other audio file, share a recording from Voice Memos to Edge, or record 5 to 15 seconds in the app).
   The app writes down what is said with Apple's on-device speech recognition; you can correct it.
 - **Settings:** your DeepSeek API key (kept in the Keychain), the DeepSeek model (loaded from your account), the
-  default prompt, parts and length, and the voice models.
+  audios made for each paper (prompt and length of each), and the voice models.
 
 ## Voices on the iPhone
 
