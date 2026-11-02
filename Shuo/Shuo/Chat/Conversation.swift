@@ -357,12 +357,14 @@ final class Conversation: ObservableObject {
                     if state == .thinking { state = .speaking }
                 }
                 do {
-                    _ = try await SpeechEngines.shared.synthesize(speech, speakerID: kokoroVoice, speed: Float(speechRate)) { chunk, rate in
-                        if flag.value { return false }
-                        firstAudio.markOnce()
-                        audio.enqueue(chunk, sampleRate: rate)
-                        collected.append(chunk)
-                        return true
+                    for piece in Self.pieces(speech) where !flag.value {
+                        _ = try await SpeechEngines.shared.synthesize(piece, speakerID: kokoroVoice, speed: Float(speechRate)) { chunk, rate in
+                            if flag.value { return false }
+                            firstAudio.markOnce()
+                            audio.enqueue(chunk, sampleRate: rate)
+                            collected.append(chunk)
+                            return true
+                        }
                     }
                 } catch {
                     audio.stopPlayback()
@@ -397,6 +399,33 @@ final class Conversation: ObservableObject {
             guard started, !flag.value else { return }
             AppleSpeaker.shared.finishQueue { [weak self] in self?.doneSpeaking() }
         }
+    }
+
+    /// A long sentence cut at commas into pieces of at most ~40 characters, so the voice model never gets
+    /// more than it can handle in one go (and the first piece is ready sooner).
+    static func pieces(_ sentence: String, limit: Int = 40) -> [String] {
+        guard sentence.count > limit else { return [sentence] }
+        var out: [String] = []
+        var current = ""
+        for c in sentence {
+            current.append(c)
+            if "，、,：:".contains(c) && current.count >= 8 {
+                out.append(current)
+                current = ""
+            } else if current.count >= limit * 3 / 2 {
+                out.append(current)   // no comma for a long stretch: cut anyway
+                current = ""
+            }
+        }
+        if !current.isEmpty {
+            if current.count < 4, let last = out.popLast() { out.append(last + current) } else { out.append(current) }
+        }
+        // join neighbours back up to the limit so there aren't many tiny pieces
+        var merged: [String] = []
+        for p in out {
+            if let last = merged.last, last.count + p.count <= limit { merged[merged.count - 1] = last + p } else { merged.append(p) }
+        }
+        return merged
     }
 
     /// Only the Chinese is spoken (no pinyin or English the model may have added in brackets).

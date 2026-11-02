@@ -93,6 +93,15 @@ final class AudioIO: @unchecked Sendable {
 
     func startRecording(sampleRate: Double) throws {
         stopPlayback()
+        // starting the mic reconfigures the audio hardware, which stops the playback engine behind our back;
+        // stop it ourselves so it is cleanly restarted (instead of looking "running") when the reply plays
+        playQueue.sync {
+            _ = ExceptionCatcher.run {
+                self.player.stop()
+                self.playEngine.stop()
+            }
+            self.started = false
+        }
         try Self.activateSession()
 
         let engine = AVAudioEngine()
@@ -114,9 +123,13 @@ final class AudioIO: @unchecked Sendable {
         lastSpeechSample = 0
         lock.unlock()
 
-        input.installTap(onBus: 0, bufferSize: 4096, format: inputFormat) { [weak self] buffer, _ in
-            self?.append(buffer)
+        var tapError: String?
+        tapError = ExceptionCatcher.run {
+            input.installTap(onBus: 0, bufferSize: 4096, format: inputFormat) { [weak self] buffer, _ in
+                self?.append(buffer)
+            }
         }
+        if let tapError { throw AppError("The microphone could not be opened (\(tapError)). Try again.") }
         engine.prepare()
         try engine.start()
         recordEngine = engine
@@ -310,7 +323,7 @@ final class AudioIO: @unchecked Sendable {
             self.generation += 1
             self.waiting.removeAll()
             self.started = false
-            self.player.stop()
+            _ = ExceptionCatcher.run { self.player.stop() }
         }
         if let done { DispatchQueue.main.async(execute: done) }
     }
@@ -363,8 +376,11 @@ final class AudioIO: @unchecked Sendable {
     private func makeBuffer(_ samples: [Float], sampleRate: Double) -> AVAudioPCMBuffer? {
         if playFormat?.sampleRate != sampleRate {
             let fmt = AVAudioFormat(standardFormatWithSampleRate: sampleRate, channels: 1)!
-            let wasRunning = playEngine.isRunning
-            if wasRunning { playEngine.stop() }
+            _ = ExceptionCatcher.run {
+                self.player.stop()
+                self.playEngine.stop()
+            }
+            started = false
             connectGraph(fmt)
             playFormat = fmt
         }
@@ -388,37 +404,58 @@ final class AudioIO: @unchecked Sendable {
         let seconds = Double(buffer.frameLength) / buffer.format.sampleRate
         lock.lock(); pendingSeconds += seconds; lock.unlock()
         let gen = generation
-        player.scheduleBuffer(buffer, completionCallbackType: .dataPlayedBack) { [weak self] _ in
-            guard let self else { return }
-            self.playQueue.async {
-                guard gen == self.generation else { return }
-                self.lock.lock()
-                self.pendingSeconds = max(0, self.pendingSeconds - seconds)
-                let empty = self.pendingSeconds < 0.03
-                let done = empty && self.waiting.isEmpty && !self.streaming ? self.onDrained : nil
-                self.lock.unlock()
-                if empty && self.streaming && self.started {
-                    // ran dry while the voice is still being generated: pause and buffer again instead of stuttering
-                    self.player.pause()
-                    self.started = false
+        let failure = ExceptionCatcher.run {
+            self.player.scheduleBuffer(buffer, completionCallbackType: .dataPlayedBack) { [weak self] _ in
+                guard let self else { return }
+                self.playQueue.async {
+                    guard gen == self.generation else { return }
+                    self.lock.lock()
+                    self.pendingSeconds = max(0, self.pendingSeconds - seconds)
+                    let empty = self.pendingSeconds < 0.03
+                    let done = empty && self.waiting.isEmpty && !self.streaming ? self.onDrained : nil
+                    self.lock.unlock()
+                    if empty && self.streaming && self.started {
+                        // ran dry while the voice is still being generated: pause and buffer again instead of stuttering
+                        _ = ExceptionCatcher.run { self.player.pause() }
+                        self.started = false
+                    }
+                    done?()
                 }
-                done?()
             }
+        }
+        if let failure {
+            NSLog("Shuo audio: could not queue audio: \(failure)")
+            lock.lock(); pendingSeconds = max(0, pendingSeconds - seconds); lock.unlock()
         }
     }
 
     private func startIfNeeded() {
-        do {
-            try Self.activateSession()
-            if !playEngine.isRunning {
-                playEngine.prepare()
-                try playEngine.start()
-            }
-            if !player.isPlaying { player.play() }
+        try? Self.activateSession()
+        if tryStart() == nil { started = true; return }
+        // iOS stopped or reconfigured the engine without us knowing: rebuild the graph and try once more
+        _ = ExceptionCatcher.run { self.playEngine.stop() }
+        if let fmt = playFormat { connectGraph(fmt) }
+        if let failure = tryStart() {
+            NSLog("Shuo audio: could not start playback: \(failure)")
+        } else {
             started = true
-        } catch {
-            NSLog("Edge audio: could not start playback: \(error)")
         }
+    }
+
+    /// Starts the engine and the player; returns why it failed, or nil.
+    private func tryStart() -> String? {
+        var startError: Error?
+        let exception = ExceptionCatcher.run {
+            if !self.playEngine.isRunning {
+                self.playEngine.prepare()
+                do { try self.playEngine.start() } catch { startError = error }
+            }
+            // only play on an engine that is really running (otherwise AVAudioPlayerNode raises an exception)
+            if startError == nil, self.playEngine.isRunning, !self.player.isPlaying { self.player.play() }
+        }
+        if let exception { return exception }
+        if let startError { return startError.localizedDescription }
+        return playEngine.isRunning ? nil : "the audio engine did not start"
     }
 
     /// iOS stopped the engine (route change, interruption): restart it and keep playing what is queued.
@@ -433,9 +470,12 @@ final class AudioIO: @unchecked Sendable {
     }
 
     private func connectGraph(_ fmt: AVAudioFormat) {
-        playEngine.disconnectNodeOutput(player)
-        playEngine.disconnectNodeOutput(timePitch)
-        playEngine.connect(player, to: timePitch, format: fmt)
-        playEngine.connect(timePitch, to: playEngine.mainMixerNode, format: fmt)
+        let failure = ExceptionCatcher.run {
+            self.playEngine.disconnectNodeOutput(self.player)
+            self.playEngine.disconnectNodeOutput(self.timePitch)
+            self.playEngine.connect(self.player, to: self.timePitch, format: fmt)
+            self.playEngine.connect(self.timePitch, to: self.playEngine.mainMixerNode, format: fmt)
+        }
+        if let failure { NSLog("Shuo audio: could not connect the player: \(failure)") }
     }
 }
