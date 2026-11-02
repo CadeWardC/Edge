@@ -265,13 +265,15 @@ final class Conversation: ObservableObject {
         let (sentences, continuation) = AsyncStream<String>.makeStream()
         feed.continuation = continuation
         defer { continuation.finish() }
-        let speaking = Task { await speakSentences(sentences, turnID: partner.id, since: since) }
+        let requestedAt = Date()
+        let speaking = Task { await speakSentences(sentences, turnID: partner.id, since: since, requestedAt: requestedAt, feed: feed) }
         do {
             let raw = try await ChatClient(provider: provider).stream(messages, model: provider.model) { sofar in
                 Task { @MainActor in Conversation.shared.update(feed, with: sofar, final: false) }
             }
             if Task.isCancelled { speaking.cancel(); return }
             update(feed, with: raw, final: true)
+            translateIfMissing(partner.id)
             if !feed.spokeAnything {
                 speaking.cancel()
                 turns.removeAll { $0.id == partner.id }
@@ -289,7 +291,7 @@ final class Conversation: ObservableObject {
     private func update(_ feed: ReplyFeed, with sofar: String, final: Bool) {
         guard sofar.count >= feed.seenLength || final else { return }   // an older update arriving late
         feed.seenLength = sofar.count
-        let (reply, english, replyComplete) = Self.split(sofar)
+        let (reply, english, replyComplete) = Self.split(sofar, final: final)
         if !reply.isEmpty {
             if let i = turns.firstIndex(where: { $0.id == feed.turnID }) {
                 turns[i].text = reply
@@ -320,30 +322,79 @@ final class Conversation: ObservableObject {
         if replyComplete || final { feed.continuation?.finish() }
     }
 
-    /// The Chinese reply, the English translation, and whether the reply part is complete (the --- line arrived).
-    static func split(_ raw: String) -> (String, String, Bool) {
+    /// The Chinese reply, the English translation, and whether the reply part is complete (the separator arrived).
+    /// Models don't always write the asked-for "---" line, so other dashes and "English:"-style labels count too,
+    /// and in the finished answer English-only lines after the Chinese are taken as the translation.
+    static func split(_ raw: String, final: Bool = false) -> (String, String, Bool) {
         let lines = raw.components(separatedBy: "\n")
-        if let sep = lines.firstIndex(where: { $0.trimmingCharacters(in: .whitespaces).hasPrefix("---") }) {
-            let reply = lines[..<sep].joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
-            let english = lines[(sep + 1)...].joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
+        let labels = ["english:", "english：", "translation:", "translation：", "en:", "英文:", "英文：", "翻译:", "翻译："]
+        for (k, line) in lines.enumerated() {
+            let t = line.trimmingCharacters(in: .whitespaces)
+            let cleaned = t.replacingOccurrences(of: "*", with: "").trimmingCharacters(in: .whitespaces)
+            let lower = cleaned.lowercased()
+            let isRule = t.count >= 3 && t.allSatisfy { "-—–_=*".contains($0) }
+            if isRule {
+                let reply = lines[..<k].joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
+                let english = lines[(k + 1)...].joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
+                return (reply, english, true)
+            }
+            if let label = labels.first(where: { lower.hasPrefix($0) }), k > 0 || !lower.contains(where: Pinyin.isHanzi) {
+                let reply = lines[..<k].joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
+                let rest = String(cleaned.dropFirst(label.count))
+                let english = ([rest] + lines[(k + 1)...]).joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
+                if !reply.isEmpty { return (reply, english, true) }
+            }
+        }
+        if final, let firstLatin = lines.indices.first(where: { k in
+            k > 0 && lines[..<k].contains { $0.contains(where: Pinyin.isHanzi) }
+                && !lines[k].contains(where: Pinyin.isHanzi) && lines[k].contains(where: { $0.isLetter })
+        }) {
+            // a translation on its own lines with no separator
+            let reply = lines[..<firstLatin].joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
+            let english = lines[firstLatin...].joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
             return (reply, english, true)
         }
         // a partly received separator line ("-", "--") is not part of the reply
         var reply = raw
-        while let last = reply.last, last == "-" || last == "\n" || last == " " { reply.removeLast() }
+        while let last = reply.last, "-—–_=*\n ".contains(last) { reply.removeLast() }
         return (reply.trimmingCharacters(in: .whitespacesAndNewlines), "", false)
+    }
+
+    /// Fills in a missing translation with a small separate request.
+    private func translateIfMissing(_ turnID: UUID) {
+        guard let turn = turns.first(where: { $0.id == turnID }), turn.english.isEmpty, !turn.text.isEmpty else { return }
+        let provider = self.provider
+        let text = turn.text
+        Task {
+            let messages = [
+                ChatClient.Message(role: "system", content: "Translate the Chinese into natural English. Reply with the translation only."),
+                ChatClient.Message(role: "user", content: text),
+            ]
+            guard let english = try? await ChatClient(provider: provider).complete(messages, model: provider.model, json: false, temperature: 0.3)
+            else { return }
+            if let i = turns.firstIndex(where: { $0.id == turnID }), turns[i].english.isEmpty {
+                turns[i].english = english.trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+        }
     }
 
     // MARK: Speaking
 
     /// Speaks sentences as they arrive: Kokoro streams each one into the player; the iPhone voice queues them.
-    private func speakSentences(_ sentences: AsyncStream<String>, turnID: UUID, since: Date) async {
+    private func speakSentences(_ sentences: AsyncStream<String>, turnID: UUID, since: Date,
+                                requestedAt: Date, feed: ReplyFeed) async {
         let flag = stopFlag
         let firstAudio = TimeBox()
         let markSpoken: @MainActor () -> Void = { [weak self] in
             guard let self, let at = firstAudio.value,
                   let i = self.turns.firstIndex(where: { $0.id == turnID }) else { return }
-            self.turns[i].timing = String(format: "first word %.1f s after you stopped", at.timeIntervalSince(since))
+            // where the wait went: the chat model writing the first sentence, then the voice making its first audio
+            var text = String(format: "first word %.1f s after you stopped", at.timeIntervalSince(since))
+            if let sentence = feed.firstSentenceAt {
+                text += String(format: " · %@ %.1f s · voice %.1f s", self.provider.title,
+                               sentence.timeIntervalSince(requestedAt), at.timeIntervalSince(sentence))
+            }
+            self.turns[i].timing = text
         }
         if ModelStore.isInstalled(.voice) {
             let audio = self.audio
@@ -488,8 +539,12 @@ final class ReplyFeed {
 
     init(turnID: UUID) { self.turnID = turnID }
 
+    /// When the first sentence was ready to be spoken.
+    var firstSentenceAt: Date?
+
     func emit(_ sentence: String) {
         guard sentence.contains(where: Pinyin.isHanzi) else { return }
+        if firstSentenceAt == nil { firstSentenceAt = Date() }
         spokeAnything = true
         continuation?.yield(sentence)
     }
