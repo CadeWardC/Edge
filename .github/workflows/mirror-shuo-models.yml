@@ -1,0 +1,52 @@
+name: Mirror Shuō's speech models
+
+# Shuō downloads each model as one plain .tar from a release of this repo and unpacks it on the phone.
+#   sensevoice.tar: SenseVoice-Small int8 (2025-09-09), Mandarin speech recognition (Apache-2.0 / model licence in README).
+#   kokoro-zh.tar: Kokoro-82M v1.1-zh, full precision, with the Chinese dictionary, lexicons and number rules (Apache-2.0).
+
+on:
+  push:
+    paths: [".github/workflows/mirror-shuo-models.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  TAG: models-shuo-v1
+  BASE: https://github.com/k2-fsa/sherpa-onnx/releases/download
+
+jobs:
+  mirror:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Repack SenseVoice
+        run: |
+          curl -sSfL "$BASE/asr-models/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2025-09-09.tar.bz2" | tar xj
+          mkdir -p out/sensevoice
+          cp sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2025-09-09/{model.int8.onnx,tokens.txt,README.md} out/sensevoice/
+          (cd out && tar --format=ustar -cf ../sensevoice.tar sensevoice)
+          tar tf sensevoice.tar; ls -l sensevoice.tar
+
+      - name: Repack Kokoro (Mandarin)
+        run: |
+          curl -sSfL "$BASE/tts-models/kokoro-multi-lang-v1_1.tar.bz2" | tar xj
+          K=kokoro-multi-lang-v1_1
+          mkdir -p out/kokoro-zh
+          cp $K/model.onnx $K/voices.bin $K/tokens.txt $K/lexicon-zh.txt $K/lexicon-us-en.txt \
+             $K/date-zh.fst $K/number-zh.fst $K/phone-zh.fst $K/LICENSE out/kokoro-zh/
+          cp -R $K/dict $K/espeak-ng-data out/kokoro-zh/
+          (cd out && tar --format=ustar -cf ../kokoro-zh.tar kokoro-zh)
+          tar tf kokoro-zh.tar | grep -v "espeak-ng-data/\|dict/"; ls -l kokoro-zh.tar
+
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "$TAG" -R "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            gh release upload "$TAG" sensevoice.tar kokoro-zh.tar --clobber -R "$GITHUB_REPOSITORY"
+          else
+            gh release create "$TAG" sensevoice.tar kokoro-zh.tar -R "$GITHUB_REPOSITORY" --latest=false \
+              --title "Shuō speech models (v1)" \
+              --notes "SenseVoice-Small int8 (Mandarin recognition) and Kokoro v1.1-zh (Mandarin voice) for sherpa-onnx 1.12.40, repacked as plain tar files for the Shuō app. Not an app build."
+          fi

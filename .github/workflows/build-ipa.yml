@@ -5,7 +5,9 @@ on:
     branches: ["**"]
     paths-ignore:
       - "README.md"
-      - ".github/workflows/mirror-voice-models.yml"
+      - "Shuo/**"
+      - ".github/workflows/mirror-*.yml"
+      - ".github/workflows/build-shuo-ipa.yml"
   workflow_dispatch:
 
 permissions:
