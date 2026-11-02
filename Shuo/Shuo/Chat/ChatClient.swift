@@ -73,7 +73,7 @@ struct ChatClient {
         var r = try request("/chat/completions", method: "POST")
         r.httpBody = try JSONEncoder().encode(Body(
             model: model, messages: messages,
-            temperature: reasoning ? nil : temperature,
+            temperature: sentTemperature(temperature, reasoning: reasoning),
             response_format: json && !reasoning ? Format(type: "json_object") : nil,
             max_tokens: reasoning ? 8_000 : 800))
         let (data, response) = try await URLSession.shared.data(for: r)
@@ -102,7 +102,7 @@ struct ChatClient {
         let reasoning = model.contains("reasoner") || model.contains("thinking")
         var r = try request("/chat/completions", method: "POST")
         r.httpBody = try JSONEncoder().encode(Body(model: model, messages: messages,
-                                                   temperature: reasoning ? nil : temperature,
+                                                   temperature: sentTemperature(temperature, reasoning: reasoning),
                                                    max_tokens: reasoning ? 8_000 : 800, stream: true))
         let (bytes, response) = try await URLSession.shared.bytes(for: r)
         if let http = response as? HTTPURLResponse, http.statusCode != 200 {
@@ -130,6 +130,12 @@ struct ChatClient {
             throw AppError("\(provider.title) returned an empty answer. Try again.")
         }
         return text
+    }
+
+    /// Kimi's models only accept a temperature of exactly 1; DeepSeek's reasoning model ignores it.
+    private func sentTemperature(_ temperature: Double, reasoning: Bool) -> Double? {
+        if provider == .kimi { return 1 }
+        return reasoning ? nil : temperature
     }
 
     private func check(_ response: URLResponse, _ data: Data) throws {
