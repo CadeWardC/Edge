@@ -83,7 +83,7 @@ final class AudioIO: @unchecked Sendable {
         let session = AVAudioSession.sharedInstance()
         if !sessionConfigured {
             try session.setCategory(.playAndRecord, mode: .default,
-                                    options: [.defaultToSpeaker, .allowBluetoothA2DP, .allowBluetooth])
+                                    options: [.defaultToSpeaker, .allowBluetoothA2DP])
             sessionConfigured = true
         }
         try session.setActive(true)
@@ -99,7 +99,7 @@ final class AudioIO: @unchecked Sendable {
         let input = engine.inputNode
         let inputFormat = input.outputFormat(forBus: 0)
         guard inputFormat.sampleRate > 0, inputFormat.channelCount > 0 else {
-            throw EngineError.inference("No microphone input is available.")
+            throw AppError("No microphone input is available.")
         }
         let target = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: sampleRate, channels: 1, interleaved: false)!
         converter = AVAudioConverter(from: inputFormat, to: target)
