@@ -26,6 +26,9 @@ struct SettingsView: View {
                     Text("Your partner's replies come from \(talk.provider.title). \(talk.provider.keyHint) Keys are kept in the Keychain on this iPhone.")
                 }
 
+                BalanceSection(provider: talk.provider)
+                    .id("balance-" + talk.providerRaw)
+
                 Section {
                     Picker("Level", selection: $talk.levelRaw) {
                         ForEach(Level.allCases) { Text($0.title).tag($0.rawValue) }
@@ -179,6 +182,66 @@ private struct ProviderSettings: View {
                 message = error.localizedDescription
             }
             checking = false
+        }
+    }
+}
+
+/// What is left on the provider account, and the tokens Shuō has used.
+private struct BalanceSection: View {
+    let provider: Provider
+    @State private var lines: [(String, String)] = []
+    @State private var loading = false
+    @State private var error: String?
+    @State private var month = UsageStore.Totals()
+    @State private var all = UsageStore.Totals()
+
+    var body: some View {
+        Section {
+            if lines.isEmpty && error == nil && !loading {
+                Button("Check balance") { refresh() }
+                    .disabled(provider.apiKey == nil)
+            }
+            if loading { HStack { ProgressView(); Text("Checking…").foregroundStyle(.secondary) } }
+            ForEach(Array(lines.enumerated()), id: \.offset) { _, line in
+                LabeledContent(line.0, value: line.1)
+            }
+            if let error { Text(error).font(.footnote).foregroundStyle(.orange) }
+            if !lines.isEmpty || error != nil {
+                Button("Refresh") { refresh() }.disabled(loading)
+            }
+            LabeledContent("This month in Shuō", value: summary(month))
+            LabeledContent("All time in Shuō", value: summary(all))
+            Link("Full usage on \(provider.title)'s website", destination: provider.usageURL)
+        } header: {
+            Text("\(provider.title) balance & usage")
+        } footer: {
+            Text("The balance comes from your \(provider.title) account. Token counts are what \(provider.title) reported for Shuō's requests on this iPhone; the website shows the cost per model.")
+        }
+        .onAppear {
+            month = UsageStore.totals(provider, period: UsageStore.thisMonth)
+            all = UsageStore.totals(provider, period: "all")
+            if provider.apiKey != nil { refresh() }
+        }
+    }
+
+    private func summary(_ t: UsageStore.Totals) -> String {
+        guard t.requests > 0 else { return "none yet" }
+        let f = { (n: Int) in n >= 10_000 ? String(format: "%.1fk", Double(n) / 1000) : "\(n)" }
+        return "\(t.requests) replies · \(f(t.input)) in / \(f(t.output)) out tokens"
+    }
+
+    private func refresh() {
+        loading = true
+        error = nil
+        Task {
+            do {
+                lines = try await ChatClient(provider: provider).balance()
+            } catch {
+                self.error = error.localizedDescription
+            }
+            month = UsageStore.totals(provider, period: UsageStore.thisMonth)
+            all = UsageStore.totals(provider, period: "all")
+            loading = false
         }
     }
 }

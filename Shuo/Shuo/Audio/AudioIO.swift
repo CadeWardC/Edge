@@ -164,8 +164,9 @@ final class AudioIO: @unchecked Sendable {
         lock.unlock()
     }
 
-    /// Speech is anything 12 dB above an adaptive noise floor; the floor follows quieter audio
-    /// at once and louder audio slowly, so a steady background hum is learned. Called under `lock`.
+    /// Speech starts 12 dB above an adaptive noise floor and continues while the sound stays 6 dB above it, so soft
+    /// syllable endings (neutral tones like 吗 and 呢) aren't taken for silence. The floor follows quieter audio at
+    /// once and louder audio slowly, so a steady background hum is learned. Called under `lock`.
     private func updateActivity(_ x: UnsafeBufferPointer<Float>, sampleRate: Double) {
         guard !x.isEmpty else { return }
         var meanSquare: Float = 0
@@ -177,10 +178,12 @@ final class AudioIO: @unchecked Sendable {
         listenedSeconds += dt
         let floor = noiseFloorDB ?? min(db, -45)
         if listenedSeconds <= Self.calibrationSeconds {
-            noiseFloorDB = min(floor, db)
+            // someone who starts talking at once must not be learned as "background noise"
+            noiseFloorDB = min(floor, db, -40)
             return
         }
-        if db > max(floor + 12, -55) {
+        let threshold = activity.silenceSeconds < 0.3 && speechSeconds > 0 ? floor + 6 : floor + 12
+        if db > max(threshold, -58) {
             speechSeconds += dt
             activity.speechSeconds = speechSeconds
             activity.silenceSeconds = 0
@@ -217,7 +220,8 @@ final class AudioIO: @unchecked Sendable {
         var samples = recorded
         recorded.removeAll()
         if trimSilence, activity.speechDetected, let rate = targetFormat?.sampleRate {
-            let keep = min(samples.count, lastSpeechSample + Int(rate * 0.35))
+            // keep a generous tail: the last syllable often fades out below the detector
+            let keep = min(samples.count, lastSpeechSample + Int(rate * 0.6))
             samples.removeSubrange(keep...)
         }
         return samples
@@ -298,7 +302,7 @@ final class AudioIO: @unchecked Sendable {
     func endStream() {
         playQueue.async {
             if let fmt = self.playFormat, self.producedSeconds > 0,
-               let tail = AVAudioPCMBuffer(pcmFormat: fmt, frameCapacity: AVAudioFrameCount(fmt.sampleRate * 0.25)) {
+               let tail = AVAudioPCMBuffer(pcmFormat: fmt, frameCapacity: AVAudioFrameCount(fmt.sampleRate * 0.45)) {
                 tail.frameLength = tail.frameCapacity   // zero-filled
                 if self.started { self.schedule(tail) } else { self.waiting.append(tail) }
             }
@@ -349,7 +353,7 @@ final class AudioIO: @unchecked Sendable {
                 self.lock.unlock()
                 // the hardware still has its output latency worth of audio to play
                 let latency = AVAudioSession.sharedInstance().outputLatency
-                if run { DispatchQueue.main.asyncAfter(deadline: .now() + latency + 0.05, execute: completion) }
+                if run { DispatchQueue.main.asyncAfter(deadline: .now() + latency + 0.15, execute: completion) }
             }
             self.onDrained = once
             self.lock.unlock()

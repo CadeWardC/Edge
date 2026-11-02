@@ -67,7 +67,7 @@ final class Conversation: ObservableObject {
     @AppStorage("level") var levelRaw = Level.beginner.rawValue
     @AppStorage("systemPrompt") var customPrompt = ""
     @AppStorage("handsFree") var handsFree = false
-    @AppStorage("pauseSeconds") var pauseSeconds = 1.0
+    @AppStorage("pauseSeconds") var pauseSeconds = 1.5
     @AppStorage("speechRate") var speechRate = 1.0
     @AppStorage("kokoroVoice") var kokoroVoice = 3
 
@@ -208,7 +208,10 @@ final class Conversation: ObservableObject {
     private func handle(_ samples: [Float], stoppedAt: Date) async {
         let text: String
         do {
-            text = try await SpeechEngines.shared.transcribe(samples, sampleRate: Self.inputRate)
+            // a little silence around the speech helps the recognizer catch the first and last syllables
+            let padded = [Float](repeating: 0, count: Int(Self.inputRate * 0.15)) + samples
+                + [Float](repeating: 0, count: Int(Self.inputRate * 0.3))
+            text = try await SpeechEngines.shared.transcribe(padded, sampleRate: Self.inputRate)
         } catch {
             state = .failed(error.localizedDescription)
             handsFree = false
