@@ -7,6 +7,8 @@ struct SettingsView: View {
     @AppStorage("showPinyin") private var showPinyin = true
     @AppStorage("showEnglish") private var showEnglish = true
     @AppStorage("checkTones") private var checkTones = true
+    @AppStorage("useNeuralEngine") private var useNeuralEngine = false
+    @AppStorage("showTimings") private var showTimings = true
 
     var body: some View {
         NavigationStack {
@@ -68,6 +70,16 @@ struct SettingsView: View {
                     Text("Listening")
                 } footer: {
                     Text("Your turn is sent once you have been quiet this long. Hands-free mode (∞) opens the mic again after every reply and pauses itself if nothing is said for 20 seconds.")
+                }
+
+                Section {
+                    Toggle("Voice on the Neural Engine", isOn: $useNeuralEngine)
+                        .onChange(of: useNeuralEngine) { SpeechEngines.shared.reloadVoice() }
+                    Toggle("Show timings", isOn: $showTimings)
+                } header: {
+                    Text("Speed")
+                } footer: {
+                    Text("Both models are loaded and warmed up when Shuō opens, and replies are spoken sentence by sentence while the rest is still arriving. Recognition and the voice run on the iPhone's performance cores; the Neural Engine switch runs the voice through Core ML instead (it falls back to the CPU if that doesn't work). Timings under each message show how quick it was, so you can compare.")
                 }
 
                 Section {

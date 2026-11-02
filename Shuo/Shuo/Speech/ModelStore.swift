@@ -141,6 +141,7 @@ final class ModelStore: NSObject, ObservableObject {
             await MainActor.run {
                 self.states[model] = result.map { .failed($0) } ?? .ready
             }
+            if result == nil { SpeechEngines.shared.warmUp() }
         }
     }
 }

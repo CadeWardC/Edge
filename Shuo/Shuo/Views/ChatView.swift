@@ -6,6 +6,7 @@ struct ChatView: View {
     @AppStorage("showPinyin") private var showPinyin = true
     @AppStorage("showEnglish") private var showEnglish = true
     @AppStorage("checkTones") private var checkTones = true
+    @AppStorage("showTimings") private var showTimings = true
     @State private var typing = false
     @State private var draft = ""
     @State private var showSettings = false
@@ -19,7 +20,8 @@ struct ChatView: View {
                         LazyVStack(spacing: 14) {
                             if talk.turns.isEmpty { welcome }
                             ForEach(talk.turns) { turn in
-                                TurnView(turn: turn, showPinyin: showPinyin, showEnglish: showEnglish, checkTones: checkTones)
+                                TurnView(turn: turn, showPinyin: showPinyin, showEnglish: showEnglish, checkTones: checkTones,
+                                         showTimings: showTimings)
                                     .id(turn.id)
                             }
                         }
@@ -175,6 +177,7 @@ private struct TurnView: View {
     let showPinyin: Bool
     let showEnglish: Bool
     let checkTones: Bool
+    let showTimings: Bool
     @EnvironmentObject private var talk: Conversation
 
     var body: some View {
@@ -206,6 +209,12 @@ private struct TurnView: View {
                     }
                     .offset(x: turn.role == .learner ? 4 : -4)
                 }
+            }
+            if showTimings, let timing = turn.timing {
+                Text(timing)
+                    .font(.caption2.monospacedDigit())
+                    .foregroundStyle(.tertiary)
+                    .padding(.horizontal, 6)
             }
             if turn.role == .learner && checkTones && !turn.tones.isEmpty {
                 ToneStrip(checks: turn.tones)

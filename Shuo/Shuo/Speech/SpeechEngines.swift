@@ -12,7 +12,26 @@ final class SpeechEngines: @unchecked Sendable {
     private var recognizer: SherpaOnnxOfflineRecognizer?
     private var tts: SherpaOnnxOfflineTtsWrapper?
 
-    private var threads: Int { min(4, max(2, ProcessInfo.processInfo.activeProcessorCount - 2)) }
+    /// The iPhone's two performance cores; spreading onto the efficiency cores makes each step wait for the slowest.
+    private let threads = 2
+    /// Run the voice on the Neural Engine / GPU through Core ML (Settings › Speed), falling back to the CPU.
+    static var useNeuralEngine: Bool { UserDefaults.standard.bool(forKey: "useNeuralEngine") }
+    private var ttsOnNeuralEngine = false
+
+    /// Loads both models and runs each once, so the first real turn doesn't wait for loading or first-run setup.
+    func warmUp() {
+        queue.async {
+            if ModelStore.isInstalled(.recognition), let recognizer = self.loadRecognizer() {
+                _ = recognizer.decode(samples: [Float](repeating: 0, count: 8_000), sampleRate: 16_000)
+            }
+            if ModelStore.isInstalled(.voice), let tts = self.loadTTS() {
+                _ = tts.generateWithConfig(text: "你好。", config: SherpaOnnxGenerationConfigSwift(sid: 3), callback: nil, arg: nil)
+            }
+        }
+    }
+
+    /// Whether the voice is running on the Neural Engine (after it has been loaded).
+    var voiceOnNeuralEngine: Bool { ttsOnNeuralEngine }
 
     // MARK: Recognition
 
@@ -97,17 +116,19 @@ final class SpeechEngines: @unchecked Sendable {
             lexicon: "\(path("lexicon-us-en.txt")),\(path("lexicon-zh.txt"))",
             lang: "zh"
         )
-        let model = sherpaOnnxOfflineTtsModelConfig(kokoro: kokoro, numThreads: threads)
-        // dates, phone numbers and numbers are read as Chinese words
-        var config = sherpaOnnxOfflineTtsConfig(
-            model: model,
-            ruleFsts: ["date-zh.fst", "phone-zh.fst", "number-zh.fst"].map(path).joined(separator: ","),
-            maxNumSentences: 1
-        )
-        let wrapper = SherpaOnnxOfflineTtsWrapper(config: &config)
-        guard wrapper.tts != nil else { return nil }
-        tts = wrapper
-        return wrapper
+        let rules = ["date-zh.fst", "phone-zh.fst", "number-zh.fst"].map(path).joined(separator: ",")
+        for provider in Self.useNeuralEngine ? ["coreml", "cpu"] : ["cpu"] {
+            let model = sherpaOnnxOfflineTtsModelConfig(kokoro: kokoro, numThreads: threads, provider: provider)
+            // dates, phone numbers and numbers are read as Chinese words
+            var config = sherpaOnnxOfflineTtsConfig(model: model, ruleFsts: rules, maxNumSentences: 1)
+            let wrapper = SherpaOnnxOfflineTtsWrapper(config: &config)
+            if wrapper.tts != nil {
+                tts = wrapper
+                ttsOnNeuralEngine = provider == "coreml"
+                return wrapper
+            }
+        }
+        return nil
     }
 
     func unload() {
@@ -115,6 +136,12 @@ final class SpeechEngines: @unchecked Sendable {
             self.recognizer = nil
             self.tts = nil
         }
+    }
+
+    /// Reloads the voice (after switching the Neural Engine setting) and warms it up again.
+    func reloadVoice() {
+        queue.async { self.tts = nil }
+        warmUp()
     }
 }
 
@@ -168,49 +195,73 @@ enum AppleRecognizer {
     }
 }
 
-/// The iPhone's Chinese voice, used until Kokoro is downloaded.
+/// The iPhone's Chinese voice, used until Kokoro is downloaded. Sentences can be queued as they arrive.
 @MainActor
 final class AppleSpeaker: NSObject, AVSpeechSynthesizerDelegate {
     static let shared = AppleSpeaker()
     private let synthesizer = AVSpeechSynthesizer()
+    private var pending = 0
     private var finish: (() -> Void)?
+    private var closed = true
 
     override init() {
         super.init()
         synthesizer.delegate = self
     }
 
-    /// Speaks and calls `done` when finished or stopped.
+    /// Speaks one text and calls `done` when finished or stopped.
     func speak(_ text: String, rate: Float, done: @escaping () -> Void) {
         stop()
+        enqueue(text, rate: rate)
+        finishQueue(done)
+    }
+
+    /// Adds a sentence to what is being spoken.
+    func enqueue(_ text: String, rate: Float) {
+        if pending == 0 && finish == nil { closed = false }
         let utterance = AVSpeechUtterance(string: text)
         // the best installed Mandarin voice (enhanced or premium ones can be added in iOS Settings › Accessibility)
         let voices = AVSpeechSynthesisVoice.speechVoices().filter { $0.language == "zh-CN" }
         utterance.voice = voices.max { $0.quality.rawValue < $1.quality.rawValue } ?? AVSpeechSynthesisVoice(language: "zh-CN")
         utterance.rate = AVSpeechUtteranceDefaultSpeechRate * rate
-        finish = done
-        try? AVAudioSession.sharedInstance().setCategory(.playAndRecord, mode: .default, options: [.defaultToSpeaker, .allowBluetoothA2DP])
+        if pending == 0 {
+            try? AVAudioSession.sharedInstance().setCategory(.playAndRecord, mode: .default, options: [.defaultToSpeaker, .allowBluetoothA2DP])
+        }
+        pending += 1
         synthesizer.speak(utterance)
+    }
+
+    /// No more sentences are coming: `done` runs once everything queued has been spoken.
+    func finishQueue(_ done: @escaping () -> Void) {
+        finish = done
+        closed = true
+        if pending == 0 { complete() }
     }
 
     func stop() {
         if synthesizer.isSpeaking { synthesizer.stopSpeaking(at: .immediate) }
+        pending = 0
+        closed = true
         complete()
     }
 
-    var isSpeaking: Bool { synthesizer.isSpeaking }
-
     private func complete() {
+        guard closed, pending == 0 else { return }
         let f = finish
         finish = nil
         f?()
     }
 
+    private func utteranceEnded() {
+        pending = max(0, pending - 1)
+        complete()
+    }
+
     nonisolated func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didFinish utterance: AVSpeechUtterance) {
-        Task { @MainActor in self.complete() }
+        Task { @MainActor in self.utteranceEnded() }
     }
 
     nonisolated func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didCancel utterance: AVSpeechUtterance) {
-        Task { @MainActor in self.complete() }
+        Task { @MainActor in self.utteranceEnded() }
     }
 }

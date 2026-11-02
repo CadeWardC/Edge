@@ -89,6 +89,49 @@ struct ChatClient {
         return text
     }
 
+    /// Streams a chat completion; `onText` gets the answer so far. Returns the whole answer.
+    func stream(_ messages: [Message], model: String, temperature: Double = 0.8,
+                onText: @escaping @Sendable (String) -> Void) async throws -> String {
+        struct Body: Encodable {
+            let model: String
+            let messages: [Message]
+            let temperature: Double?
+            let max_tokens: Int
+            let stream: Bool
+        }
+        let reasoning = model.contains("reasoner") || model.contains("thinking")
+        var r = try request("/chat/completions", method: "POST")
+        r.httpBody = try JSONEncoder().encode(Body(model: model, messages: messages,
+                                                   temperature: reasoning ? nil : temperature,
+                                                   max_tokens: reasoning ? 8_000 : 800, stream: true))
+        let (bytes, response) = try await URLSession.shared.bytes(for: r)
+        if let http = response as? HTTPURLResponse, http.statusCode != 200 {
+            var data = Data()
+            for try await b in bytes { data.append(b); if data.count > 20_000 { break } }
+            try check(response, data)
+        }
+        struct Chunk: Decodable {
+            struct Choice: Decodable { struct Delta: Decodable { let content: String? }; let delta: Delta? }
+            let choices: [Choice]
+        }
+        var text = ""
+        for try await line in bytes.lines {
+            try Task.checkCancellation()
+            guard line.hasPrefix("data:") else { continue }
+            let payload = line.dropFirst(5).trimmingCharacters(in: .whitespaces)
+            if payload == "[DONE]" { break }
+            guard let data = payload.data(using: .utf8),
+                  let chunk = try? JSONDecoder().decode(Chunk.self, from: data),
+                  let piece = chunk.choices.first?.delta?.content, !piece.isEmpty else { continue }
+            text += piece
+            onText(text)
+        }
+        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw AppError("\(provider.title) returned an empty answer. Try again.")
+        }
+        return text
+    }
+
     private func check(_ response: URLResponse, _ data: Data) throws {
         guard let http = response as? HTTPURLResponse, http.statusCode != 200 else { return }
         struct Wrapper: Decodable { struct E: Decodable { let message: String? }; let error: E? }

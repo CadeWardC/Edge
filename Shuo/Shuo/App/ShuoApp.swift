@@ -9,7 +9,10 @@ struct ShuoApp: App {
             ChatView()
                 .environmentObject(Conversation.shared)
                 .environmentObject(ModelStore.shared)
-                .onAppear { KeyboardDismisser.shared.install() }
+                .onAppear {
+                    KeyboardDismisser.shared.install()
+                    SpeechEngines.shared.warmUp()   // load the models before the first turn
+                }
                 .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in
                     KeyboardDismisser.shared.install()
                 }

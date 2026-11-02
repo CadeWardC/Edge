@@ -12,6 +12,9 @@ Mandarin (with pinyin and English), the reply is spoken, and every syllable you 
 - **Tone check:** pitch tracking (YIN) of your recording, split into syllables and matched against the four tone
   shapes, compared with the dictionary tones (`Resources/pinyin.tsv`, from mozillazg's pinyin data) after tone sandhi.
 - **Hands-free:** the mic reopens after every reply; it pauses itself after 20 seconds of silence.
+- **Speed:** the reply streams from the chat model and each sentence is spoken as soon as it arrives; both models are
+  loaded and warmed up at launch, run on the two performance cores, and the voice can optionally use the Neural Engine
+  (Core ML). Each message shows its timing (recognition time; first spoken word after you stopped).
 
 Every push to `Shuo/` builds `Shuo-unsigned.ipa` into a `shuo-build-N` release. The speech models come from the
 `models-shuo-v1` release (`.github/workflows/mirror-shuo-models.yml`).

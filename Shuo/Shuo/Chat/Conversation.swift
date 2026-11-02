@@ -18,7 +18,7 @@ enum Level: String, CaseIterable, Identifiable {
 struct Turn: Identifiable, Equatable {
     enum Role: Equatable { case learner, partner }
 
-    let id = UUID()
+    var id = UUID()
     let role: Role
     var text: String
     var pinyin: String
@@ -28,9 +28,11 @@ struct Turn: Identifiable, Equatable {
     /// The learner's recording (16 kHz) or the partner's generated voice (24 kHz), for replay.
     var audio: [Float] = []
     var audioRate: Double = 16_000
+    /// How fast it was, e.g. "heard in 0.3 s" or "first word 1.1 s after you stopped".
+    var timing: String?
 
     static func == (a: Turn, b: Turn) -> Bool {
-        a.id == b.id && a.text == b.text && a.english == b.english && a.tones == b.tones && a.audio.count == b.audio.count
+        a.id == b.id && a.text == b.text && a.english == b.english && a.tones == b.tones && a.audio.count == b.audio.count && a.timing == b.timing
     }
 }
 
@@ -65,7 +67,7 @@ final class Conversation: ObservableObject {
     @AppStorage("level") var levelRaw = Level.beginner.rawValue
     @AppStorage("systemPrompt") var customPrompt = ""
     @AppStorage("handsFree") var handsFree = false
-    @AppStorage("pauseSeconds") var pauseSeconds = 1.4
+    @AppStorage("pauseSeconds") var pauseSeconds = 1.0
     @AppStorage("speechRate") var speechRate = 1.0
     @AppStorage("kokoroVoice") var kokoroVoice = 3
 
@@ -121,7 +123,7 @@ final class Conversation: ObservableObject {
         guard !t.isEmpty, !state.isBusy else { return }
         stopSpeaking()
         turns.append(Turn(role: .learner, text: t, pinyin: Pinyin.romanize(t)))
-        work = Task { await reply() }
+        work = Task { await reply(since: Date()) }
     }
 
     func replay(_ turn: Turn) {
@@ -199,10 +201,11 @@ final class Conversation: ObservableObject {
             return
         }
         state = .transcribing
-        work = Task { await handle(samples) }
+        let stoppedAt = Date()
+        work = Task { await handle(samples, stoppedAt: stoppedAt) }
     }
 
-    private func handle(_ samples: [Float]) async {
+    private func handle(_ samples: [Float], stoppedAt: Date) async {
         let text: String
         do {
             text = try await SpeechEngines.shared.transcribe(samples, sampleRate: Self.inputRate)
@@ -222,6 +225,7 @@ final class Conversation: ObservableObject {
         var turn = Turn(role: .learner, text: text, pinyin: Pinyin.romanize(text))
         turn.audio = samples
         turn.audioRate = Self.inputRate
+        turn.timing = String(format: "heard in %.1f s", Date().timeIntervalSince(stoppedAt))
         turns.append(turn)
         let id = turn.id
         let rate = Self.inputRate
@@ -234,88 +238,173 @@ final class Conversation: ObservableObject {
                 }
             }
         }
-        await reply()
+        await reply(since: stoppedAt)
     }
 
     // MARK: Replying
 
-    private func reply() async {
+    /// Asks the chat model and speaks its reply sentence by sentence as it streams in.
+    /// `since` is when the learner stopped talking, for the timing shown under the reply.
+    private func reply(since: Date) async {
         state = .thinking
+        stopFlag.set(false)
         let level = Level(rawValue: levelRaw) ?? .beginner
         let prompt = (customPrompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? Self.defaultPrompt : customPrompt)
             + "\n\n" + level.guidance + "\n\n"
-            + #"Answer with a JSON object only, in this form: {"reply": "your reply in Chinese characters", "english": "its English translation"}"#
+            + "Format: write your reply in Chinese characters only, then a line containing only ---, then its English translation. Nothing else."
         var messages = [ChatClient.Message(role: "system", content: prompt)]
         for t in turns.suffix(16) {
             messages.append(.init(role: t.role == .learner ? "user" : "assistant", content: t.text))
         }
         let provider = self.provider
+        let partner = Turn(role: .partner, text: "", pinyin: "")
+        let feed = ReplyFeed(turnID: partner.id)
+        let (sentences, continuation) = AsyncStream<String>.makeStream()
+        feed.continuation = continuation
+        defer { continuation.finish() }
+        let speaking = Task { await speakSentences(sentences, turnID: partner.id, since: since) }
         do {
-            let raw = try await ChatClient(provider: provider).complete(messages, model: provider.model, json: true)
-            if Task.isCancelled { return }
-            let (reply, english) = Self.parse(raw)
-            guard !reply.isEmpty else { throw AppError("\(provider.title) didn't reply in Chinese. Try again.") }
-            let turn = Turn(role: .partner, text: reply, pinyin: Pinyin.romanize(reply), english: english)
-            turns.append(turn)
-            await speak(turn)
+            let raw = try await ChatClient(provider: provider).stream(messages, model: provider.model) { sofar in
+                Task { @MainActor in Conversation.shared.update(feed, with: sofar, final: false) }
+            }
+            if Task.isCancelled { speaking.cancel(); return }
+            update(feed, with: raw, final: true)
+            if !feed.spokeAnything {
+                speaking.cancel()
+                turns.removeAll { $0.id == partner.id }
+                throw AppError("\(provider.title) didn't reply in Chinese. Try again.")
+            }
         } catch {
             if Task.isCancelled { return }
+            stopFlag.set(true)
             state = .failed(error.localizedDescription)
             handsFree = false
         }
     }
 
-    /// The reply and translation from the model's JSON (or the whole text when it ignored the format).
-    static func parse(_ raw: String) -> (String, String) {
-        var text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        if let start = text.firstIndex(of: "{"), let end = text.lastIndex(of: "}"), start < end {
-            text = String(text[start...end])
-            if let data = text.data(using: .utf8),
-               let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
-                let reply = (obj["reply"] as? String) ?? (obj["chinese"] as? String) ?? ""
-                let english = (obj["english"] as? String) ?? (obj["translation"] as? String) ?? ""
-                return (reply.trimmingCharacters(in: .whitespacesAndNewlines), english.trimmingCharacters(in: .whitespacesAndNewlines))
+    /// Shows the reply as it streams in and hands each finished Chinese sentence to the voice.
+    private func update(_ feed: ReplyFeed, with sofar: String, final: Bool) {
+        guard sofar.count >= feed.seenLength || final else { return }   // an older update arriving late
+        feed.seenLength = sofar.count
+        let (reply, english, replyComplete) = Self.split(sofar)
+        if !reply.isEmpty {
+            if let i = turns.firstIndex(where: { $0.id == feed.turnID }) {
+                turns[i].text = reply
+                if final || replyComplete { turns[i].pinyin = Pinyin.romanize(reply) }
+                if final { turns[i].english = english }
+            } else {
+                // the id the speaker uses to attach the audio and timing
+                turns.append(Turn(id: feed.turnID, role: .partner, text: reply, pinyin: ""))
             }
         }
-        return (raw.trimmingCharacters(in: .whitespacesAndNewlines), "")
+        // sentences end at Chinese or Western sentence punctuation, or a line break
+        let enders: Set<Character> = ["。", "！", "？", "!", "?", "；", ";", "…", "\n"]
+        let chars = Array(reply)
+        var i = feed.emitted
+        var start = feed.emitted
+        while i < chars.count {
+            if enders.contains(chars[i]) {
+                feed.emit(String(chars[start...i]))
+                start = i + 1
+            }
+            i += 1
+        }
+        feed.emitted = start
+        if (replyComplete || final) && start < chars.count {
+            feed.emit(String(chars[start...]))
+            feed.emitted = chars.count
+        }
+        if replyComplete || final { feed.continuation?.finish() }
+    }
+
+    /// The Chinese reply, the English translation, and whether the reply part is complete (the --- line arrived).
+    static func split(_ raw: String) -> (String, String, Bool) {
+        let lines = raw.components(separatedBy: "\n")
+        if let sep = lines.firstIndex(where: { $0.trimmingCharacters(in: .whitespaces).hasPrefix("---") }) {
+            let reply = lines[..<sep].joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
+            let english = lines[(sep + 1)...].joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
+            return (reply, english, true)
+        }
+        // a partly received separator line ("-", "--") is not part of the reply
+        var reply = raw
+        while let last = reply.last, last == "-" || last == "\n" || last == " " { reply.removeLast() }
+        return (reply.trimmingCharacters(in: .whitespacesAndNewlines), "", false)
     }
 
     // MARK: Speaking
 
-    private func speak(_ turn: Turn) async {
-        state = .speaking
-        stopFlag.set(false)
-        // only the Chinese is spoken (no pinyin or English the model may have added in brackets)
-        let speech = turn.text
-            .replacingOccurrences(of: #"\([^)]*\)|（[^）]*）"#, with: "", options: .regularExpression)
-        let audio = self.audio
+    /// Speaks sentences as they arrive: Kokoro streams each one into the player; the iPhone voice queues them.
+    private func speakSentences(_ sentences: AsyncStream<String>, turnID: UUID, since: Date) async {
         let flag = stopFlag
-        let collected = SampleBox()
-        audio.setPlaybackRate(1)
-        audio.beginStream(expectedSeconds: Double(speech.count) * 0.25 / max(speechRate, 0.5))
-        do {
-            let usedKokoro = try await SpeechEngines.shared.synthesize(speech, speakerID: kokoroVoice, speed: Float(speechRate)) { chunk, rate in
-                if flag.value { return false }
-                audio.enqueue(chunk, sampleRate: rate)
-                collected.append(chunk)
-                return true
-            }
-            if usedKokoro {
-                audio.endStream()
-                if let i = turns.firstIndex(where: { $0.id == turn.id }) {
-                    turns[i].audio = collected.value
-                    turns[i].audioRate = Double(SpeechEngines.ttsSampleRate)
-                }
-                audio.whenPlaybackDrained { [weak self] in self?.doneSpeaking() }
-            } else {
-                audio.stopPlayback()
-                AppleSpeaker.shared.speak(speech, rate: Float(speechRate)) { [weak self] in self?.doneSpeaking() }
-            }
-        } catch {
-            audio.stopPlayback()
-            state = .failed(error.localizedDescription)
-            handsFree = false
+        let firstAudio = TimeBox()
+        let markSpoken: @MainActor () -> Void = { [weak self] in
+            guard let self, let at = firstAudio.value,
+                  let i = self.turns.firstIndex(where: { $0.id == turnID }) else { return }
+            self.turns[i].timing = String(format: "first word %.1f s after you stopped", at.timeIntervalSince(since))
         }
+        if ModelStore.isInstalled(.voice) {
+            let audio = self.audio
+            let collected = SampleBox()
+            var started = false
+            for await sentence in sentences {
+                if flag.value || Task.isCancelled { break }
+                let speech = Self.speakable(sentence)
+                guard !speech.isEmpty else { continue }
+                if !started {
+                    started = true
+                    audio.setPlaybackRate(1)
+                    audio.beginStream()
+                    if state == .thinking { state = .speaking }
+                }
+                do {
+                    _ = try await SpeechEngines.shared.synthesize(speech, speakerID: kokoroVoice, speed: Float(speechRate)) { chunk, rate in
+                        if flag.value { return false }
+                        firstAudio.markOnce()
+                        audio.enqueue(chunk, sampleRate: rate)
+                        collected.append(chunk)
+                        return true
+                    }
+                } catch {
+                    audio.stopPlayback()
+                    state = .failed(error.localizedDescription)
+                    handsFree = false
+                    return
+                }
+                markSpoken()
+            }
+            guard started, !flag.value else { return }
+            audio.endStream()
+            if let i = turns.firstIndex(where: { $0.id == turnID }) {
+                turns[i].audio = collected.value
+                turns[i].audioRate = Double(SpeechEngines.ttsSampleRate)
+            }
+            audio.whenPlaybackDrained { [weak self] in self?.doneSpeaking() }
+        } else {
+            var started = false
+            for await sentence in sentences {
+                if flag.value || Task.isCancelled { break }
+                let speech = Self.speakable(sentence)
+                guard !speech.isEmpty else { continue }
+                if !started {
+                    started = true
+                    AppleSpeaker.shared.stop()
+                    if state == .thinking { state = .speaking }
+                }
+                firstAudio.markOnce()
+                AppleSpeaker.shared.enqueue(speech, rate: Float(speechRate))
+                markSpoken()
+            }
+            guard started, !flag.value else { return }
+            AppleSpeaker.shared.finishQueue { [weak self] in self?.doneSpeaking() }
+        }
+    }
+
+    /// Only the Chinese is spoken (no pinyin or English the model may have added in brackets).
+    static func speakable(_ sentence: String) -> String {
+        let s = sentence
+            .replacingOccurrences(of: #"\([^)]*\)|（[^）]*）"#, with: "", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return s.contains(where: Pinyin.isHanzi) ? s : ""
     }
 
     private func doneSpeaking() {
@@ -354,6 +443,31 @@ final class AtomicFlag: @unchecked Sendable {
     private var _value = false
     var value: Bool { lock.lock(); defer { lock.unlock() }; return _value }
     func set(_ v: Bool) { lock.lock(); _value = v; lock.unlock() }
+}
+
+/// Tracks one streamed reply: what has been shown, and which sentences went to the voice.
+@MainActor
+final class ReplyFeed {
+    let turnID: UUID
+    var seenLength = 0
+    var emitted = 0
+    var spokeAnything = false
+    var continuation: AsyncStream<String>.Continuation?
+
+    init(turnID: UUID) { self.turnID = turnID }
+
+    func emit(_ sentence: String) {
+        guard sentence.contains(where: Pinyin.isHanzi) else { return }
+        spokeAnything = true
+        continuation?.yield(sentence)
+    }
+}
+
+final class TimeBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var time: Date?
+    var value: Date? { lock.lock(); defer { lock.unlock() }; return time }
+    func markOnce() { lock.lock(); if time == nil { time = Date() }; lock.unlock() }
 }
 
 final class SampleBox: @unchecked Sendable {
