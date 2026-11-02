@@ -3,6 +3,9 @@
 An iPhone app (English) that turns research papers into audio read by a natural voice: one of 27 built-in voices,
 or any voice cloned from a short recording.
 
+This repo also holds **[Shuō 说](Shuo/README.md)**, a separate app for speaking Mandarin with tone checks
+(`shuo-build-N` releases).
+
 - **Papers:** import a PDF (or share one to Edge). DeepSeek writes two audios from two prompts you can edit: a light
   **introduction** (5–6 minutes) and an **in-depth recap** (15–16 minutes). Add, remove or change the audios in
   Settings or per paper. The voice you pick reads them on the phone; listen in the app (Lock Screen controls, speed,

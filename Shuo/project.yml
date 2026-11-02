@@ -1,0 +1,58 @@
+name: Shuo
+options:
+  bundleIdPrefix: com.cadewardc
+  deploymentTarget:
+    iOS: "17.0"
+  createIntermediateGroups: true
+
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    MARKETING_VERSION: "1.0"
+    CURRENT_PROJECT_VERSION: "1"
+
+targets:
+  Shuo:
+    type: application
+    platform: iOS
+    sources:
+      - path: Shuo
+    info:
+      path: Shuo/Info.plist
+      properties:
+        CFBundleDisplayName: Shuō
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        NSMicrophoneUsageDescription: Shuō listens to your Mandarin to understand you and check your tones.
+        NSSpeechRecognitionUsageDescription: Shuō can use the iPhone's speech recognition for Mandarin until its own model is downloaded.
+        UIBackgroundModes:
+          - audio
+        UIFileSharingEnabled: true
+        LSSupportsOpeningDocumentsInPlace: true
+        UILaunchScreen: {}
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+        UISupportedInterfaceOrientations~ipad:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
+        ITSAppUsesNonExemptEncryption: false
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.cadewardc.shuo
+        PRODUCT_NAME: Shuo
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        TARGETED_DEVICE_FAMILY: "1,2"
+        SWIFT_OBJC_BRIDGING_HEADER: Shuo/Engine/Shuo-Bridging-Header.h
+        ENABLE_BITCODE: NO
+        OTHER_LDFLAGS: $(inherited) -lc++
+    dependencies:
+      # from ../scripts/fetch-sherpa-ios.sh (static libraries, shared with Edge)
+      - framework: ../vendor/sherpa-onnx.xcframework
+        embed: false
+      - framework: ../vendor/onnxruntime.xcframework
+        embed: false
+      - sdk: Accelerate.framework
+      - sdk: AVFoundation.framework
+      - sdk: CoreML.framework
+      - sdk: Speech.framework
+    scheme: {}
