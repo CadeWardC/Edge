@@ -216,10 +216,59 @@ private struct TurnView: View {
                     .foregroundStyle(.tertiary)
                     .padding(.horizontal, 6)
             }
+            if turn.role == .partner && (turn.suggesting || !turn.suggestions.isEmpty) {
+                SuggestionsCard(turn: turn, showPinyin: showPinyin, showEnglish: showEnglish)
+                    .padding(.trailing, 40)
+            }
             if turn.role == .learner && checkTones && !turn.tones.isEmpty {
                 ToneStrip(checks: turn.tones)
                     .padding(.leading, 40)
             }
         }
+    }
+}
+
+/// "You could say…": short answers to the partner's reply, to hear and repeat (or send).
+private struct SuggestionsCard: View {
+    let turn: Turn
+    let showPinyin: Bool
+    let showEnglish: Bool
+    @EnvironmentObject private var talk: Conversation
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Label("You could say", systemImage: "lightbulb")
+                .font(.caption.bold())
+                .foregroundStyle(.secondary)
+            if turn.suggesting && turn.suggestions.isEmpty {
+                HStack(spacing: 6) { ProgressView().controlSize(.small); Text("Thinking of answers…").font(.caption) }
+                    .foregroundStyle(.secondary)
+            }
+            ForEach(turn.suggestions) { s in
+                HStack(alignment: .center, spacing: 10) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(s.chinese).font(.body)
+                        if showPinyin { Text(s.pinyin).font(.caption).foregroundStyle(.secondary) }
+                        if showEnglish && !s.english.isEmpty { Text(s.english).font(.caption2).foregroundStyle(.tertiary) }
+                    }
+                    .textSelection(.enabled)
+                    Spacer(minLength: 4)
+                    Button { talk.sayAloud(s.chinese) } label: {
+                        Image(systemName: "speaker.wave.2.fill")
+                    }
+                    .buttonStyle(.borderless)
+                    Button { talk.send(text: s.chinese) } label: {
+                        Image(systemName: "arrow.up.circle.fill").font(.title3)
+                    }
+                    .buttonStyle(.borderless)
+                    .disabled(talk.state.isBusy)
+                }
+                .padding(.vertical, 2)
+            }
+        }
+        .padding(10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color(.tertiarySystemBackground), in: RoundedRectangle(cornerRadius: 12))
+        .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Color.secondary.opacity(0.2)))
     }
 }

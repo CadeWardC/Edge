@@ -37,10 +37,12 @@ struct SettingsView: View {
                     Toggle("Show pinyin", isOn: $showPinyin)
                     Toggle("Show English", isOn: $showEnglish)
                     Toggle("Check my tones", isOn: $checkTones)
+                    Toggle("Suggest what to say", isOn: $talk.suggestReplies)
+                        .onChange(of: talk.suggestReplies) { talk.suggestionsToggled() }
                 } header: {
                     Text("Conversation")
                 } footer: {
-                    Text("The tone check measures the pitch of each syllable you say and compares it with the dictionary tone (with tone sandhi). It is a rough guide: it only marks a tone wrong when it is fairly sure.")
+                    Text("The tone check measures the pitch of each syllable you say and compares it with the dictionary tone (with tone sandhi). It is a rough guide: it only marks a tone wrong when it is fairly sure. Suggest what to say shows three short answers under each reply, to hear and repeat or send; it costs one small extra request per reply.")
                 }
 
                 Section {

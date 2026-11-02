@@ -14,6 +14,14 @@ enum Level: String, CaseIterable, Identifiable {
     }
 }
 
+/// A short answer the learner could give.
+struct Suggestion: Equatable, Identifiable {
+    let id = UUID()
+    let chinese: String
+    let pinyin: String
+    let english: String
+}
+
 /// One message in the conversation.
 struct Turn: Identifiable, Equatable {
     enum Role: Equatable { case learner, partner }
@@ -30,9 +38,13 @@ struct Turn: Identifiable, Equatable {
     var audioRate: Double = 16_000
     /// How fast it was, e.g. "heard in 0.3 s" or "first word 1.1 s after you stopped".
     var timing: String?
+    /// Things the learner could say back (when "Suggest what to say" is on).
+    var suggestions: [Suggestion] = []
+    var suggesting = false
 
     static func == (a: Turn, b: Turn) -> Bool {
         a.id == b.id && a.text == b.text && a.english == b.english && a.tones == b.tones && a.audio.count == b.audio.count && a.timing == b.timing
+            && a.suggestions == b.suggestions && a.suggesting == b.suggesting
     }
 }
 
@@ -70,6 +82,7 @@ final class Conversation: ObservableObject {
     @AppStorage("pauseSeconds") var pauseSeconds = 1.5
     @AppStorage("speechRate") var speechRate = 1.0
     @AppStorage("kokoroVoice") var kokoroVoice = 3
+    @AppStorage("suggestReplies") var suggestReplies = false
 
     var provider: Provider { Provider(rawValue: providerRaw) ?? .deepseek }
 
@@ -274,6 +287,7 @@ final class Conversation: ObservableObject {
             if Task.isCancelled { speaking.cancel(); return }
             update(feed, with: raw, final: true)
             translateIfMissing(partner.id)
+            if suggestReplies { suggest(for: partner.id) }
             if !feed.spokeAnything {
                 speaking.cancel()
                 turns.removeAll { $0.id == partner.id }
@@ -358,6 +372,79 @@ final class Conversation: ObservableObject {
         var reply = raw
         while let last = reply.last, "-—–_=*\n ".contains(last) { reply.removeLast() }
         return (reply.trimmingCharacters(in: .whitespacesAndNewlines), "", false)
+    }
+
+    /// Asks for three short things the learner could say back to a reply (a small request after the reply,
+    /// so it never slows the reply down).
+    func suggest(for turnID: UUID) {
+        guard let index = turns.firstIndex(where: { $0.id == turnID }), turns[index].role == .partner,
+              turns[index].suggestions.isEmpty, !turns[index].suggesting else { return }
+        turns[index].suggesting = true
+        let level = Level(rawValue: levelRaw) ?? .beginner
+        let provider = self.provider
+        let context = turns[...index].suffix(6)
+            .map { ($0.role == .learner ? "Learner: " : "Partner: ") + $0.text }
+            .joined(separator: "\n")
+        let system = """
+        You help an English-speaking learner of Mandarin keep a conversation going. Suggest three different short, \
+        natural things the learner could say next in reply to the partner's last message: simple to say out loud, \
+        varied (for example one answer, one with a detail, one question back). \(level.guidance) \
+        Answer with a JSON object only: {"suggestions": [{"chinese": "…", "english": "…"}, …]}
+        """
+        Task {
+            var found: [Suggestion] = []
+            if let raw = try? await ChatClient(provider: provider).complete(
+                [.init(role: "system", content: system), .init(role: "user", content: context)],
+                model: provider.model, json: true, temperature: 0.8) {
+                found = Self.parseSuggestions(raw)
+            }
+            if let i = turns.firstIndex(where: { $0.id == turnID }) {
+                turns[i].suggestions = found
+                turns[i].suggesting = false
+            }
+        }
+    }
+
+    static func parseSuggestions(_ raw: String) -> [Suggestion] {
+        guard let start = raw.firstIndex(of: "{"), let end = raw.lastIndex(of: "}"), start < end,
+              let data = String(raw[start...end]).data(using: .utf8),
+              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let list = obj["suggestions"] as? [[String: Any]] else { return [] }
+        return list.prefix(3).compactMap { item in
+            guard let chinese = (item["chinese"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  chinese.contains(where: Pinyin.isHanzi) else { return nil }
+            let english = (item["english"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            return Suggestion(chinese: chinese, pinyin: Pinyin.romanize(chinese), english: english)
+        }
+    }
+
+    /// Turning suggestions on shows them for the latest reply right away.
+    func suggestionsToggled() {
+        guard suggestReplies, let last = turns.last(where: { $0.role == .partner }) else { return }
+        suggest(for: last.id)
+    }
+
+    /// Says a piece of Chinese aloud with the partner's voice (for suggestions).
+    func sayAloud(_ text: String) {
+        guard state == .idle || state.isFailed || state == .speaking || state == .listening else { return }
+        if state == .listening { cancelListening() }
+        stopSpeaking()
+        let voice = kokoroVoice
+        let speed = Float(speechRate)
+        let rate = speechRate
+        Task {
+            let box = SampleBox()
+            let usedKokoro = (try? await SpeechEngines.shared.synthesize(text, speakerID: voice, speed: speed) { chunk, _ in
+                box.append(chunk)
+                return true
+            }) ?? false
+            if usedKokoro, !box.value.isEmpty {
+                audio.setPlaybackRate(1)
+                audio.play(box.value, sampleRate: Double(SpeechEngines.ttsSampleRate))
+            } else {
+                AppleSpeaker.shared.speak(text, rate: Float(rate)) {}
+            }
+        }
     }
 
     /// Fills in a missing translation with a small separate request.

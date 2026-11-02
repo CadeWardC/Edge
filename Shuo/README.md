@@ -12,6 +12,7 @@ Mandarin (with pinyin and English), the reply is spoken, and every syllable you 
 - **Tone check:** pitch tracking (YIN) of your recording, split into syllables and matched against the four tone
   shapes, compared with the dictionary tones (`Resources/pinyin.tsv`, from mozillazg's pinyin data) after tone sandhi.
 - **Hands-free:** the mic reopens after every reply; it pauses itself after 20 seconds of silence.
+- **Suggest what to say** (off by default): three short answers under each reply, with pinyin and English, to hear and repeat or send.
 - **Balance & usage:** Settings shows what is left on the DeepSeek (`/user/balance`) or Kimi (`/users/me/balance`)
   account and the tokens Shuō has used this month and in total.
 - **Speed:** the reply streams from the chat model and each sentence is spoken as soon as it arrives; both models are
