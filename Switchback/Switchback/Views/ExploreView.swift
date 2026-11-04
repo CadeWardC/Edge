@@ -216,15 +216,23 @@ struct FiltersView: View {
     @Environment(\.dismiss) private var dismiss
 
     private var lengthOptions: [Double?] {
-        Units.current == .imperial
-            ? [nil] + [1, 3, 5, 8, 12, 20].map { Optional($0 * Fmt.metersPerMile) }
-            : [nil] + [2, 5, 8, 12, 20, 30].map { Optional($0 * 1000.0) }
+        let imperial: [Double] = [1, 3, 5, 8, 12, 20]
+        let metric: [Double] = [2, 5, 8, 12, 20, 30]
+        let meters: [Double] = Units.current == .imperial
+            ? imperial.map { $0 * Fmt.metersPerMile }
+            : metric.map { $0 * 1000 }
+        let options: [Double?] = meters.map { Optional($0) }
+        return [nil] + options
     }
 
     private var gainOptions: [Double?] {
-        Units.current == .imperial
-            ? [nil] + [500, 1000, 2000, 3000, 5000].map { Optional($0 / Fmt.feetPerMeter) }
-            : [nil] + [150, 300, 600, 1000, 1500].map { Optional(Double($0)) }
+        let imperial: [Double] = [500, 1000, 2000, 3000, 5000]
+        let metric: [Double] = [150, 300, 600, 1000, 1500]
+        let meters: [Double] = Units.current == .imperial
+            ? imperial.map { $0 / Fmt.feetPerMeter }
+            : metric
+        let options: [Double?] = meters.map { Optional($0) }
+        return [nil] + options
     }
 
     var body: some View {
