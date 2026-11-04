@@ -1,0 +1,181 @@
+import Foundation
+import MapKit
+
+/// The map style under the trails.
+enum BaseMap: String, CaseIterable, Identifiable {
+    case standard, satellite, topo, usgs
+
+    static let storageKey = "baseMap"
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .standard: return "Apple Maps"
+        case .satellite: return "Satellite"
+        case .topo: return "Topo (OpenTopoMap)"
+        case .usgs: return "USGS Topo (US only)"
+        }
+    }
+
+    var shortTitle: String {
+        switch self {
+        case .standard: return "Map"
+        case .satellite: return "Satellite"
+        case .topo: return "Topo"
+        case .usgs: return "USGS"
+        }
+    }
+
+    var isTiled: Bool { self == .topo || self == .usgs }
+
+    var maxZoom: Int { self == .usgs ? 16 : 17 }
+
+    var attribution: String? {
+        switch self {
+        case .topo: return "© OpenStreetMap contributors, SRTM · Map style © OpenTopoMap (CC-BY-SA)"
+        case .usgs: return "USGS The National Map"
+        default: return nil
+        }
+    }
+
+    /// Offline maps need tiles, so Apple's styles fall back to Topo.
+    var offlineSource: BaseMap { isTiled ? self : .topo }
+
+    func tileURL(z: Int, x: Int, y: Int) -> URL? {
+        switch self {
+        case .topo:
+            let s = ["a", "b", "c"][abs(x + y) % 3]
+            return URL(string: "https://\(s).tile.opentopomap.org/\(z)/\(x)/\(y).png")
+        case .usgs:
+            return URL(string: "https://basemap.nationalmap.gov/arcgis/rest/services/USGSTopo/MapServer/tile/\(z)/\(y)/\(x)")
+        default:
+            return nil
+        }
+    }
+
+    static var current: BaseMap {
+        UserDefaults.standard.string(forKey: storageKey).flatMap(BaseMap.init(rawValue:)) ?? .standard
+    }
+}
+
+/// Map tiles on disk: offline areas (kept) and a cache of tiles you've looked at (may be cleared by iOS).
+final class TileStore: @unchecked Sendable {
+    static let shared = TileStore()
+
+    private let lock = NSLock()
+    private var offlineRoots: [URL] = []
+    let cacheRoot = Files.caches.appendingPathComponent("Tiles", isDirectory: true)
+
+    func setOfflineRoots(_ roots: [URL]) {
+        lock.lock()
+        offlineRoots = roots
+        lock.unlock()
+    }
+
+    static func relativePath(_ source: BaseMap, z: Int, x: Int, y: Int) -> String {
+        "\(source.rawValue)/\(z)/\(x)/\(y)"
+    }
+
+    func data(_ source: BaseMap, z: Int, x: Int, y: Int) -> Data? {
+        lock.lock()
+        let roots = offlineRoots
+        lock.unlock()
+        let rel = Self.relativePath(source, z: z, x: x, y: y)
+        for root in roots + [cacheRoot] {
+            if let d = try? Data(contentsOf: root.appendingPathComponent(rel)) { return d }
+        }
+        return nil
+    }
+
+    func store(_ data: Data, _ source: BaseMap, z: Int, x: Int, y: Int, in root: URL? = nil) {
+        let url = (root ?? cacheRoot).appendingPathComponent(Self.relativePath(source, z: z, x: x, y: y))
+        try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try? data.write(to: url)
+    }
+
+    func cacheSize() -> Int64 { Files.directorySize(cacheRoot) }
+
+    func clearCache() { try? FileManager.default.removeItem(at: cacheRoot) }
+
+    static func fetch(_ source: BaseMap, z: Int, x: Int, y: Int) async throws -> Data {
+        guard let url = source.tileURL(z: z, x: x, y: y) else { throw URLError(.badURL) }
+        var req = URLRequest(url: url, timeoutInterval: 30)
+        req.setValue(Net.userAgent, forHTTPHeaderField: "User-Agent")
+        let (data, resp) = try await URLSession.shared.data(for: req)
+        guard (resp as? HTTPURLResponse)?.statusCode == 200, !data.isEmpty else { throw URLError(.badServerResponse) }
+        return data
+    }
+
+    // Web Mercator tile maths
+    static func tileX(_ lon: Double, _ z: Int) -> Int {
+        let n = 1 << z
+        return min(n - 1, max(0, Int(floor((lon + 180) / 360 * Double(n)))))
+    }
+
+    static func tileY(_ lat: Double, _ z: Int) -> Int {
+        let n = 1 << z
+        let r = max(-85.05, min(85.05, lat)) * .pi / 180
+        return min(n - 1, max(0, Int(floor((1 - log(tan(r) + 1 / cos(r)) / .pi) / 2 * Double(n)))))
+    }
+
+    static func tileCount(_ box: BBox, minZoom: Int, maxZoom: Int) -> Int {
+        guard minZoom <= maxZoom else { return 0 }
+        var total = 0
+        for z in minZoom...maxZoom {
+            let xs = tileX(box.east, z) - tileX(box.west, z) + 1
+            let ys = tileY(box.south, z) - tileY(box.north, z) + 1
+            total += xs * ys
+        }
+        return total
+    }
+
+    static func tiles(_ box: BBox, minZoom: Int, maxZoom: Int) -> [(z: Int, x: Int, y: Int)] {
+        guard minZoom <= maxZoom else { return [] }
+        var out: [(z: Int, x: Int, y: Int)] = []
+        for z in minZoom...maxZoom {
+            for x in tileX(box.west, z)...tileX(box.east, z) {
+                for y in tileY(box.north, z)...tileY(box.south, z) {
+                    out.append((z: z, x: x, y: y))
+                }
+            }
+        }
+        return out
+    }
+}
+
+/// Draws topo tiles from disk when they're there, from the network otherwise.
+final class CachedTileOverlay: MKTileOverlay {
+    let source: BaseMap
+
+    init(source: BaseMap) {
+        self.source = source
+        super.init(urlTemplate: nil)
+        canReplaceMapContent = true
+        minimumZ = 1
+        maximumZ = source.maxZoom
+        tileSize = CGSize(width: 256, height: 256)
+    }
+
+    override func url(forTilePath path: MKTileOverlayPath) -> URL {
+        source.tileURL(z: path.z, x: path.x, y: path.y) ?? URL(fileURLWithPath: "/dev/null")
+    }
+
+    override func loadTile(at path: MKTileOverlayPath, result: @escaping (Data?, Error?) -> Void) {
+        let source = self.source
+        let z = path.z, x = path.x, y = path.y
+        Task.detached(priority: .userInitiated) {
+            if let d = TileStore.shared.data(source, z: z, x: x, y: y) {
+                result(d, nil)
+                return
+            }
+            do {
+                let d = try await TileStore.fetch(source, z: z, x: x, y: y)
+                TileStore.shared.store(d, source, z: z, x: x, y: y)
+                result(d, nil)
+            } catch {
+                result(nil, error)
+            }
+        }
+    }
+}
