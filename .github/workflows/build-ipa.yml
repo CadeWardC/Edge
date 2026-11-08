@@ -6,8 +6,10 @@ on:
     paths-ignore:
       - "README.md"
       - "Shuo/**"
+      - "Vanguard/**"
       - ".github/workflows/mirror-*.yml"
       - ".github/workflows/build-shuo-ipa.yml"
+      - ".github/workflows/build-vanguard-ipa.yml"
   workflow_dispatch:
 
 permissions:

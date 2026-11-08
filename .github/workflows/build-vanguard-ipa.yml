@@ -1,0 +1,114 @@
+name: Build unsigned IPA (Vanguard)
+
+# The real-time strategy game in Vanguard/. Edge and Shuō have their own workflows.
+
+on:
+  push:
+    branches: ["**"]
+    paths:
+      - "Vanguard/**"
+      - ".github/workflows/build-vanguard-ipa.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: vanguard-ipa-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  simtest:
+    # the game rules, bots and lockstep networking, run headless (no UI)
+    runs-on: macos-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      - name: Build the simulation tests
+        run: |
+          swiftc -O -swift-version 5 \
+            Vanguard/Vanguard/Sim/*.swift Vanguard/Vanguard/Net/*.swift Vanguard/SimTests/main.swift \
+            -o simtest
+
+      - name: Run them (bot ladder, determinism, lockstep)
+        run: ./simtest
+
+  ipa:
+    needs: simtest
+    runs-on: macos-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      - name: Ensure the iOS platform is installed
+        run: |
+          xcodebuild -version
+          xcodebuild -downloadPlatform iOS || true
+
+      - name: Generate the Xcode project
+        run: |
+          brew install xcodegen
+          cd Vanguard && xcodegen generate
+
+      - name: Build the app (no code signing)
+        run: |
+          mkdir -p build
+          xcodebuild \
+            -project Vanguard/Vanguard.xcodeproj \
+            -scheme Vanguard \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath build/dd \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            build > build/xcodebuild.log 2>&1 || { grep -E "error:|Undefined symbol|ld: " build/xcodebuild.log | sort -u | head -80; tail -20 build/xcodebuild.log; exit 1; }
+          grep -E "warning: .*/Vanguard/Vanguard/" build/xcodebuild.log | sort -u | head -60 || true
+          grep -q "BUILD SUCCEEDED" build/xcodebuild.log
+
+      - name: Package Vanguard-unsigned.ipa
+        run: |
+          APP=build/dd/Build/Products/Release-iphoneos/Vanguard.app
+          test -f "$APP/Vanguard"
+          test -f "$APP/Assets.car" && plutil -extract CFBundleIcons xml1 -o - "$APP/Info.plist" > /dev/null
+          rm -rf build/ipa && mkdir -p build/ipa/Payload
+          cp -R "$APP" build/ipa/Payload/
+          (cd build/ipa && zip -qry ../Vanguard-unsigned.ipa Payload)
+          ls -lh build/Vanguard-unsigned.ipa
+
+      - name: Upload build log on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: vanguard-xcodebuild-log
+          path: build/xcodebuild.log
+          if-no-files-found: ignore
+
+      - name: Upload IPA artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Vanguard-unsigned-ipa
+          path: build/Vanguard-unsigned.ipa
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="vanguard-build-${{ github.run_number }}"
+          gh release create "$TAG" build/Vanguard-unsigned.ipa \
+            --target "${{ github.sha }}" \
+            --title "Vanguard (unsigned) #${{ github.run_number }}" \
+            --notes "Unsigned Vanguard IPA (real-time strategy) built from ${{ github.ref_name }} @ ${GITHUB_SHA::7}. Sign it with your sideloading tool (AltStore, SideStore, Sideloadly, TrollStore) before installing." \
+            --latest=false
