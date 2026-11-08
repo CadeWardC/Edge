@@ -125,6 +125,7 @@ final class World {
             }
         }
         recomputePlayers()
+        grid.rebuild(entities)
         for p in players where p.isBot {
             let ps = setup.players[p.index]
             let personality = ps.personality ?? Personality(rawValue: rng.int(Personality.allCases.count)) ?? .balanced
