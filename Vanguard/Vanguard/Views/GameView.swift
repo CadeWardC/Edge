@@ -23,32 +23,46 @@ struct GameView: View {
     // MARK: HUD
 
     private var hudLayer: some View {
-        VStack(spacing: 0) {
-            HStack(alignment: .top) {
-                leftButtons
-                Spacer()
-                VStack(spacing: 6) {
-                    topBar
-                    if let t = game.toast {
-                        Text(t).font(.callout.weight(.semibold)).padding(.horizontal, 12).padding(.vertical, 6).panel()
-                            .transition(.opacity)
-                    }
-                    if let h = hint {
-                        Text(h).font(.caption).padding(8).frame(maxWidth: 320).panel()
-                    }
+        ZStack {
+            // top: resources, messages, menu
+            VStack(spacing: 6) {
+                topBar
+                if let t = game.toast {
+                    Text(t).font(.callout.weight(.semibold)).padding(.horizontal, 12).padding(.vertical, 6).panel()
+                        .transition(.opacity)
+                }
+                if let h = hint {
+                    Text(h).font(.caption).padding(8).frame(maxWidth: 320).panel()
                 }
                 Spacer()
-                Button { game.showMenu = true } label: {
-                    Image(systemName: "pause.fill").font(.title3).frame(width: 44, height: 44).panel()
-                }
-                .buttonStyle(.plain)
             }
-            Spacer()
-            HStack(alignment: .bottom, spacing: 10) {
-                MinimapView(game: game, scene: scene).frame(width: 132, height: 132)
-                selectionPanel
-                Spacer(minLength: 0)
-                commandCard
+            VStack {
+                HStack {
+                    Spacer()
+                    Button { game.showMenu = true } label: {
+                        Image(systemName: "pause.fill").font(.title3).frame(width: 44, height: 40).panel()
+                    }
+                    .buttonStyle(.plain)
+                }
+                Spacer()
+            }
+            // left: army, idle drones, control groups
+            VStack {
+                HStack {
+                    leftButtons
+                    Spacer()
+                }
+                Spacer()
+            }
+            // bottom: minimap, selection, commands
+            VStack {
+                Spacer()
+                HStack(alignment: .bottom, spacing: 10) {
+                    MinimapView(game: game, scene: scene).frame(width: 128, height: 128)
+                    selectionPanel
+                    Spacer(minLength: 0)
+                    commandCard
+                }
             }
         }
         .padding(.horizontal, 10)
@@ -83,24 +97,34 @@ struct GameView: View {
     }
 
     private var leftButtons: some View {
-        VStack(spacing: 8) {
+        VStack(spacing: 6) {
             if game.localPlayer >= 0 {
                 SideButton(symbol: "figure.walk", label: "Army", badge: game.hud.armyCount) { game.selectArmy() }
                 SideButton(symbol: "hammer", label: "Idle", badge: game.hud.idleWorkers, alert: game.hud.idleWorkers > 0) { game.selectIdleWorker() }
                 ForEach(0..<3, id: \.self) { i in
-                    SideButton(symbol: "\(i + 1).square", label: "Hold: set", badge: game.groups[i].count) {
+                    SideButton(symbol: "\(i + 1).square", label: "Group \(i + 1). Hold to save the selection", badge: game.groups[i].count) {
                         game.group(i, assign: false)
                     }
                     .simultaneousGesture(LongPressGesture(minimumDuration: 0.45).onEnded { _ in game.group(i, assign: true) })
-                }
-                if !game.hud.selection.isEmpty {
-                    SideButton(symbol: "xmark", label: "Clear", badge: 0) { game.select([]) }
                 }
             }
         }
     }
 
     @ViewBuilder private var selectionPanel: some View {
+        if !game.hud.selection.isEmpty {
+            selectionContent
+                .overlay(alignment: .topTrailing) {
+                    Button { game.select([]) } label: {
+                        Image(systemName: "xmark.circle.fill").font(.body).foregroundStyle(.white.opacity(0.7))
+                    }
+                    .buttonStyle(.plain)
+                    .offset(x: 6, y: -6)
+                }
+        }
+    }
+
+    @ViewBuilder private var selectionContent: some View {
         if let e = game.hud.single {
             HStack(alignment: .top, spacing: 10) {
                 Image(uiImage: Art.icon(e.type, e.owner >= 0 ? game.world.players[e.owner].color : .blue))
@@ -245,7 +269,7 @@ struct SideButton: View {
     var body: some View {
         Button(action: action) {
             ZStack(alignment: .topTrailing) {
-                Image(systemName: symbol).font(.body.weight(.semibold)).frame(width: 44, height: 40).panel()
+                Image(systemName: symbol).font(.body.weight(.semibold)).frame(width: 42, height: 36).panel()
                 if badge > 0 {
                     Text("\(badge)").font(.caption2.bold()).padding(.horizontal, 4).padding(.vertical, 1)
                         .background(alert ? Color.orange : Theme.accent.opacity(0.85), in: Capsule())

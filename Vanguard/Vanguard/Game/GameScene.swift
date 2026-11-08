@@ -414,7 +414,7 @@ final class GameScene: SKScene, UIGestureRecognizerDelegate {
                 n.ring.colorBlendFactor = 1
             }
             let damaged = e.hp < e.maxHp - 0.5
-            let showBar = !e.type.isNeutral && (isSel || damaged || (e.isBuilding && !e.isComplete))
+            let showBar = !e.type.isNeutral && ((isSel && selected.count <= 12) || damaged || (e.isBuilding && !e.isComplete))
             n.hpBack.isHidden = !showBar
             n.hpFront.isHidden = !showBar
             if showBar {
