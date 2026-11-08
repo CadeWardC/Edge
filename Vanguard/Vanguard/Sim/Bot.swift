@@ -542,8 +542,9 @@ final class Bot {
         if me.has(.siegeMode) {
             var siege: [Int] = [], unsiege: [Int] = []
             for t in army where t.type == .tank && t.siegeTimer <= 0 {
-                let close = fighters.contains { !$0.isAir && $0.pos.distSq(t.pos) < 340 * 340 }
-                let any = enemies.contains { !$0.isAir && $0.pos.distSq(t.pos) < 420 * 420 }
+                let close = fighters.contains { !$0.isAir && $0.pos.distSq(t.pos) < 320 * 320 }
+                // only stay sieged while something is actually in reach
+                let any = enemies.contains { !$0.isAir && $0.pos.dist(t.pos) - $0.st.radius < Defs.siegeRange + 10 }
                 if close && !t.sieged { siege.append(t.id) }
                 if !any && t.sieged { unsiege.append(t.id) }
             }

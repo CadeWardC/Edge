@@ -756,9 +756,16 @@ final class World {
             return false
         }
         if e.pathGoal == nil || e.pathGoal!.distSq(goal) > 28 * 28 || tick >= e.repathTick {
-            e.path = pathfinder.path(from: e.pos, to: goal, tick: tick, halfWidth: max(4, e.st.radius - 3))
-            e.pathGoal = goal
-            e.repathTick = tick + 60 + e.id % 23
+            if let p = pathfinder.path(from: e.pos, to: goal, tick: tick, halfWidth: max(4, e.st.radius - 3)) {
+                e.path = p
+                e.pathGoal = goal
+                e.repathTick = tick + 60 + e.id % 23
+            } else {
+                // over the search budget this tick: keep going (old path or straight) and retry shortly
+                if e.path.isEmpty { e.path = [goal] }
+                e.repathTick = tick + 1 + e.id % 4
+                if e.pathGoal == nil || e.pathGoal!.distSq(goal) > 28 * 28 { e.pathGoal = nil }
+            }
             if e.progressCheckTick < tick - 40 { e.progressCheckTick = tick; e.progressCheckPos = e.pos }
         }
         while e.path.count > 1 && e.pos.distSq(e.path[0]) < 14 * 14 { e.path.removeFirst() }

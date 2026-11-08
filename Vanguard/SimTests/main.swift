@@ -60,7 +60,7 @@ for id in MapID.allCases {
     // every start can walk to every other start
     let a = w.map.starts[0].center + Vec2(0, -70)
     for s in w.map.starts.dropFirst() {
-        let p = w.pathfinder.path(from: a, to: s.center + Vec2(0, -70), tick: -1, halfWidth: 6)
+        let p = w.pathfinder.path(from: a, to: s.center + Vec2(0, -70), tick: -1, halfWidth: 6) ?? []
         let end = p.last ?? a
         check(end.dist(s.center + Vec2(0, -70)) < 80, "\(id.name): path from start 0 reaches start at \(Int(s.center.x)),\(Int(s.center.y))")
     }

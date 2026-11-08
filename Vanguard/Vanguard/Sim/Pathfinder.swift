@@ -13,6 +13,9 @@ final class Pathfinder {
     private var cache: [Int: [Vec2]] = [:]
     private var cacheTick = -1
     var searches = 0
+    /// Full searches allowed per tick; past this, callers retry a few ticks later (keeps big army orders smooth).
+    let budgetPerTick = 24
+    private var searchesThisTick = 0
 
     init(map: GameMap) {
         self.map = map
@@ -23,8 +26,9 @@ final class Pathfinder {
         closed = Array(repeating: 0, count: n)
     }
 
-    func path(from a: Vec2, to b: Vec2, tick: Int, halfWidth: Double) -> [Vec2] {
-        if tick != cacheTick { cache.removeAll(keepingCapacity: true); cacheTick = tick }
+    /// nil = over this tick's search budget; try again soon.
+    func path(from a: Vec2, to b: Vec2, tick: Int, halfWidth: Double) -> [Vec2]? {
+        if tick != cacheTick { cache.removeAll(keepingCapacity: true); cacheTick = tick; searchesThisTick = 0 }
         if map.lineClear(a, b, halfWidth: halfWidth) { return [b] }
         var st = map.tile(of: a)
         if !map.walkable(st.x, st.y), let w = map.nearestWalkable(st, maxRadius: 3) { st = w }
@@ -38,6 +42,8 @@ final class Pathfinder {
             if goalIsExact, !p.isEmpty { p[p.count - 1] = b }
             return p
         }
+        if searchesThisTick >= budgetPerTick && tick >= 0 { return nil }
+        searchesThisTick += 1
         guard let tiles = search(st, &gt) else { return [b] }
         var pts = tiles.map { map.center($0) }
         if goalIsExact, !pts.isEmpty { pts[pts.count - 1] = b }
