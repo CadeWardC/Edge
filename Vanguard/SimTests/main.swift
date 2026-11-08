@@ -49,7 +49,9 @@ func run(_ w: World, maxMinutes: Double) {
     }
 }
 
+var blockedSamples: [Int] = []
 func describe(_ w: World) -> String {
+    for p in w.players { blockedSamples.append((blockedTicks[p.index] ?? 0) / Defs.tickRate) }
     defer { blockedTicks = [:] }
     let mins = Double(w.tick) / Double(60 * Defs.tickRate)
     let ps = w.players.map { p in
@@ -153,6 +155,9 @@ for (strong, weak) in ladder {
     ladderGames += games
     check(wins * 2 > games, "\(strong.name) beats \(weak.name) in \(wins) of \(games)")
 }
+
+let avgBlocked = Double(blockedSamples.reduce(0, +)) / Double(max(1, blockedSamples.count))
+check(avgBlocked < 45, String(format: "bots rarely sit supply-blocked (average %.0f s per game)", avgBlocked))
 
 // MARK: bigger games finish
 print("4-player games")

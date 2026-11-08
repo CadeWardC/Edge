@@ -161,8 +161,9 @@ final class Bot {
     private func buildSupply(workers: [Entity], main: Entity) -> Bool {
         let p = me
         guard p.supplyCap < Defs.maxSupply else { return false }
-        let producers = p.count(.barracks) + p.count(.factory) + p.count(.hq)
-        let buffer = 2 + producers * 2
+        // enough headroom for everything that can come out of our buildings while a depot goes up (~30 s)
+        let producers = p.count(.barracks) + p.count(.factory) * 2 + p.count(.hq)
+        let buffer = 3 + producers * 3
         let incoming = p.pending[EntityType.depot.rawValue] * 8 + p.pending[EntityType.hq.rawValue] * 10
         guard p.supplyUsed + buffer >= p.supplyCap + incoming else { return false }
         return place(.depot, workers: workers, near: main)
@@ -276,7 +277,9 @@ final class Bot {
         }()
         let startRing = anchor == nil ? 3 : 0
         let skew = rng.int(4)
-        for r in startRing...14 {
+        let reach = reachable(from: main)
+        for pass in 0..<2 {
+        for r in startRing...(pass == 0 ? 14 : 20) {
             var options: [TilePoint] = []
             for dy in -r...r {
                 for dx in -r...r where abs(dx) == r || abs(dy) == r {
@@ -290,8 +293,10 @@ final class Bot {
             for o in options {
                 let pad = TilePoint(x: o.x - 1, y: o.y - 1)
                 guard world.map.canPlace(origin: pad, size: n + 2), world.canPlace(type, at: o) else { continue }
+                // a drone must be able to walk there
+                guard world.map.inBounds(pad.x, pad.y), reach[world.map.index(pad.x, pad.y)] else { continue }
                 let c = Vec2((Double(o.x) + Double(n) / 2) * Defs.tile, (Double(o.y) + Double(n) / 2) * Defs.tile)
-                if mineDir != .zero && type != .turret {
+                if pass == 0 && mineDir != .zero && type != .turret {
                     let rel = c - main.pos
                     if rel.dot(mineDir) > -20 && rel.length < 260 { continue }
                 }
@@ -305,7 +310,32 @@ final class Bot {
                 return true
             }
         }
+        }
         return false
+    }
+
+    /// Tiles a drone can walk to from the main base (flood fill), cached for a few seconds.
+    private var reachCache: [Bool] = []
+    private var reachTick = -1000
+    private func reachable(from main: Entity) -> [Bool] {
+        if world.tick - reachTick < 100 && !reachCache.isEmpty { return reachCache }
+        let map = world.map
+        var seen = Array(repeating: false, count: map.width * map.height)
+        let start = map.tile(of: main.pos + Vec2(0, -Double(main.st.footprint) * Defs.tile / 2 - 20))
+        guard let s0 = map.nearestWalkable(start, maxRadius: 6) else { return seen }
+        var stack = [s0]
+        seen[map.index(s0.x, s0.y)] = true
+        while let t = stack.popLast() {
+            for (dx, dy) in [(1, 0), (-1, 0), (0, 1), (0, -1)] {
+                let x = t.x + dx, y = t.y + dy
+                guard map.walkable(x, y) else { continue }
+                let i = map.index(x, y)
+                if !seen[i] { seen[i] = true; stack.append(TilePoint(x: x, y: y)) }
+            }
+        }
+        reachCache = seen
+        reachTick = world.tick
+        return seen
     }
 
     private func research(_ mine: [Entity]) {
