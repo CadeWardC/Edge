@@ -209,12 +209,13 @@ final class World {
         let lo = Vec2(Double(origin.x) * Defs.tile, Double(origin.y) * Defs.tile)
         let hi = lo + Vec2(Double(n) * Defs.tile, Double(n) * Defs.tile)
         let margin: Double = type == .hq ? 2.5 * Defs.tile : 0.6 * Defs.tile
-        for e in entities where e.type == .crystal && e.alive {
-            if e.pos.x > lo.x - margin && e.pos.x < hi.x + margin && e.pos.y > lo.y - margin && e.pos.y < hi.y + margin {
-                return false
-            }
+        var blocked = false
+        let c = (lo + hi) / 2
+        grid.query(c, Double(n) * Defs.tile * 0.75 + margin + 20) { e in
+            if e.type == .crystal && e.pos.x > lo.x - margin && e.pos.x < hi.x + margin &&
+                e.pos.y > lo.y - margin && e.pos.y < hi.y + margin { blocked = true }
         }
-        return true
+        return !blocked
     }
 
     func requirementsMet(_ t: EntityType, player p: Player) -> Bool {

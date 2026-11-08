@@ -90,6 +90,13 @@ jobs:
           sleep 60
           xcrun simctl io "$DEV" screenshot shots/5-late.png
           ls -l shots
+          # also print small JPEGs into the log (readable where artifact downloads are not)
+          for f in shots/*.png; do
+            sips -s format jpeg -s formatOptions 70 -Z 1400 "$f" --out "${f%.png}.jpg" > /dev/null
+            echo "SHOT-BEGIN $(basename "$f")"
+            base64 -i "${f%.png}.jpg" | fold -w 2000 | sed 's/^/SHOT /'
+            echo "SHOT-END"
+          done
 
       - name: Upload screenshots
         if: always()
