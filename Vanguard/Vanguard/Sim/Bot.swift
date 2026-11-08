@@ -207,20 +207,34 @@ final class Bot {
 
     private func buildTech(workers: [Entity], main: Entity, hqs: [Entity]) -> Bool {
         let minutes = Double(world.tick) / Double(60 * Defs.tickRate)
-        for g in buildPlan where g.count > 0 {
+        planLoop: for g in buildPlan where g.count > 0 {
             let have = me.count(g.type) + me.pending[g.type.rawValue]
             if have >= g.count { continue }
-            if workers.count < g.workers || minutes < g.minute { return false }
-            guard world.requirementsMet(g.type, player: me) else { return false }
+            // not time for this step yet: fall through to spending a bank
+            if workers.count < g.workers || minutes < g.minute { break planLoop }
+            guard world.requirementsMet(g.type, player: me) else { break planLoop }
             // let one building finish before the next tier on easy
             if difficulty == .easy && (me.pending[EntityType.barracks.rawValue] + me.pending[EntityType.factory.rawValue]) > 0 { return false }
             let anchor = g.type == .turret ? turretSpot(hqs: hqs, main: main) : main.pos
             return place(g.type, workers: workers, near: main, anchor: anchor)
         }
-        // late game: spend a big bank on more production
-        if me.crystals > 700 && me.count(.barracks) + me.count(.factory) < (sharp ? 7 : 4) {
-            let t: EntityType = (personality == .mechanic || me.count(.factory) < me.count(.barracks)) && me.count(.barracks) > 0 ? .factory : .barracks
-            return place(t, workers: workers, near: main)
+        // more production when money piles up (what the bank can feed, scaled by bases)
+        let production = me.count(.barracks) + me.count(.factory) + me.pending[EntityType.barracks.rawValue] + me.pending[EntityType.factory.rawValue]
+        let cap: Int
+        switch difficulty {
+        case .easy: cap = 2
+        case .normal: cap = 3 + me.count(.hq)
+        case .hard, .brutal: cap = 3 + 2 * me.count(.hq)
+        }
+        let bank = difficulty == .easy ? 900 : (sharp ? 350 : 500)
+        if me.crystals > bank && production < cap && me.count(.barracks) > 0 {
+            let wantFactory: Bool
+            switch personality {
+            case .mechanic: wantFactory = me.count(.factory) <= me.count(.barracks) + 1
+            case .rusher: wantFactory = me.count(.factory) * 3 < me.count(.barracks)
+            default: wantFactory = me.count(.factory) < me.count(.barracks)
+            }
+            return place(wantFactory ? .factory : .barracks, workers: workers, near: main)
         }
         return false
     }
