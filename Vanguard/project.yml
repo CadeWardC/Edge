@@ -1,0 +1,51 @@
+name: Vanguard
+options:
+  bundleIdPrefix: com.cadewardc
+  deploymentTarget:
+    iOS: "17.0"
+  createIntermediateGroups: true
+
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    MARKETING_VERSION: "1.0"
+    CURRENT_PROJECT_VERSION: "1"
+
+targets:
+  Vanguard:
+    type: application
+    platform: iOS
+    sources:
+      - path: Vanguard
+    info:
+      path: Vanguard/Info.plist
+      properties:
+        CFBundleDisplayName: Vanguard
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        UILaunchScreen:
+          UIColorName: ""
+        UIRequiresFullScreen: true
+        UIStatusBarHidden: true
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        UISupportedInterfaceOrientations~ipad:
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        # multiplayer talks to a relay server you run on your own network (ws://)
+        NSLocalNetworkUsageDescription: Vanguard connects to a multiplayer relay server on your network.
+        NSAppTransportSecurity:
+          NSAllowsArbitraryLoads: true
+          NSAllowsLocalNetworking: true
+        ITSAppUsesNonExemptEncryption: false
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.cadewardc.vanguard
+        PRODUCT_NAME: Vanguard
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        TARGETED_DEVICE_FAMILY: "1,2"
+        ENABLE_BITCODE: NO
+    dependencies:
+      - sdk: SpriteKit.framework
+    scheme: {}

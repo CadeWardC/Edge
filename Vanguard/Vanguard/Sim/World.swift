@@ -128,7 +128,7 @@ final class World {
         for p in players where p.isBot {
             let ps = setup.players[p.index]
             let personality = ps.personality ?? Personality(rawValue: rng.int(Personality.allCases.count)) ?? .balanced
-            if p.difficulty == .brutal { p.gatherMultiplier = 1.2 }
+            if p.difficulty == .brutal { p.gatherMultiplier = 1.3 }
             bots.append(Bot(world: self, player: p.index, difficulty: p.difficulty, personality: personality))
         }
         fog.update(self)

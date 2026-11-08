@@ -222,7 +222,7 @@ enum Difficulty: Int, Codable, CaseIterable {
         case .easy: return "Slow, small attacks. Learn the ropes."
         case .normal: return "Solid build orders and timing attacks."
         case .hard: return "Expands, scouts, counters your army, focuses fire."
-        case .brutal: return "Hard with sharp reactions and +20% mining. Good luck."
+        case .brutal: return "Hard with sharp reactions and +30% mining. Good luck."
         }
     }
 }

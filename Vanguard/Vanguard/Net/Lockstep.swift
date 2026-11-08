@@ -87,6 +87,9 @@ final class LockstepSession {
         }
     }
 
+    /// How far the next tick is (0...1), for smooth rendering between ticks.
+    var alpha: Double { waiting || paused ? 1 : min(1, accumulator / Defs.dt) }
+
     /// Advance by real time. Returns the number of ticks run.
     @discardableResult
     func update(realDt: Double) -> Int {

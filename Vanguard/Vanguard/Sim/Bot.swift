@@ -126,12 +126,12 @@ final class Bot {
     private var workerTarget: Int {
         let per: Int
         switch difficulty {
-        case .easy: per = 11
+        case .easy: per = 15
         case .normal: per = 16
         case .hard, .brutal: per = 18
         }
         let bases = max(1, me.count(.hq))
-        return min(difficulty == .easy ? 14 : 48, per * bases + (bases > 1 ? 2 : 0))
+        return min(difficulty == .easy ? 16 : 48, per * bases + (bases > 1 ? 2 : 0))
     }
 
     private func trainWorkers(hqs: [Entity], workerCount: Int) {
@@ -172,7 +172,7 @@ final class Bot {
 
     private var buildPlan: [Goal] {
         let delay: Double = difficulty == .easy ? 2 : 0
-        let w: Int = difficulty == .easy ? 3 : 0
+        let w: Int = difficulty == .easy ? 1 : 0
         switch personality {
         case .balanced:
             return [Goal(type: .barracks, count: 1, workers: 9 + w, minute: delay),

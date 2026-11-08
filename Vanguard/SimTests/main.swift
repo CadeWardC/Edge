@@ -107,7 +107,7 @@ var ladderWins = 0, ladderGames = 0
 let ladder: [(Difficulty, Difficulty)] = [(.normal, .easy), (.hard, .normal), (.brutal, .hard), (.hard, .easy)]
 for (strong, weak) in ladder {
     var wins = 0, games = 0
-    for seed in 1...4 {
+    for seed in 1...6 {
         let map: MapID = seed % 2 == 0 ? .twinRivers : .crossroads
         // swap sides every other game
         let strongFirst = seed % 3 != 0
