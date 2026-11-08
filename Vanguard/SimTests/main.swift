@@ -116,6 +116,26 @@ do {
         if wb.tick % 10 == 5 { pb.think() }
         let ra = sa.stepTick(), rb = sb.stepTick()
         track(wa)
+        if ra && wa.tick % 1200 == 0 && wa.tick <= 4800 {
+            for p in wa.players {
+                var orders: [String: Int] = [:]
+                for e in wa.entities where e.owner == p.index && e.isWorker {
+                    let k: String
+                    switch e.order {
+                    case .idle: k = "idle"
+                    case .gather: k = "gather"
+                    case .returnCargo: k = "return"
+                    case .build: k = "build"
+                    case .construct: k = "construct"
+                    case .move: k = "move"
+                    default: k = "other"
+                    }
+                    orders[k, default: 0] += 1
+                }
+                let blds = EntityType.buildings.map { "\($0.stats.name)=\(p.count($0))+\(p.pending[$0.rawValue])" }.joined(separator: " ")
+                print("    [min \(wa.tick / 1200)] \(p.name): crystals \(p.crystals) supply \(p.supplyUsed)/\(p.supplyCap) workers \(orders.sorted { $0.key < $1.key }) \(blds)")
+            }
+        }
         if !ra || !rb { stalls += 1 }
         hub.pump(keepNewest: i % 3)       // jittery latency
         if wa.isOver || wb.isOver { break }
