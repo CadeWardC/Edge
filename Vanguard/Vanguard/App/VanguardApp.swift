@@ -22,8 +22,8 @@ final class AppModel: ObservableObject {
     @Published var game: GameController?
     private(set) var scene: GameScene?
 
-    func start(_ setup: MatchSetup, localPlayer: Int, transport: NetTransport? = nil) {
-        let g = GameController(setup: setup, localPlayer: localPlayer, transport: transport)
+    func start(_ setup: MatchSetup, localPlayer: Int, transport: NetTransport? = nil, autopilot: Bool = false) {
+        let g = GameController(setup: setup, localPlayer: localPlayer, transport: transport, autopilot: autopilot)
         scene = GameScene(controller: g)
         game = g
         screen = .game
@@ -52,6 +52,17 @@ struct RootView: View {
                 if let g = app.game, let s = app.scene {
                     GameView(game: g, scene: s) { app.leaveGame() }
                 }
+            }
+        }
+        .onAppear {
+            // `-demo`: jump straight into a match the autopilot plays at 3x (screenshots on CI)
+            let args = ProcessInfo.processInfo.arguments
+            if args.contains("-demo"), app.game == nil {
+                var setup = SkirmishView.quickSetup()
+                setup.seed = 11
+                setup.players[1].difficulty = .hard
+                app.start(setup, localPlayer: 0, autopilot: true)
+                app.game?.speed = 3
             }
         }
     }

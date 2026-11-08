@@ -95,8 +95,10 @@ final class GameController: ObservableObject {
     private var lastTapTime: TimeInterval = 0
     private var toastWork: DispatchWorkItem?
     let minimapImage: UIImage
+    /// Demo mode: a bot plays the local player's side (used for screenshots and as an attract mode).
+    private var autopilot: Bot?
 
-    init(setup: MatchSetup, localPlayer: Int, transport: NetTransport? = nil) {
+    init(setup: MatchSetup, localPlayer: Int, transport: NetTransport? = nil, autopilot: Bool = false) {
         let w = World(setup: setup)
         world = w
         self.localPlayer = localPlayer
@@ -112,6 +114,12 @@ final class GameController: ObservableObject {
         session.onPeerLeft = { [weak self] _ in
             self?.showToast("A player left the game.")
         }
+        if autopilot && localPlayer >= 0 {
+            let b = Bot(world: w, player: localPlayer, difficulty: .hard, personality: .balanced)
+            let s = session
+            b.sink = { s.issue($0) }
+            self.autopilot = b
+        }
         refreshHUD()
     }
 
@@ -120,7 +128,18 @@ final class GameController: ObservableObject {
     // MARK: frame
 
     func frame(_ dt: Double) {
+        let before = world.tick
         if !showMenu || isMultiplayer { session.update(realDt: dt) }
+        if let a = autopilot, world.tick / 10 != before / 10 {
+            a.think()
+            if world.tick % 100 < 10 {
+                let army = world.entities.filter { $0.owner == localPlayer && $0.isArmy }
+                if !army.isEmpty {
+                    selection = army.map { $0.id }
+                    if let c = centroid(selection) { scene?.focus(c) }
+                }
+            }
+        }
         handleEvents()
         hudTimer += dt
         miniTimer += dt
