@@ -36,6 +36,33 @@ SideStore, Sideloadly or TrollStore, like Edge). CI first runs the headless simu
   dependencies, rooms by code), and an in-process loopback used by the tests. Game Center or MultipeerConnectivity
   would be another `NetTransport`.
 
+## Design notes (what makes an RTS fun, and what Vanguard does about it)
+
+- **Macro and micro both matter, but neither should be a chore.** Micro is fun while it is manageable and tiring when it
+  demands constant attention. So the boring parts are automatic: drones go back to mining after building, new drones
+  mine on their own, idle units defend themselves, rally points, a one-tap Army button and control groups. Your
+  attention goes to decisions: where to fight, when to expand, what to counter.
+- **Units must feel different.** Distinct roles with readable counters (Light / Armored / Structure, air vs ground),
+  two active abilities that reward timing (Siege Mode, Sprint), and veterancy so a surviving squad is worth saving.
+- **Map control and comebacks.** Beacons in contested places pay out over time and give vision, so there is always
+  something to fight over besides the main base, and a player who lost a fight can still win the map back.
+  Turrets and the defender's shorter walk make holding your base easier than taking it.
+- **Short, readable matches on a phone.** Matches run 5 to 15 minutes, and there's one resource plus supply.
+  Silhouettes and team colors are clear at a glance, and health bars show only when they matter.
+- **Designed for touch, not ported.** Ports of PC RTS games tend to carry over too many simultaneous controls. Vanguard
+  uses tap to select or command, press-and-hold-drag for boxes, an armed Attack button instead of a modifier key,
+  big command buttons with hints on long press, and an on-screen ghost for placing buildings.
+- **Good bots are a feature.** Four difficulty levels and four styles give variety, and the bots play by your rules:
+  they see only their fog of war and act only through commands. CI checks that each level beats the one below it.
+- **Lockstep multiplayer from day one.** The simulation is deterministic and command-driven, as in classic RTS
+  networking. Checksums catch desyncs, and the same code runs single player, bots and network games.
+
+Sources consulted: [Game Developer: the three layers of control in strategy games](https://www.gamedeveloper.com/design/the-three-layers-of-control-in-strategy-games-),
+[GameCloud: what makes RTS games fun (micro and unit differentiation)](https://gamecloud.net.au/features/opinion/what-makes-rts-games-fun-micro-unit-differentiation),
+[Mobile Free to Play: touch control design, less is more](https://mobilefreetoplay.com/touch-control-design-less-is-more/),
+[Spring RTS on its lockstep model](https://springrts.com/phpbb/viewtopic.php?p=587472),
+[Ruoyu Sun: game networking, deterministic lockstep](https://hn.jakechampion.name/reader/https://ruoyusun.com/2019/03/29/game-networking-2.html).
+
 ## Play multiplayer now
 
 1. On any computer on your network: `python3 Vanguard/Server/relay.py` (port 8765).
