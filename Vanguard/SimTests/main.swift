@@ -5,6 +5,7 @@ import Foundation
 // 1. determinism: the same setup gives the same game, 2. lockstep over a fake network stays in sync,
 // 3. bot ladder: harder bots beat easier ones, 4. every map is fair-ish and finishes, 5. speed.
 
+setvbuf(stdout, nil, _IONBF, 0)
 var failures = 0
 func check(_ ok: Bool, _ what: String) {
     print(ok ? "  ok   \(what)" : "  FAIL \(what)")
@@ -20,7 +21,24 @@ func bots(_ diffs: [Difficulty], map: MapID, personalities: [Personality?]? = ni
 
 func run(_ w: World, maxMinutes: Double) {
     let limit = Int(maxMinutes * 60) * Defs.tickRate
-    while !w.isOver && w.tick < limit { w.step([]) }
+    let t0 = Date()
+    var slowest = 0.0, slowTick = 0
+    while !w.isOver && w.tick < limit {
+        let s = Date()
+        w.step([])
+        let d = Date().timeIntervalSince(s)
+        if d > slowest { slowest = d; slowTick = w.tick }
+        if w.tick % 2400 == 0 && Date().timeIntervalSince(t0) > 60 {
+            print(String(format: "    !! still running after %.0fs at minute %d (slowest tick %.1f ms at %d, %d units, %d path searches)",
+                         Date().timeIntervalSince(t0), w.tick / 1200, slowest * 1000, slowTick,
+                         w.entities.filter { $0.isUnit }.count, w.pathfinder.searches))
+            check(false, "game finishes in reasonable time")
+            return
+        }
+    }
+    if slowest > 0.02 {
+        print(String(format: "    slowest tick %.1f ms at %d; %d path searches", slowest * 1000, slowTick, w.pathfinder.searches))
+    }
 }
 
 func describe(_ w: World) -> String {

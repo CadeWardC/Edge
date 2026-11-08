@@ -37,10 +37,10 @@ jobs:
             -o simtest
 
       - name: Run them (bot ladder, determinism, lockstep)
+        timeout-minutes: 12
         run: ./simtest
 
   ipa:
-    needs: simtest
     runs-on: macos-latest
     timeout-minutes: 60
     steps:
