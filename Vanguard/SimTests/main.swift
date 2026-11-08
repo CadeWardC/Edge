@@ -7,6 +7,13 @@ import Foundation
 
 setvbuf(stdout, nil, _IONBF, 0)
 var failures = 0
+var blockedTicks: [Int: Int] = [:]
+func track(_ w: World) {
+    for p in w.players where !p.defeated && p.supplyCap < Defs.maxSupply && p.supplyUsed >= p.supplyCap && p.crystals > 250 {
+        blockedTicks[p.index, default: 0] += 1
+    }
+}
+
 func check(_ ok: Bool, _ what: String) {
     print(ok ? "  ok   \(what)" : "  FAIL \(what)")
     if !ok { failures += 1 }
@@ -26,6 +33,7 @@ func run(_ w: World, maxMinutes: Double) {
     while !w.isOver && w.tick < limit {
         let s = Date()
         w.step([])
+        track(w)
         let d = Date().timeIntervalSince(s)
         if d > slowest { slowest = d; slowTick = w.tick }
         if w.tick % 2400 == 0 && Date().timeIntervalSince(t0) > 60 {
@@ -42,9 +50,10 @@ func run(_ w: World, maxMinutes: Double) {
 }
 
 func describe(_ w: World) -> String {
+    defer { blockedTicks = [:] }
     let mins = Double(w.tick) / Double(60 * Defs.tickRate)
     let ps = w.players.map { p in
-        "\(p.name)[\(w.bots.first { $0.player == p.index }?.personality.name ?? "-")] made \(p.unitsMade) killed \(p.kills) mined \(p.gathered)\(p.defeated ? " (out)" : "")"
+        "\(p.name)[\(w.bots.first { $0.player == p.index }?.personality.name ?? "-")] made \(p.unitsMade) (supply-blocked \((blockedTicks[p.index] ?? 0) / Defs.tickRate)s, cap \(p.supplyCap)) killed \(p.kills) mined \(p.gathered)\(p.defeated ? " (out)" : "")"
     }.joined(separator: "; ")
     return String(format: "%.1f min, winner team %@: ", mins, w.winningTeam.map(String.init) ?? "none") + ps
 }
@@ -104,6 +113,7 @@ do {
         if wa.tick % 10 == 0 { pa.think() }
         if wb.tick % 10 == 5 { pb.think() }
         let ra = sa.stepTick(), rb = sb.stepTick()
+        track(wa)
         if !ra || !rb { stalls += 1 }
         hub.pump(keepNewest: i % 3)       // jittery latency
         if wa.isOver || wb.isOver { break }
@@ -114,6 +124,7 @@ do {
     // bring both to the same tick and compare
     while wa.tick < wb.tick, sa.stepTick() {}
     while wb.tick < wa.tick, sb.stepTick() {}
+    print("    " + describe(wa))
     check(commands > 50, "players issued \(commands) commands through the network")
     check(!desync, "no checksum mismatch reported")
     check(wa.tick == wb.tick && wa.checksum() == wb.checksum(), "both devices end in the same state (tick \(wa.tick), \(stalls) waits)")
