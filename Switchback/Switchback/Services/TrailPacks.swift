@@ -191,12 +191,12 @@ actor TrailPacks {
     }
 
     /// Downloads a state's file once (shared by everyone asking for it at the same time).
-    private func download(_ r: Region, to url: URL) async -> Pack? {
+    private func download(_ r: Region, to url: URL, wifiOnly: Bool = false) async -> Pack? {
         if let running = downloading[r.region] { return await running.value }
         let task = Task<Pack?, Never> {
             let data: Data
             do {
-                data = try await Self.get(Self.release + "\(r.region).trails")
+                data = try await Self.get(Self.release + "\(r.region).trails", wifiOnly: wifiOnly)
             } catch {
                 await self.note("\(r.region) download failed: \(error.localizedDescription)")
                 return nil
@@ -262,11 +262,22 @@ actor TrailPacks {
         return trails
     }
 
-    private static func get(_ string: String) async throws -> Data {
+    /// For filling in the rest of the country: never over cellular or Low Data Mode (unless allowed in Settings).
+    private static let wifiSession: URLSession = {
+        let c = URLSessionConfiguration.default
+        c.allowsExpensiveNetworkAccess = false
+        c.allowsConstrainedNetworkAccess = false
+        return URLSession(configuration: c)
+    }()
+
+    static let wholeCountryKey = "trailsWholeCountry"
+    static let cellularCountryKey = "trailsWholeCountryCellular"
+
+    private static func get(_ string: String, wifiOnly: Bool = false) async throws -> Data {
         guard let url = URL(string: string) else { throw URLError(.badURL) }
         var req = URLRequest(url: url, timeoutInterval: 60)
         req.setValue(Net.userAgent, forHTTPHeaderField: "User-Agent")
-        let (data, resp) = try await URLSession.shared.data(for: req)
+        let (data, resp) = try await (wifiOnly ? wifiSession : URLSession.shared).data(for: req)
         guard (resp as? HTTPURLResponse)?.statusCode == 200 else { throw URLError(.badServerResponse) }
         return data
     }
@@ -315,10 +326,68 @@ actor TrailPacks {
     /// Downloads (if needed) the trails for wherever you are, as soon as the map knows your location.
     func prefetch(near c: Coord) async {
         guard let list = await regionList() else { return }
+        var countries = Set<String>()
+        // 1. where you are, on any network (small: Missouri is about 0.4 MB)
         for r in list.regions.values where r.contains(c) {
+            countries.insert(r.country ?? "US")
             if let p = packs[r.region], p.header.version == r.version { continue }
             _ = await pack(for: r)
         }
+        // 2. then the rest of the country, quietly (Wi-Fi only unless allowed), so travelling within it needs nothing
+        let defaults = UserDefaults.standard
+        guard defaults.object(forKey: Self.wholeCountryKey) as? Bool ?? true else { return }
+        let cellular = defaults.bool(forKey: Self.cellularCountryKey)
+        for country in countries { await fill(country: country, list: list, wifiOnly: !cellular) }
+    }
+
+    private var filling = Set<String>()
+
+    private func fill(country: String, list: RegionList, wifiOnly: Bool) async {
+        guard !filling.contains(country) else { return }
+        filling.insert(country)
+        defer { filling.remove(country) }
+        let have = Self.downloadedRegions(in: dir)
+        let todo = list.regions.values
+            .filter { ($0.country ?? "US") == country && !have.contains($0.region) && Self.bundledFile($0.region) == nil }
+            .sorted { ($0.bytes ?? 0) < ($1.bytes ?? 0) }
+        guard !todo.isEmpty else { return }
+        note("filling in \(country): \(todo.count) regions\(wifiOnly ? " (Wi-Fi)" : "")")
+        for r in todo {
+            let url = dir.appendingPathComponent("\(r.region)-\(r.version).trails")
+            if open(url) != nil { continue }
+            // stop at the first failure (usually no Wi-Fi); the next launch carries on
+            if await download(r, to: url, wifiOnly: wifiOnly) == nil { return }
+        }
+    }
+
+    /// Highlights near trails ([lat·1e5, lon·1e5, kind, name, elevation, id]) for the box, or nil if no pack covers it.
+    func highlights(in box: BBox) async -> [TrailPOI]? {
+        guard let regions = await regionList()?.regions.values.filter({ $0.covers(box) }), !regions.isEmpty else { return nil }
+        var out: [TrailPOI] = []
+        var any = false
+        for r in regions {
+            guard let pack = await pack(for: r) else { continue }
+            any = true
+            for key in Self.cells(box, size: pack.header.cell) {
+                let pkey = "p:" + key
+                guard let range = pack.header.cells[pkey], range.count == 2,
+                      let handle = try? FileHandle(forReadingFrom: pack.url) else { continue }
+                defer { try? handle.close() }
+                guard (try? handle.seek(toOffset: pack.bodyStart + UInt64(range[0]))) != nil,
+                      let blob = try? handle.read(upToCount: range[1]),
+                      let json = try? (blob as NSData).decompressed(using: .zlib) as Data,
+                      let rows = try? JSONSerialization.jsonObject(with: json) as? [[Any]] else { continue }
+                for row in rows where row.count >= 6 {
+                    guard let lat = (row[0] as? NSNumber)?.doubleValue, let lon = (row[1] as? NSNumber)?.doubleValue,
+                          let kindName = row[2] as? String, let kind = POIKind(rawValue: kindName) else { continue }
+                    let name = (row[3] as? String).flatMap { $0.isEmpty ? nil : $0 }
+                    out.append(TrailPOI(id: "node\((row[5] as? NSNumber)?.int64Value ?? 0)", kind: kind, name: name,
+                                        lat: lat / 1e5, lon: lon / 1e5, along: 0,
+                                        elevation: (row[4] as? NSNumber)?.doubleValue, commons: nil, wikidata: nil))
+                }
+            }
+        }
+        return any ? out : nil
     }
 
     /// Every region, with whether it's on the phone, for Settings.

@@ -111,11 +111,14 @@ jobs:
             "https://download.geofabrik.de/${{ matrix.region.path }}-latest.osm.pbf"
           ls -lh region.osm.pbf
 
-      - name: Keep only trails, routes and parks
+      - name: Keep only trails, routes, parks and trail highlights
         run: |
           osmium tags-filter region.osm.pbf \
             r/route=hiking,foot,walking w/highway=path,footway,bridleway,track \
             nwr/boundary=protected_area,national_park nwr/leisure=park,nature_reserve \
+            n/tourism=viewpoint,alpine_hut,wilderness_hut,camp_site,picnic_site \
+            n/natural=peak,volcano,spring,cave_entrance n/waterway=waterfall \
+            n/amenity=drinking_water,water_point,toilets,shelter,parking \
             -o trails.osm.pbf --overwrite
           ls -lh trails.osm.pbf
 

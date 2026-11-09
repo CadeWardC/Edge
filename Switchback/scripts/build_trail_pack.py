@@ -21,7 +21,7 @@ import json, math, os, re, sys, zlib
 from collections import defaultdict
 
 import osmium
-from shapely.geometry import Point, Polygon, MultiPolygon
+from shapely.geometry import LineString, Point, Polygon, MultiPolygon
 from shapely.strtree import STRtree
 
 CELL = 0.25
@@ -142,11 +142,40 @@ def chains(pieces, with_nodes=False):
 
 # ---------------------------------------------------------------- reading OSM
 
+POI_KINDS = [  # (tag, values, kind as the app names it)
+    ("tourism", {"viewpoint"}, "viewpoint"), ("natural", {"peak", "volcano"}, "peak"),
+    ("waterway", {"waterfall"}, "waterfall"), ("natural", {"spring"}, "water"),
+    ("amenity", {"drinking_water", "water_point"}, "water"), ("natural", {"cave_entrance"}, "cave"),
+    ("tourism", {"alpine_hut", "wilderness_hut"}, "shelter"), ("amenity", {"shelter"}, "shelter"),
+    ("tourism", {"camp_site"}, "campsite"), ("tourism", {"picnic_site"}, "picnic"),
+    ("amenity", {"toilets"}, "toilets"), ("amenity", {"parking"}, "parking"),
+]
+
+def poi_kind(tags):
+    for key, values, kind in POI_KINDS:
+        if tags.get(key) in values:
+            return kind
+    return None
+
 class Relations(osmium.SimpleHandler):
+    """First pass: hiking routes, and the points of interest trails pass by."""
     def __init__(self):
         super().__init__()
         self.routes = {}          # id -> (tags, [(way_id, role)])
         self.member_ways = set()
+        self.pois = []            # (lat, lon, kind, name, ele, id)
+
+    def node(self, n):
+        if not n.tags or not n.location.valid():
+            return
+        kind = poi_kind(n.tags)
+        if kind:
+            ele = n.tags.get("ele")
+            try:
+                ele = round(float(ele.split()[0]), 1) if ele else None
+            except ValueError:
+                ele = None
+            self.pois.append((n.location.lat, n.location.lon, kind, n.tags.get("name", ""), ele, n.id))
 
     def relation(self, r):
         t = r.tags
@@ -226,8 +255,8 @@ class Ways(osmium.SimpleHandler):
             self.geom[w.id] = nodes
         t = w.tags
         hw = t.get("highway")
-        if t.get("access") in NO_ACCESS:
-            return
+        if t.get("access") in NO_ACCESS or t.get("foot") in NO_ACCESS:
+            return   # private, or closed to people on foot (bike-only and similar)
         name = t.get("name")
         if name and hw in ("path", "footway", "bridleway") and t.get("footway") not in ("sidewalk", "crossing"):
             self.named.append((w.id, name, {k: v for k, v in t}, nodes))
@@ -385,7 +414,51 @@ def build(pbf):
         area = finder.find(*middle(main))
         if area:
             t.setdefault("tags", {})["switchback:area"] = area
-    return trails
+    pois = pois_near(trails, rel.pois)
+    return trails, pois
+
+def pois_near(trails, pois):
+    """Keeps the points of interest within about 200 m of a trail (not every café and toilet in town)."""
+    lines = []
+    for t, _ in trails:
+        for seg in t["segments"]:
+            pts = decode(seg)
+            if len(pts) >= 2:
+                lines.append(LineString([(lo, la) for la, lo in pts]))
+    if not lines or not pois:
+        return []
+    tree = STRtree(lines)
+    kept = []
+    for lat, lon, kind, name, ele, pid in pois:
+        k = math.cos(math.radians(lat))
+        reach = 0.0018 if kind != "parking" else 0.0025          # degrees of latitude ≈ 200 m (250 m for parking)
+        p = Point(lon, lat)
+        near = tree.query(p.buffer(reach / max(k, 0.2)))
+        if any(lines[int(i)].distance(p) * 111320 * min(1, k * 1.2) < reach * 111320 for i in near):
+            kept.append([round(lat * 1e5), round(lon * 1e5), kind, name, ele, pid])
+    return kept
+
+def quality(trails, pois):
+    """A few numbers to spot bad data in the build log (and in the region list)."""
+    q = defaultdict(int)
+    long_ones, seen = [], defaultdict(int)
+    for t, start in trails:
+        tags = t.get("tags", {})
+        if t["id"].startswith("r"):
+            q["routes"] += 1
+        elif tags.get("switchback:unnamed"):
+            name = t["name"]
+            q["connectors" if name.startswith("Connector") else "spurs" if name.endswith("spur") else "unnamed"] += 1
+        else:
+            q["named paths"] += 1
+        if tags.get("switchback:area"):
+            q["in an area"] += 1
+        if t["length"] > 150_000:
+            long_ones.append(f"{t['name']} ({t['length'] / 1000:.0f} km)")
+        seen[(t["name"], math.floor(start[0] / CELL), math.floor(start[1] / CELL))] += 1
+    q["same name twice in a cell"] = sum(1 for (n, *_), c in seen.items() if c > 1 and n != "Unnamed trail")
+    q["highlights"] = len(pois)
+    return dict(q), long_ones[:10]
 
 MAGIC = b"SBTP1"
 
@@ -401,7 +474,7 @@ def main():
     country = sys.argv[4] if len(sys.argv) > 4 else "US"
     display = sys.argv[5] if len(sys.argv) > 5 else region.replace("-", " ").title()
     os.makedirs(out, exist_ok=True)
-    trails = build(pbf)
+    trails, pois = build(pbf)
     cells = defaultdict(list)
     coverage = set()   # 1° squares with trails: lets the app tell exactly which regions cover a place
     lats, lons = [], []
@@ -421,19 +494,36 @@ def main():
         table[key] = [offset, len(z)]
         blobs.append(z)
         offset += len(z)
+    # highlights (viewpoints, water, shelters…) near trails, per cell, as "p:<cell>":
+    # [lat·1e5, lon·1e5, kind, name, elevation, OSM node id]
+    poi_cells = defaultdict(list)
+    for p in pois:
+        poi_cells[f"p:{math.floor(p[0] / 1e5 / CELL)}_{math.floor(p[1] / 1e5 / CELL)}"].append(p)
+    for key, ps in sorted(poi_cells.items()):
+        raw = json.dumps(ps, ensure_ascii=False, separators=(",", ":")).encode()
+        c = zlib.compressobj(9, zlib.DEFLATED, -15)
+        z = c.compress(raw) + c.flush()
+        table[key] = [offset, len(z)]
+        blobs.append(z)
+        offset += len(z)
     header = json.dumps({"version": version, "region": region, "cell": CELL, "bbox": bbox, "cells": table},
                         separators=(",", ":")).encode()
     with open(os.path.join(out, f"{region}.trails"), "wb") as f:
         f.write(MAGIC + len(header).to_bytes(4, "big") + header + b"".join(blobs))
     size = len(MAGIC) + 4 + len(header) + offset
     with open(os.path.join(out, f"{region}.json"), "w") as f:
+        q, long_ones = quality(trails, pois)
         json.dump({"region": region, "name": display, "country": country, "version": version, "bbox": bbox,
-                   "coverage": sorted(coverage), "cells": len(table), "bytes": size, "trails": len(trails)},
+                   "coverage": sorted(coverage), "cells": len(cells), "bytes": size, "trails": len(trails),
+                   "highlights": len(pois), "quality": q},
                   f, separators=(",", ":"))
     named = sum(1 for t, _ in trails if not t.get("tags", {}).get("switchback:unnamed"))
     areas = len({t.get("tags", {}).get("switchback:area") for t, _ in trails} - {None})
-    print(f"{region}: {len(trails)} trails ({named} named) in {areas} areas and {len(table)} cells, "
-          f"one file of {size / 1024:.0f} KB")
+    print(f"{region}: {len(trails)} trails ({named} named) in {areas} areas and {len(cells)} cells, "
+          f"{len(pois)} highlights, one file of {size / 1024:.0f} KB")
+    print("  quality:", ", ".join(f"{k} {v}" for k, v in sorted(q.items())))
+    if long_ones:
+        print("  longest (check these are real):", "; ".join(long_ones))
 
 if __name__ == "__main__":
     main()

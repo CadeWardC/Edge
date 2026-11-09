@@ -27,7 +27,7 @@ struct TrailRegionsView: View {
                 } header: {
                     Text("On this phone")
                 } footer: {
-                    Text("Every US state comes with the app. Others download by themselves when the map shows them, or here before a trip.")
+                    Text("Your area downloads first, then the rest of your country on Wi-Fi. Others download by themselves when the map shows them, or here before a trip.")
                 }
             }
             ForEach(countries, id: \.self) { code in

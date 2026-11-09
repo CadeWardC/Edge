@@ -31,10 +31,14 @@ subscription and no API keys.
   OpenStreetMap extract (Geofabrik) into one compact file per state (`<state>.trails`: a table of contents, then one
   compressed block per 0.25° cell), all published weekly in the single release `trails-us` with `regions.json`. The app
   downloads a state's file once, the first time the map shows it, then has every trail there instantly and offline,
-  unpacking only the cells around the map. Every state's file (and the list of states) is built into the app
-  (`BUNDLED_STATES: "all"` in the build workflow, about 38 MB), so trails work instantly and offline from the first
-  launch anywhere in the US; newer weekly versions replace a state's built-in file in the background once you look at
-  that state. Settings › Check for trail updates checks right away, and a downloaded
+  unpacking only the cells around the map. As soon as the map knows where you are, your area's file downloads (Missouri is about
+  0.4 MB, about a second), then the rest of your country quietly on Wi-Fi (the US is about 38 MB), so trails work
+  offline wherever you go in it; travelling to another country does the same there. Only the list of areas is built
+  into the app (`BUNDLED_STATES: "none"`; `"all"` builds every US state in instead). Each file also holds the trail
+  highlights (viewpoints, peaks, waterfalls, water, shelters, campsites, toilets, parking within ~200 m of a trail),
+  so trail pages need no live search; paths closed to people on foot are left out; and the build log has a quality
+  report per area (routes, named paths, connectors, spurs, how many sit in a named area, suspiciously long trails,
+  duplicate names). Settings › Check for trail updates checks right away, and a downloaded
   offline map area can be updated with a swipe (only changed pieces are fetched for our own map).
   `scripts/build_trail_pack.py` uses the same rules (and trail ids) as the live search, and also: puts every trail in
   its area (the smallest named park, nature reserve or protected area it lies in); names unnamed paths from the map

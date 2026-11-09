@@ -110,6 +110,25 @@ enum HighlightsFetcher {
     }
 
     static func fetch(for trail: Trail) async throws -> [TrailPOI] {
+        // from the trail files when they cover the trail: instant and offline
+        if let nearby = await TrailPacks.shared.highlights(in: trail.bbox.expanded(byDegrees: 0.003)) {
+            let cum = Geo.cumulative(trail.path)
+            var out: [TrailPOI] = []
+            for var p in nearby {
+                guard let located = Geo.locate(p.coord, on: trail.path, cumulative: cum) else { continue }
+                if p.kind == .parking {
+                    if Geo.distance(p.coord, trail.start) > 250 { continue }
+                } else if located.offset > 200 {
+                    continue
+                }
+                p.along = located.along
+                out.append(p)
+            }
+            let parking = out.filter { $0.kind == .parking }.sorted { Geo.distance($0.coord, trail.start) < Geo.distance($1.coord, trail.start) }
+            out.removeAll { $0.kind == .parking }
+            out.append(contentsOf: parking.prefix(2))
+            return out.sorted { $0.along < $1.along }
+        }
         // a lighter copy of the line keeps the query short
         var line = Geo.simplify(trail.path, tolerance: 25)
         if line.count > 120 {
