@@ -57,7 +57,18 @@ func describe(_ w: World) -> String {
     let ps = w.players.map { p in
         "\(p.name)[\(w.bots.first { $0.player == p.index }?.personality.name ?? "-")] made \(p.unitsMade) (supply-blocked \((blockedTicks[p.index] ?? 0) / Defs.tickRate)s, cap \(p.supplyCap)) killed \(p.kills) mined \(p.gathered)\(p.defeated ? " (out)" : "")"
     }.joined(separator: "; ")
-    return String(format: "%.1f min, winner team %@: ", mins, w.winningTeam.map(String.init) ?? "none") + ps
+    var extra = ""
+    if w.winningTeam == nil {
+        for p in w.players {
+            let blds = w.entities.filter { $0.owner == p.index && $0.isBuilding }
+                .map { "\($0.st.name)@\(Int($0.pos.x)),\(Int($0.pos.y))\($0.isComplete ? "" : "(unfinished)") elev\(w.map.elevation(at: $0.pos))" }
+            let army = w.entities.filter { $0.owner == p.index && $0.isArmy }.count
+            let workers = w.entities.filter { $0.owner == p.index && $0.isWorker }.count
+            extra += "\n      \(p.name): army \(army), drones \(workers), supply \(p.supplyUsed)/\(p.supplyCap), crystals \(p.crystals), "
+            extra += (w.bots.first { $0.player == p.index }?.debugState ?? "") + ", buildings: " + blds.prefix(6).joined(separator: " ")
+        }
+    }
+    return String(format: "%.1f min, winner team %@: ", mins, w.winningTeam.map(String.init) ?? "none") + ps + extra
 }
 
 // MARK: maps

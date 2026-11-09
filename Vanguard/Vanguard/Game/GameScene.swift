@@ -467,11 +467,11 @@ final class GameScene: SKScene, UIGestureRecognizerDelegate {
                 if let g = n.gun { g.zRotation = CGFloat(atan2(e.aimDir.y, e.aimDir.x)) }
                 n.dome?.isHidden = !e.isComplete
                 // smoke from busy factories, a glow over busy buildings
-                if e.isComplete && !e.queue.isEmpty && world.tick - n.lastSmoke > 6 {
+                if e.isComplete && !e.queue.isEmpty && world.tick - n.lastSmoke > 16 {
                     n.lastSmoke = world.tick
                     if e.type == .factory {
                         for sp in Art.factoryStacks {
-                            puff(CGPoint(x: cp.x + sp.x, y: cp.y + sp.y), 10, 1.6, dark: true)
+                            puff(CGPoint(x: cp.x + sp.x, y: cp.y + sp.y), 7, 1.2, dark: true)
                         }
                     } else if world.tick % 24 < 6 {
                         spark(CGPoint(x: cp.x + CGFloat.random(in: -10...10), y: cp.y - CGFloat(e.st.footprint) * 14), UIColor(red: 0.6, green: 1, blue: 1, alpha: 1), 8)
@@ -739,7 +739,8 @@ final class GameScene: SKScene, UIGestureRecognizerDelegate {
         s.position = p
         s.alpha = 0.55
         if dark {
-            s.color = UIColor(white: 0.25, alpha: 1)
+            s.alpha = 0.35
+            s.color = UIColor(white: 0.3, alpha: 1)
             s.colorBlendFactor = 1
             s.zPosition = 15
         }

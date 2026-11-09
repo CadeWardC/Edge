@@ -51,6 +51,9 @@ final class Bot {
     }
 
     private var me: Player { world.players[player] }
+    var debugState: String {
+        "attacking=\(attacking) wave=\(wave) next=\(nextAttackTick / 1200)m target=\(attackTarget.map { "\(Int($0.x)),\(Int($0.y))" } ?? "-") known=\(knownBuildings.count)"
+    }
     private var team: Int { me.team }
     private func issue(_ units: [Int], _ a: Action) {
         guard !units.isEmpty || isGlobal(a) else { return }
