@@ -1,0 +1,67 @@
+name: Build trail packs (Switchback)
+
+# Turns OpenStreetMap's state extracts (Geofabrik) into Switchback's lightweight trail packs: one small compressed
+# file per 0.25° cell plus an index, published as the release "trails-<region>". Weekly, by hand, or when the
+# builder changes.
+
+on:
+  schedule:
+    - cron: "17 7 * * 1"
+  workflow_dispatch:
+  push:
+    branches: ["**"]
+    paths:
+      - "Switchback/scripts/build_trail_pack.py"
+      - ".github/workflows/trail-packs.yml"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: trail-packs
+  cancel-in-progress: false
+
+jobs:
+  pack:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - region: missouri
+            url: https://download.geofabrik.de/north-america/us/missouri-latest.osm.pbf
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install osmium
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq osmium-tool
+          pip install --quiet osmium
+
+      - name: Download the ${{ matrix.region }} extract
+        run: curl -fsSL --retry 5 --retry-delay 10 -o region.osm.pbf "${{ matrix.url }}" && ls -lh region.osm.pbf
+
+      - name: Keep only trails (and the nodes and routes they need)
+        run: |
+          osmium tags-filter region.osm.pbf \
+            r/route=hiking,foot,walking w/highway=path,footway,bridleway,track \
+            -o trails.osm.pbf --overwrite
+          ls -lh trails.osm.pbf
+
+      - name: Build the packs
+        run: |
+          PACK_VERSION=$(date -u +%Y%m%d) python3 Switchback/scripts/build_trail_pack.py trails.osm.pbf "${{ matrix.region }}" out
+          ls out | wc -l
+          du -sh out
+
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="trails-${{ matrix.region }}"
+          gh release view "$TAG" > /dev/null 2>&1 || gh release create "$TAG" --target "${{ github.sha }}" \
+            --title "Switchback trail packs: ${{ matrix.region }}" --latest=false \
+            --notes "Trails for Switchback built from OpenStreetMap (© OpenStreetMap contributors, ODbL) via Geofabrik. One compressed file per 0.25° cell plus index.json. Rebuilt weekly."
+          gh release upload "$TAG" out/* --clobber

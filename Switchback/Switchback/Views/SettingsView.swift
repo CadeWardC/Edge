@@ -33,7 +33,10 @@ struct SettingsView: View {
                     LabeledContent("Map cache", value: ByteCountFormatter.string(fromByteCount: cacheSize, countStyle: .file))
                     Button("Clear map and trail cache") {
                         TileStore.shared.clearCache()
-                        Task { await TrailCache.shared.clear() }
+                        Task {
+                            await TrailCache.shared.clear()
+                            await TrailPacks.shared.clear()
+                        }
                         cacheSize = 0
                     }
                 }
@@ -54,7 +57,7 @@ struct SettingsView: View {
             }
             .task {
                 let tiles = await Task.detached { TileStore.shared.cacheSize() }.value
-                cacheSize = tiles + (await TrailCache.shared.size())
+                cacheSize = tiles + (await TrailCache.shared.size()) + (await TrailPacks.shared.size())
             }
         }
     }

@@ -85,7 +85,12 @@ final class OfflineStore: ObservableObject {
             // the trails first, so they're there even if the tiles take a while
             if area.trailCount == 0 {
                 var found: [String: Trail] = [:]
-                for cell in area.bbox.tiles(cell: 0.25).prefix(16) {
+                var packComplete = false
+                if let pack = await TrailPacks.shared.trails(in: area.bbox) {
+                    for t in pack.trails where t.bbox.intersects(area.bbox) { found[t.id] = t }
+                    packComplete = pack.complete
+                }
+                for cell in area.bbox.tiles(cell: 0.25).prefix(packComplete ? 0 : 16) {
                     if Task.isCancelled { break }
                     if let trails = try? await TrailSources.trails(in: cell) {
                         for t in trails { found[t.id] = t }

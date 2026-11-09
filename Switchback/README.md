@@ -27,6 +27,11 @@ subscription and no API keys.
   it's a fraction of the size of map pictures.
 - **Compact storage:** trail lines are saved as encoded polylines (about 6 characters a point instead of ~40) and every
   file the app writes is compressed with LZFSE; files from earlier versions still load.
+- **Trail packs (fastest, lightest):** `.github/workflows/trail-packs.yml` turns OpenStreetMap's state extract
+  (Geofabrik) into small compressed files, one per 0.25° cell (about 25 km), plus an index, published weekly as the
+  release `trails-<state>` (Missouri first). The app downloads only the cells around where you look, once, keeps them,
+  and needs no live search there; elsewhere it falls back to the live search below. Built by
+  `scripts/build_trail_pack.py` with the same rules (and trail ids) as the live search.
 - **Fast:** trails found are cached on the phone in 0.05° cells for two weeks, so places you've seen load instantly and a
   search only fetches the cells it doesn't have. If the main Overpass server is slow, a second one is asked after 3 s
   and the first answer wins. Trail shapes are simplified (Douglas–Peucker, 3 m) to draw quickly.

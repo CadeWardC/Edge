@@ -182,7 +182,24 @@ final class ExploreModel: ObservableObject {
         refreshResults()
         guard !wide else { return }
 
-        // 2. only the parts of the map not loaded yet
+        // 2. a trail pack, where one exists: small files fetched once, then instant and offline
+        let packArea = view.clamped(maxSpan: Self.fetchSpan)
+        if !isLoading { isLoading = true }
+        let pack = await TrailPacks.shared.trails(in: packArea)
+        isLoading = !inFlight.isEmpty
+        if let pack {
+            merge(pack.trails)
+            refreshResults()
+            loadedOnce = true
+            if pack.complete {
+                errorText = nil
+                let visible = Array(results.prefix(15))
+                Task { await Profiles.shared.enrich(visible) }
+                return
+            }
+        }
+
+        // 3. otherwise the live search, only for the parts of the map not loaded yet
         let missing = await TrailCache.shared.missing(in: view.clamped(maxSpan: Self.fetchSpan))
             .filter { !inFlight.contains($0) }
         if missing.isEmpty {
