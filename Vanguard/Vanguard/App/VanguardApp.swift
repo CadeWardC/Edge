@@ -53,6 +53,9 @@ final class AppModel: ObservableObject {
         let g = GameController(setup: MatchSetup(map: map, seed: UInt64.random(in: 1...999_999), players: players), localPlayer: -1)
         g.isBackdrop = true
         g.speed = 1.5
+        // start a couple of minutes in, when armies are on the field
+        for _ in 0..<(150 * Defs.tickRate) { g.session.stepTick() }
+        g.world.events.removeAll()
         let sc = GameScene(controller: g)
         backdrop = sc
         return sc
@@ -89,6 +92,14 @@ struct RootView: View {
             Sound.shared.start()
             // `-demo`: jump straight into a match the autopilot plays at 3x (screenshots on CI)
             let args = ProcessInfo.processInfo.arguments
+            if let i = args.firstIndex(of: "-screen"), i + 1 < args.count {
+                switch args[i + 1] {
+                case "campaign": app.screen = .campaign
+                case "skirmish": app.screen = .skirmish
+                case "settings": app.screen = .settings
+                default: break
+                }
+            }
             if args.contains("-demo"), app.game == nil {
                 var setup = SkirmishView.quickSetup()
                 setup.seed = 11

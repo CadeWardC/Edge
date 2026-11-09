@@ -77,8 +77,12 @@ jobs:
           xcrun simctl install "$DEV" "$APP"
           mkdir -p shots
           xcrun simctl launch "$DEV" com.cadewardc.vanguard
-          sleep 8
+          sleep 12
           xcrun simctl io "$DEV" screenshot shots/1-menu.png
+          xcrun simctl terminate "$DEV" com.cadewardc.vanguard || true
+          xcrun simctl launch "$DEV" com.cadewardc.vanguard -screen campaign
+          sleep 10
+          xcrun simctl io "$DEV" screenshot shots/1-campaign.png
           shoot() {  # map, name, seconds before the first and second shot
             xcrun simctl terminate "$DEV" com.cadewardc.vanguard || true
             xcrun simctl launch "$DEV" com.cadewardc.vanguard -demo -demo-map "$1"
