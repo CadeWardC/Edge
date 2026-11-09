@@ -5,6 +5,11 @@ options:
     iOS: "17.0"
   createIntermediateGroups: true
 
+packages:
+  MapLibre:
+    url: https://github.com/maplibre/maplibre-gl-native-distribution
+    from: 6.0.0
+
 settings:
   base:
     SWIFT_VERSION: "5.0"
@@ -20,6 +25,7 @@ targets:
       - path: Shared
     dependencies:
       - target: SwitchbackWidgets
+      - package: MapLibre
     info:
       path: Switchback/Info.plist
       properties:

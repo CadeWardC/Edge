@@ -7,7 +7,7 @@ struct RecordView: View {
     @EnvironmentObject private var library: Library
     @EnvironmentObject private var profiles: Profiles
     @EnvironmentObject private var highlights: Highlights
-    @AppStorage(BaseMap.storageKey) private var baseMap: BaseMap = .standard
+    @AppStorage(BaseMap.storageKey) private var baseMap: BaseMap = .switchback
     @AppStorage(BaseMap.showRoutesKey) private var showRoutes = false
     @State private var askName = false
     @State private var activityName = ""

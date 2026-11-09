@@ -185,7 +185,7 @@ struct TrailMapView: UIViewRepresentable {
                 tileOverlay = nil
             }
             switch p.baseMap {
-            case .standard, .waymarkedHiking:   // the routes layer is never a base map
+            case .standard, .waymarkedHiking, .switchback:   // routes is an overlay; our own map is drawn by MapLibre
                 map.preferredConfiguration = MKStandardMapConfiguration(elevationStyle: .realistic, emphasisStyle: .muted)
             case .satellite:
                 map.preferredConfiguration = MKHybridMapConfiguration(elevationStyle: .realistic)

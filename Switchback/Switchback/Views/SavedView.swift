@@ -124,7 +124,7 @@ struct NewOfflineAreaView: View {
     @EnvironmentObject private var offline: OfflineStore
     @EnvironmentObject private var explore: ExploreModel
     @EnvironmentObject private var recorder: Recorder
-    @AppStorage(BaseMap.storageKey) private var baseMap: BaseMap = .standard
+    @AppStorage(BaseMap.storageKey) private var baseMap: BaseMap = .switchback
     @Environment(\.dismiss) private var dismiss
     @State private var region: MKCoordinateRegion?
     @State private var name = ""

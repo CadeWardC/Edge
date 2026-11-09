@@ -10,7 +10,7 @@ struct TrailDetailView: View {
     @EnvironmentObject private var highlights: Highlights
     @EnvironmentObject private var trailPhotos: TrailPhotos
     @EnvironmentObject private var offline: OfflineStore
-    @AppStorage(BaseMap.storageKey) private var baseMap: BaseMap = .standard
+    @AppStorage(BaseMap.storageKey) private var baseMap: BaseMap = .switchback
     @AppStorage(BaseMap.showRoutesKey) private var showRoutes = false
     @State private var gpxURL: URL?
     @State private var renaming = false

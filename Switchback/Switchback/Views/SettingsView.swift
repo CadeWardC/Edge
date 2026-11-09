@@ -2,7 +2,7 @@ import SwiftUI
 
 struct SettingsView: View {
     @AppStorage(Units.storageKey) private var units: Units = .systemDefault
-    @AppStorage(BaseMap.storageKey) private var baseMap: BaseMap = .standard
+    @AppStorage(BaseMap.storageKey) private var baseMap: BaseMap = .switchback
     @Environment(\.dismiss) private var dismiss
     @State private var cacheSize: Int64 = 0
     @AppStorage(BaseMap.showRoutesKey) private var showRoutes = false

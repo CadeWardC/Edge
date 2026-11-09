@@ -13,6 +13,12 @@ subscription and no API keys.
   worldwide map of signposted hiking routes on top of any base map. **Unnamed trails** (paths mapped in OpenStreetMap
   without a name, joined into continuous lines of at least 800 m, skipping paved paths) are drawn dashed with no pin, and
   named tracks (dirt and fire roads) are included too; both can be turned off in Settings.
+- **Our own map:** the "Switchback" map style (the default) is drawn by [MapLibre](https://maplibre.org) from
+  OpenStreetMap vector tiles served free by [OpenFreeMap](https://openfreemap.org), in our own outdoor style
+  (`scripts/make-style.py` writes `Resources/switchback-style.json`): hillshading from AWS Terrain Tiles, quiet roads,
+  OSM paths dashed, peaks with heights, and the app's trails on top in their difficulty colour with their names written
+  along them. Apple Maps, satellite and the topo maps are still in the map style menu. (So far on the Explore map;
+  the trail page, Record and Activity maps still use MapKit.)
 - **Fast:** trails found are cached on the phone in 0.05° cells for two weeks, so places you've seen load instantly and a
   search only fetches the cells it doesn't have. If the main Overpass server is slow, a second one is asked after 3 s
   and the first answer wins. Trail shapes are simplified (Douglas–Peucker, 3 m) to draw quickly.

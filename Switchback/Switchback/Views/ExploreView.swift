@@ -5,7 +5,7 @@ struct ExploreView: View {
     @EnvironmentObject private var model: ExploreModel
     @EnvironmentObject private var recorder: Recorder
     @EnvironmentObject private var profiles: Profiles
-    @AppStorage(BaseMap.storageKey) private var baseMap: BaseMap = .standard
+    @AppStorage(BaseMap.storageKey) private var baseMap: BaseMap = .switchback
     @AppStorage(BaseMap.showRoutesKey) private var showRoutes = false
     @State private var mode: Mode = .map
     @State private var query = ""
@@ -70,11 +70,18 @@ struct ExploreView: View {
     private var mapMode: some View {
         let trails = model.filtered
         return ZStack {
-            TrailMapView(baseMap: baseMap, trails: trails, selectedId: model.selectedId, camera: model.cameraRequest,
-                         initialBox: model.initialBox,
-                         showsRoutes: showRoutes,
-                         onSelect: { id in withAnimation(.snappy) { model.selectedId = id } },
-                         onRegionChange: { model.regionChanged($0) })
+            if baseMap == .switchback {
+                LibreTrailMap(trails: trails, selectedId: model.selectedId, camera: model.cameraRequest,
+                              initialBox: model.initialBox,
+                              onSelect: { id in withAnimation(.snappy) { model.selectedId = id } },
+                              onRegionChange: { model.regionChanged($0) })
+            } else {
+                TrailMapView(baseMap: baseMap, trails: trails, selectedId: model.selectedId, camera: model.cameraRequest,
+                             initialBox: model.initialBox,
+                             showsRoutes: showRoutes,
+                             onSelect: { id in withAnimation(.snappy) { model.selectedId = id } },
+                             onRegionChange: { model.regionChanged($0) })
+            }
 
             VStack(spacing: 8) {
                 statusBar

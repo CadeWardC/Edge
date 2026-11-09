@@ -4,7 +4,7 @@ import UIKit
 
 /// The map style under the trails.
 enum BaseMap: String, CaseIterable, Identifiable {
-    case standard, satellite, topo, usgs, usgsImagery, waymarkedHiking
+    case switchback, standard, satellite, topo, usgs, usgsImagery, waymarkedHiking
 
     /// The styles you can pick as the map underneath (not the see-through layers).
     static var baseStyles: [BaseMap] { allCases.filter { !$0.isOverlay } }
@@ -16,6 +16,7 @@ enum BaseMap: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
+        case .switchback: return "Switchback (our own map)"
         case .standard: return "Apple Maps"
         case .satellite: return "Satellite"
         case .topo: return "Topo (OpenTopoMap)"
@@ -27,6 +28,7 @@ enum BaseMap: String, CaseIterable, Identifiable {
 
     var shortTitle: String {
         switch self {
+        case .switchback: return "Switchback"
         case .standard: return "Map"
         case .satellite: return "Satellite"
         case .topo: return "Topo"
@@ -52,6 +54,7 @@ enum BaseMap: String, CaseIterable, Identifiable {
         case .topo: return "© OpenStreetMap contributors, SRTM · Map style © OpenTopoMap (CC-BY-SA)"
         case .usgs: return "USGS The National Map"
         case .usgsImagery: return "USGS The National Map: Orthoimagery"
+        case .switchback: return "© OpenStreetMap contributors · OpenFreeMap · OpenMapTiles · Terrain: Mapzen/AWS"
         case .waymarkedHiking: return "Routes © waymarkedtrails.org, OpenStreetMap contributors (CC-BY-SA)"
         default: return nil
         }
@@ -80,7 +83,7 @@ enum BaseMap: String, CaseIterable, Identifiable {
     }
 
     static var current: BaseMap {
-        UserDefaults.standard.string(forKey: storageKey).flatMap(BaseMap.init(rawValue:)) ?? .standard
+        UserDefaults.standard.string(forKey: storageKey).flatMap(BaseMap.init(rawValue:)) ?? .switchback
     }
 }
 

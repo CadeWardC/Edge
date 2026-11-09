@@ -57,7 +57,7 @@ struct ActivityDetailView: View {
     let activity: Activity
     @EnvironmentObject private var library: Library
     @Environment(\.dismiss) private var dismiss
-    @AppStorage(BaseMap.storageKey) private var baseMap: BaseMap = .standard
+    @AppStorage(BaseMap.storageKey) private var baseMap: BaseMap = .switchback
     @State private var gpxURL: URL?
     @State private var renaming = false
     @State private var newName = ""
