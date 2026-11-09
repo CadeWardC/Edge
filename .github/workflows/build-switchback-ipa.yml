@@ -36,16 +36,21 @@ jobs:
 
       - name: Build in trail packs (fast first launch, works offline from the start)
         env:
-          # states whose trail files ship inside the app (the rest download when the map first shows them)
-          BUNDLED_STATES: "missouri"
+          # states whose trail files ship inside the app ("all" for every state; or a list like "missouri kansas")
+          BUNDLED_STATES: "all"
         run: |
           mkdir -p Switchback/Switchback/Resources/Packs
           base=https://github.com/${{ github.repository }}/releases/download/trails-us
           curl -fsSL --retry 4 -o Switchback/Switchback/Resources/Packs/regions.json "$base/regions.json" || echo "no regions.json yet"
-          for s in $BUNDLED_STATES; do
+          states="$BUNDLED_STATES"
+          if [ "$states" = "all" ] && [ -f Switchback/Switchback/Resources/Packs/regions.json ]; then
+            states=$(python3 -c "import json; print(' '.join(json.load(open('Switchback/Switchback/Resources/Packs/regions.json'))['regions']))")
+          fi
+          for s in $states; do
             curl -fsSL --retry 4 -o "Switchback/Switchback/Resources/Packs/$s.trails" "$base/$s.trails" || echo "no pack for $s yet"
           done
-          ls -l Switchback/Switchback/Resources/Packs
+          ls Switchback/Switchback/Resources/Packs | wc -l
+          du -sh Switchback/Switchback/Resources/Packs
 
       - name: Generate the Xcode project
         run: |

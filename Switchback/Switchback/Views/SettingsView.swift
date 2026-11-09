@@ -71,7 +71,7 @@ struct SettingsView: View {
                 } header: {
                     Text("Trail files")
                 } footer: {
-                    Text("Missouri's trails come with the app. Each state's trails are rebuilt from OpenStreetMap every week; the app picks up new versions by itself every few days, or right away here.")
+                    Text("Every state's trails come with the app, so they work offline from the start. They're rebuilt from OpenStreetMap every week; the app picks up new versions for the states you look at by itself every few days, or right away here.")
                 }
                 Section("Data") {
                     Text("Trails: © OpenStreetMap contributors, available under the Open Database Licence.")

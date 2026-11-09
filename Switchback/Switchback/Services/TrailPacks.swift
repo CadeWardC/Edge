@@ -244,8 +244,9 @@ actor TrailPacks {
         listFailedUntil = .distantPast
         guard let list = await regionList(force: true) else { return "Couldn't reach the trail files. Check your signal." }
         var updated: [String] = [], current = 0, failed = 0
+        // states you've looked at (or downloaded): built-in states you've never opened stay as they are, so a check
+        // doesn't fetch the whole country
         let onPhone = Set(packs.keys).union(Self.downloadedRegions(in: dir))
-            .union(list.regions.keys.filter { Self.bundledFile($0) != nil })
         for name in onPhone.sorted() {
             guard let r = list.regions[name], r.bbox.count == 4 else { continue }
             if let p = packs[name], p.header.version == r.version {

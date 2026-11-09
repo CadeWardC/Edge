@@ -31,9 +31,10 @@ subscription and no API keys.
   OpenStreetMap extract (Geofabrik) into one compact file per state (`<state>.trails`: a table of contents, then one
   compressed block per 0.25° cell), all published weekly in the single release `trails-us` with `regions.json`. The app
   downloads a state's file once, the first time the map shows it, then has every trail there instantly and offline,
-  unpacking only the cells around the map. Missouri's file (and the list of states) is built into the app
-  (`BUNDLED_STATES` in the build workflow), so it works instantly and offline from the first launch; newer weekly
-  versions replace it in the background. Settings › Check for trail updates checks right away, and a downloaded
+  unpacking only the cells around the map. Every state's file (and the list of states) is built into the app
+  (`BUNDLED_STATES: "all"` in the build workflow, about 38 MB), so trails work instantly and offline from the first
+  launch anywhere in the US; newer weekly versions replace a state's built-in file in the background once you look at
+  that state. Settings › Check for trail updates checks right away, and a downloaded
   offline map area can be updated with a swipe (only changed pieces are fetched for our own map).
   `scripts/build_trail_pack.py` uses the same rules (and trail ids) as the live search, and also: puts every trail in
   its area (the smallest named park, nature reserve or protected area it lies in); names unnamed paths from the map
