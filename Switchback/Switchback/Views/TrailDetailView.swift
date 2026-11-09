@@ -33,7 +33,7 @@ struct TrailDetailView: View {
                 TrailHero(trail: t, photos: trailPhotos.photos(for: t.id) ?? [])
 
                 ZStack(alignment: .bottomLeading) {
-                    TrailMapView(baseMap: baseMap, trails: [t], selectedId: t.id, initialBox: t.bbox, showsUserButton: false,
+                    AppMap(baseMap: baseMap, trails: [t], selectedId: t.id, initialBox: t.bbox, showsUserButton: false,
                                  showsRoutes: showRoutes, pois: pois)
                     MapAttribution(baseMap: baseMap)
                 }

@@ -43,11 +43,30 @@ enum BaseMap: String, CaseIterable, Identifiable {
     /// A see-through layer drawn on top of the base map.
     var isOverlay: Bool { self == .waymarkedHiking }
 
+    /// Our own map: vector data drawn on the phone (sharp at any zoom, tiny to download).
+    var isVector: Bool { self == .switchback }
+
+    /// Styles that can be saved for offline use.
+    var isDownloadable: Bool { isTiled || isVector }
+
     /// The closest zoom the server has tiles for; closer than that, tiles are enlarged from this level.
-    var maxZoom: Int { self == .topo ? 17 : 16 }
+    /// (Vector tiles stop at 14 and are drawn sharp beyond it.)
+    var maxZoom: Int {
+        switch self {
+        case .topo: return 17
+        case .switchback: return 14
+        default: return 16
+        }
+    }
 
     /// Rough size of one tile, for download estimates (photos are bigger than drawn maps).
-    var averageTileBytes: Int64 { self == .usgsImagery ? 45_000 : 20_000 }
+    var averageTileBytes: Int64 {
+        switch self {
+        case .usgsImagery: return 45_000
+        case .switchback: return 32_000   // a vector tile plus its share of the terrain tiles
+        default: return 20_000
+        }
+    }
 
     var attribution: String? {
         switch self {
@@ -62,8 +81,8 @@ enum BaseMap: String, CaseIterable, Identifiable {
 
     /// Offline maps need tiles, so Apple's styles fall back to the closest downloadable one.
     var offlineSource: BaseMap {
-        if isTiled { return self }
-        return self == .satellite ? .usgsImagery : .topo
+        if isDownloadable { return self }
+        return self == .satellite ? .usgsImagery : .switchback
     }
 
     func tileURL(z: Int, x: Int, y: Int) -> URL? {

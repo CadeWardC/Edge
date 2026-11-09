@@ -116,7 +116,7 @@ struct ActivityDetailView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
                 ZStack(alignment: .bottomLeading) {
-                    TrailMapView(baseMap: baseMap, track: a.coordSegments, initialBox: a.bbox, showsUserButton: false,
+                    AppMap(baseMap: baseMap, track: a.coordSegments, initialBox: a.bbox, showsUserButton: false,
                                  photos: photoPins)
                     MapAttribution(baseMap: baseMap)
                 }

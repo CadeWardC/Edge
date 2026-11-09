@@ -134,14 +134,14 @@ struct NewOfflineAreaView: View {
     private var box: BBox? { region.map { BBox(region: $0) } }
     private var count: Int {
         guard let box else { return 0 }
-        return TileStore.tileCount(box, minZoom: 6, maxZoom: min(detail, source.maxZoom))
+        return TileStore.tileCount(box, minZoom: 6, maxZoom: source.isVector ? source.maxZoom : min(detail, source.maxZoom))
     }
 
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
                 ZStack(alignment: .bottomLeading) {
-                    TrailMapView(baseMap: source, camera: start, onRegionChange: { region = $0 })
+                    AppMap(baseMap: source, camera: start, onRegionChange: { region = $0 })
                     Rectangle()
                         .strokeBorder(Color.trailGreen, lineWidth: 4)
                         .allowsHitTesting(false)
@@ -150,13 +150,19 @@ struct NewOfflineAreaView: View {
                 Form {
                     TextField("Name (e.g. Yosemite Valley)", text: $name)
                     Picker("Map", selection: $source) {
-                        ForEach(BaseMap.baseStyles.filter(\.isTiled)) { Text($0.title).tag($0) }
+                        ForEach(BaseMap.baseStyles.filter(\.isDownloadable)) { Text($0.title).tag($0) }
                     }
-                    Picker("Detail", selection: $detail) {
-                        Text("Low").tag(13)
-                        Text("Medium").tag(14)
-                        Text("High").tag(15)
-                        Text("Highest").tag(source.maxZoom)
+                    if source.isVector {
+                        Label("Sharp at every zoom, labels included", systemImage: "sparkles")
+                            .font(.footnote)
+                            .foregroundStyle(Color.trailGreen)
+                    } else {
+                        Picker("Detail", selection: $detail) {
+                            Text("Low").tag(13)
+                            Text("Medium").tag(14)
+                            Text("High").tag(15)
+                            Text("Highest").tag(source.maxZoom)
+                        }
                     }
                     LabeledContent("Size", value: sizeText)
                     if count > OfflineStore.maxTiles {
@@ -184,7 +190,7 @@ struct NewOfflineAreaView: View {
                     .disabled(box == nil || count == 0 || count > OfflineStore.maxTiles)
                 }
             }
-            .onChange(of: source) { _, new in detail = min(detail, new.maxZoom) }
+            .onChange(of: source) { _, new in if !new.isVector { detail = min(detail, new.maxZoom) } }
             .onAppear {
                 source = baseMap.offlineSource
                 if let r = explore.visibleRegion {

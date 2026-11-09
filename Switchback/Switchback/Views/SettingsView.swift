@@ -27,7 +27,7 @@ struct SettingsView: View {
                     Toggle("U.S. Forest Service trails", isOn: $usfsTrails)
                     Toggle("Unnamed trails", isOn: $unnamedTrails)
                 } footer: {
-                    Text("Topo and USGS Satellite maps can be downloaded for offline use (Saved › Offline maps). USGS covers the United States only. Waymarked routes draws every signposted hiking route in the world on top of the map. Forest Service trails add official national forest trails in the US. Unnamed trails are paths mapped without a name, drawn dashed. Clear the cache for these switches to apply to places you've already seen.")
+                    Text("The Switchback map (our own, in light and dark), Topo and USGS Satellite can be downloaded for offline use (Saved › Offline maps); the Switchback map is the smallest and stays sharp at every zoom. USGS covers the United States only. Waymarked routes draws every signposted hiking route in the world on top of the map. Forest Service trails add official national forest trails in the US. Unnamed trails are paths mapped without a name, drawn dashed. Clear the cache for these switches to apply to places you've already seen.")
                 }
                 Section("Storage") {
                     LabeledContent("Map cache", value: ByteCountFormatter.string(fromByteCount: cacheSize, countStyle: .file))

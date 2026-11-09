@@ -13,12 +13,20 @@ subscription and no API keys.
   worldwide map of signposted hiking routes on top of any base map. **Unnamed trails** (paths mapped in OpenStreetMap
   without a name, joined into continuous lines of at least 800 m, skipping paved paths) are drawn dashed with no pin, and
   named tracks (dirt and fire roads) are included too; both can be turned off in Settings.
-- **Our own map:** the "Switchback" map style (the default) is drawn by [MapLibre](https://maplibre.org) from
-  OpenStreetMap vector tiles served free by [OpenFreeMap](https://openfreemap.org), in our own outdoor style
-  (`scripts/make-style.py` writes `Resources/switchback-style.json`): hillshading from AWS Terrain Tiles, quiet roads,
-  OSM paths dashed, peaks with heights, and the app's trails on top in their difficulty colour with their names written
-  along them. Apple Maps, satellite and the topo maps are still in the map style menu. (So far on the Explore map;
-  the trail page, Record and Activity maps still use MapKit.)
+- **Our own map:** the "Switchback" map style (the default, on every screen) is drawn by
+  [MapLibre](https://maplibre.org) from OpenStreetMap vector tiles served free by [OpenFreeMap](https://openfreemap.org),
+  in our own outdoor style, light and dark (`scripts/make-style.py` writes `Resources/switchback-style*.json`, checked
+  with MapLibre's style validator): hillshading from AWS Terrain Tiles; land cover and land use; a full road hierarchy
+  with casings, bridges and tunnels; rail, ferries and airports; 3D buildings when close; paths and tracks; places,
+  parks, water and peaks (with heights in the app's units) labelled at the right sizes; point-of-interest icons drawn
+  from SF Symbols. The app's trails sit on top in their difficulty colours with their names along the lines, plus
+  trailhead dots, your recorded track, trail highlights and your photos. Apple Maps, satellite and the topo maps are
+  still in the map style menu.
+- **Small, sharp offline maps:** downloading an area of the Switchback map saves a MapLibre offline pack (vector tiles
+  to zoom 14, terrain and fonts). Vector data is redrawn on the phone, so it stays sharp at every zoom with labels, and
+  it's a fraction of the size of map pictures.
+- **Compact storage:** trail lines are saved as encoded polylines (about 6 characters a point instead of ~40) and every
+  file the app writes is compressed with LZFSE; files from earlier versions still load.
 - **Fast:** trails found are cached on the phone in 0.05° cells for two weeks, so places you've seen load instantly and a
   search only fetches the cells it doesn't have. If the main Overpass server is slow, a second one is asked after 3 s
   and the first answer wins. Trail shapes are simplified (Douglas–Peucker, 3 m) to draw quickly.

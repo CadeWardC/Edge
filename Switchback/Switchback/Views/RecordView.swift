@@ -21,7 +21,7 @@ struct RecordView: View {
         NavigationStack {
             VStack(spacing: 0) {
                 ZStack(alignment: .top) {
-                    TrailMapView(baseMap: baseMap,
+                    AppMap(baseMap: baseMap,
                                  trails: recorder.following.map { [$0] } ?? [],
                                  selectedId: recorder.following?.id,
                                  track: recorder.trackCoords,

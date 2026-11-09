@@ -17,13 +17,13 @@ enum Files {
 
     static func load<T: Decodable>(_ type: T.Type, from url: URL) -> T? {
         guard let data = try? Data(contentsOf: url) else { return nil }
-        return try? JSONDecoder().decode(T.self, from: data)
+        return try? JSONDecoder().decode(T.self, from: Compression.unpack(data))
     }
 
     static func save<T: Encodable>(_ value: T, to url: URL) {
         do {
             try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try JSONEncoder().encode(value).write(to: url, options: .atomic)
+            try Compression.pack(JSONEncoder().encode(value)).write(to: url, options: .atomic)
         } catch {
             print("Couldn't save \(url.lastPathComponent): \(error)")
         }

@@ -70,18 +70,11 @@ struct ExploreView: View {
     private var mapMode: some View {
         let trails = model.filtered
         return ZStack {
-            if baseMap == .switchback {
-                LibreTrailMap(trails: trails, selectedId: model.selectedId, camera: model.cameraRequest,
-                              initialBox: model.initialBox,
-                              onSelect: { id in withAnimation(.snappy) { model.selectedId = id } },
-                              onRegionChange: { model.regionChanged($0) })
-            } else {
-                TrailMapView(baseMap: baseMap, trails: trails, selectedId: model.selectedId, camera: model.cameraRequest,
-                             initialBox: model.initialBox,
-                             showsRoutes: showRoutes,
-                             onSelect: { id in withAnimation(.snappy) { model.selectedId = id } },
-                             onRegionChange: { model.regionChanged($0) })
-            }
+            AppMap(baseMap: baseMap, trails: trails, selectedId: model.selectedId, camera: model.cameraRequest,
+                   initialBox: model.initialBox,
+                   showsRoutes: showRoutes,
+                   onSelect: { id in withAnimation(.snappy) { model.selectedId = id } },
+                   onRegionChange: { model.regionChanged($0) })
 
             VStack(spacing: 8) {
                 statusBar

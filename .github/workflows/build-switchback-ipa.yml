@@ -39,6 +39,21 @@ jobs:
           brew install xcodegen
           cd Switchback && xcodegen generate
 
+      - name: Cache Swift packages
+        uses: actions/cache@v4
+        with:
+          path: build/spm
+          key: switchback-spm-${{ hashFiles('Switchback/project.yml') }}
+
+      - name: Resolve Swift packages (with retries)
+        run: |
+          for i in 1 2 3 4 5; do
+            xcodebuild -resolvePackageDependencies -project Switchback/Switchback.xcodeproj -scheme Switchback \
+              -clonedSourcePackagesDirPath build/spm && exit 0
+            echo "Package download failed (attempt $i), retrying…"; sleep $((i * 20))
+          done
+          exit 1
+
       - name: Build the app (no code signing)
         run: |
           mkdir -p build
@@ -49,6 +64,7 @@ jobs:
             -sdk iphoneos \
             -destination 'generic/platform=iOS' \
             -derivedDataPath build/dd \
+            -clonedSourcePackagesDirPath build/spm \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY="" \
@@ -61,6 +77,7 @@ jobs:
           APP=build/dd/Build/Products/Release-iphoneos/Switchback.app
           test -f "$APP/Switchback"
           test -d "$APP/PlugIns/SwitchbackWidgets.appex"
+          test -f "$APP/switchback-style.json" && test -f "$APP/switchback-style-dark.json"
           test -f "$APP/Assets.car" && plutil -extract CFBundleIcons xml1 -o - "$APP/Info.plist" > /dev/null
           rm -rf build/ipa && mkdir -p build/ipa/Payload
           cp -R "$APP" build/ipa/Payload/

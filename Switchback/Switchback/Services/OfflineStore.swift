@@ -1,4 +1,5 @@
 import Foundation
+import MapLibre
 
 struct OfflineArea: Codable, Identifiable, Hashable {
     var id = UUID()
@@ -16,6 +17,7 @@ struct OfflineArea: Codable, Identifiable, Hashable {
     var complete = false
 
     var baseMap: BaseMap { BaseMap(rawValue: source) ?? .topo }
+    var isVector: Bool { baseMap.isVector }
 }
 
 /// Map areas downloaded for use without signal: their topo tiles and the trails in them.
@@ -97,6 +99,10 @@ final class OfflineStore: ObservableObject {
                 self?.update(id) { $0.trailCount = withProfiles.count }
             }
 
+            if area.isVector {
+                await self?.downloadVector(area)
+                return
+            }
             let all = TileStore.tiles(area.bbox, minZoom: area.minZoom, maxZoom: area.maxZoom)
             let source = area.baseMap
             var done = 0, failed = 0
@@ -133,6 +139,67 @@ final class OfflineStore: ObservableObject {
         }
     }
 
+    // MARK: Vector packs (our own map)
+
+    /// Saves our own map for the area as a MapLibre offline pack: vector tiles to zoom 14 (drawn sharp at any zoom),
+    /// the terrain for hillshading, and the fonts. Much smaller than pictures of the map.
+    private func downloadVector(_ area: OfflineArea) async {
+        let id = area.id
+        defer {
+            tasks[id] = nil
+            progress[id] = nil
+        }
+        guard let styleURL = LibreTrailMap.styleURL(dark: false) else { return }
+        // MapLibre loads its list of packs in the background at launch
+        var waited = 0
+        while MLNOfflineStorage.shared.packs == nil && waited < 50 {
+            try? await Task.sleep(nanoseconds: 100_000_000)
+            waited += 1
+        }
+        var pack = Self.pack(for: id)
+        if pack == nil {
+            let region = MLNTilePyramidOfflineRegion(styleURL: styleURL, bounds: LibreTrailMap.Coordinator.bounds(area.bbox),
+                                                     fromZoomLevel: Double(area.minZoom), toZoomLevel: Double(area.maxZoom))
+            pack = await withCheckedContinuation { (cont: CheckedContinuation<MLNOfflinePack?, Never>) in
+                MLNOfflineStorage.shared.addPack(for: region, withContext: Data(id.uuidString.utf8)) { pack, _ in
+                    cont.resume(returning: pack)
+                }
+            }
+        }
+        guard let pack else { return }
+        pack.resume()
+        var lastDone: UInt64 = 0
+        var stalled = 0
+        while !Task.isCancelled {
+            try? await Task.sleep(nanoseconds: 700_000_000)
+            pack.requestProgress()
+            let p = pack.progress
+            let expected = max(p.countOfResourcesExpected, 1)
+            progress[id] = min(1, Double(p.countOfResourcesCompleted) / Double(expected))
+            update(id) {
+                $0.downloaded = Int(p.countOfResourcesCompleted)
+                $0.tileCount = Int(expected)
+                $0.bytes = Int64(p.countOfBytesCompleted)
+            }
+            if pack.state == .complete || (p.countOfResourcesExpected > 0 && p.countOfResourcesCompleted >= p.countOfResourcesExpected) {
+                update(id) { $0.complete = true }
+                return
+            }
+            // no progress for a minute (no signal): stop, it can be retried
+            if p.countOfResourcesCompleted == lastDone { stalled += 1 } else { stalled = 0 }
+            lastDone = p.countOfResourcesCompleted
+            if stalled > 85 {
+                pack.suspend()
+                return
+            }
+        }
+        pack.suspend()
+    }
+
+    private static func pack(for id: UUID) -> MLNOfflinePack? {
+        MLNOfflineStorage.shared.packs?.first { String(data: $0.context, encoding: .utf8) == id.uuidString }
+    }
+
     /// Downloads one tile into the area's folder; returns its size, or nil if it failed.
     nonisolated static func fetchTile(_ source: BaseMap, _ z: Int, _ x: Int, _ y: Int, into folder: URL) async -> Int64? {
         let url = folder.appendingPathComponent(TileStore.relativePath(source, z: z, x: x, y: y))
@@ -161,6 +228,9 @@ final class OfflineStore: ObservableObject {
         areas.removeAll { $0.id == area.id }
         trailCache[area.id] = nil
         try? FileManager.default.removeItem(at: dir(area.id))
+        if let pack = Self.pack(for: area.id) {
+            MLNOfflineStorage.shared.removePack(pack, withCompletionHandler: nil)
+        }
         persist()
         updateTileRoots()
     }
