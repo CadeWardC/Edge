@@ -102,14 +102,26 @@ actor TrailPacks {
 
     // MARK: The list of states (re-checked every few days)
 
-    private func regionList() async -> RegionList? {
+    /// The list of states that came with the app (so the first launch works without signal).
+    private static var bundledList: RegionList? {
+        guard let url = Bundle.main.url(forResource: "regions", withExtension: "json"),
+              let data = try? Data(contentsOf: url) else { return nil }
+        return try? JSONDecoder().decode(RegionList.self, from: data)
+    }
+
+    /// A state's trail file that came with the app, if any.
+    private static func bundledFile(_ region: String) -> URL? {
+        Bundle.main.url(forResource: region, withExtension: "trails")
+    }
+
+    private func regionList(force: Bool = false) async -> RegionList? {
         let file = dir.appendingPathComponent("regions.json")
         let saved = Files.load(Stamped.self, from: file)
-        if let saved, Date().timeIntervalSince(saved.checked) < 3 * 86400 {
+        if !force, let saved, Date().timeIntervalSince(saved.checked) < 3 * 86400 {
             list = saved.list
             return saved.list
         }
-        if listFailedUntil > Date() { return list ?? saved?.list }
+        if !force, listFailedUntil > Date() { return list ?? saved?.list ?? Self.bundledList }
         do {
             let fresh = try JSONDecoder().decode(RegionList.self, from: try await Self.get(Self.release + "regions.json"))
             Files.save(Stamped(checked: Date(), list: fresh), to: file)
@@ -119,7 +131,7 @@ actor TrailPacks {
         } catch {
             note("list of states failed: \(error.localizedDescription)")
             listFailedUntil = Date().addingTimeInterval(10 * 60)
-            list = list ?? saved?.list
+            list = list ?? saved?.list ?? Self.bundledList
             return list
         }
     }
@@ -133,7 +145,20 @@ actor TrailPacks {
             packs[r.region] = p
             return p
         }
-        // download once (shared by every caller asking for this state at the same time)
+        // the copy that came with the app: use it right away (instant, offline), and fetch the newer week's
+        // file in the background if there is one
+        if let bundled = Self.bundledFile(r.region), let p = open(bundled) {
+            if packs[r.region] == nil { packs[r.region] = p }
+            if p.header.version != r.version, downloading[r.region] == nil {
+                Task { _ = await self.download(r, to: url) }
+            }
+            return packs[r.region]
+        }
+        return await download(r, to: url)
+    }
+
+    /// Downloads a state's file once (shared by everyone asking for it at the same time).
+    private func download(_ r: Region, to url: URL) async -> Pack? {
         if let running = downloading[r.region] { return await running.value }
         let task = Task<Pack?, Never> {
             let data: Data
@@ -211,6 +236,44 @@ actor TrailPacks {
         let (data, resp) = try await URLSession.shared.data(for: req)
         guard (resp as? HTTPURLResponse)?.statusCode == 200 else { throw URLError(.badServerResponse) }
         return data
+    }
+
+    /// Checks for newer weekly trail files now, and updates every state already on the phone (downloaded or
+    /// built in). Returns a short summary.
+    func checkForUpdates() async -> String {
+        listFailedUntil = .distantPast
+        guard let list = await regionList(force: true) else { return "Couldn't reach the trail files. Check your signal." }
+        var updated: [String] = [], current = 0, failed = 0
+        let onPhone = Set(packs.keys).union(Self.downloadedRegions(in: dir))
+            .union(list.regions.keys.filter { Self.bundledFile($0) != nil })
+        for name in onPhone.sorted() {
+            guard let r = list.regions[name], r.bbox.count == 4 else { continue }
+            if let p = packs[name], p.header.version == r.version {
+                current += 1
+                continue
+            }
+            let url = dir.appendingPathComponent("\(r.region)-\(r.version).trails")
+            if let p = open(url) {
+                packs[name] = p
+                current += 1
+            } else if await download(r, to: url) != nil {
+                updated.append(name.replacingOccurrences(of: "-", with: " ").capitalized)
+            } else {
+                failed += 1
+            }
+        }
+        if !updated.isEmpty { return "Updated \(updated.joined(separator: ", "))." + (failed > 0 ? " \(failed) couldn't download." : "") }
+        if failed > 0 { return "\(failed) state\(failed == 1 ? "" : "s") couldn't download. Check your signal." }
+        return current == 0 ? "No state trail files on the phone yet." : "Trails are up to date (\(list.regions.first?.value.version ?? ""))."
+    }
+
+    private static func downloadedRegions(in dir: URL) -> Set<String> {
+        let files = (try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)) ?? []
+        return Set(files.filter { $0.pathExtension == "trails" }.compactMap { f -> String? in
+            let base = f.deletingPathExtension().lastPathComponent
+            guard let dash = base.lastIndex(of: "-") else { return nil }
+            return String(base[..<dash])
+        })
     }
 
     // MARK: Settings

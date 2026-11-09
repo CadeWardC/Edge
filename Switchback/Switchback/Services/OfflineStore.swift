@@ -244,6 +244,33 @@ final class OfflineStore: ObservableObject {
         for i in offsets.sorted(by: >) where i < areas.count { delete(areas[i]) }
     }
 
+    /// Re-downloads an area: the map pieces that changed (our own map) or all of them (pictures), and its trails.
+    func refresh(_ area: OfflineArea) {
+        guard !isDownloading(area.id) else { return }
+        update(area.id) {
+            $0.complete = false
+            $0.trailCount = 0
+            $0.downloaded = 0
+            $0.failed = 0
+        }
+        trailCache[area.id] = nil
+        try? FileManager.default.removeItem(at: dir(area.id).appendingPathComponent("trails.json"))
+        if area.isVector, let pack = Self.pack(for: area.id) {
+            // MapLibre checks every saved piece with the server and fetches only what changed
+            MLNOfflineStorage.shared.invalidatePack(pack) { [weak self] _ in
+                Task { @MainActor in
+                    guard let self, let a = self.areas.first(where: { $0.id == area.id }) else { return }
+                    self.resume(a)
+                }
+            }
+            return
+        }
+        if !area.isVector {
+            for sub in ["\(area.source)"] { try? FileManager.default.removeItem(at: dir(area.id).appendingPathComponent(sub)) }
+        }
+        if let a = areas.first(where: { $0.id == area.id }) { resume(a) }
+    }
+
     func retry(_ area: OfflineArea) {
         update(area.id) { $0.complete = false }
         if let a = areas.first(where: { $0.id == area.id }) { resume(a) }

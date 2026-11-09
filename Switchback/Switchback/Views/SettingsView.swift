@@ -6,6 +6,8 @@ struct SettingsView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var cacheSize: Int64 = 0
     @State private var packStatus: [String] = []
+    @State private var updating = false
+    @State private var updateResult: String?
     @AppStorage(BaseMap.showRoutesKey) private var showRoutes = false
     @AppStorage(USFS.enabledKey) private var usfsTrails = true
     @AppStorage(Overpass.unnamedKey) private var unnamedTrails = true
@@ -41,12 +43,35 @@ struct SettingsView: View {
                         cacheSize = 0
                     }
                 }
-                Section("Trail files") {
+                Section {
+                    Button {
+                        updating = true
+                        updateResult = nil
+                        Task {
+                            updateResult = await TrailPacks.shared.checkForUpdates()
+                            packStatus = await TrailPacks.shared.statusLines()
+                            updating = false
+                        }
+                    } label: {
+                        HStack {
+                            Label("Check for trail updates", systemImage: "arrow.triangle.2.circlepath")
+                            Spacer()
+                            if updating { ProgressView() }
+                        }
+                    }
+                    .disabled(updating)
+                    if let updateResult {
+                        Text(updateResult).font(.footnote).foregroundStyle(.secondary)
+                    }
                     if packStatus.isEmpty {
                         Text("No state trail files yet; they download when the map first shows a state.")
                             .foregroundStyle(.secondary)
                     }
                     ForEach(packStatus, id: \.self) { Text($0).font(.caption.monospaced()) }
+                } header: {
+                    Text("Trail files")
+                } footer: {
+                    Text("Missouri's trails come with the app. Each state's trails are rebuilt from OpenStreetMap every week; the app picks up new versions by itself every few days, or right away here.")
                 }
                 Section("Data") {
                     Text("Trails: © OpenStreetMap contributors, available under the Open Database Licence.")

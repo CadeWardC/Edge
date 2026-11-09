@@ -34,6 +34,19 @@ jobs:
           xcodebuild -version
           xcodebuild -downloadPlatform iOS || true
 
+      - name: Build in trail packs (fast first launch, works offline from the start)
+        env:
+          # states whose trail files ship inside the app (the rest download when the map first shows them)
+          BUNDLED_STATES: "missouri"
+        run: |
+          mkdir -p Switchback/Switchback/Resources/Packs
+          base=https://github.com/${{ github.repository }}/releases/download/trails-us
+          curl -fsSL --retry 4 -o Switchback/Switchback/Resources/Packs/regions.json "$base/regions.json" || echo "no regions.json yet"
+          for s in $BUNDLED_STATES; do
+            curl -fsSL --retry 4 -o "Switchback/Switchback/Resources/Packs/$s.trails" "$base/$s.trails" || echo "no pack for $s yet"
+          done
+          ls -l Switchback/Switchback/Resources/Packs
+
       - name: Generate the Xcode project
         run: |
           brew install xcodegen

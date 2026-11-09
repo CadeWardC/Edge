@@ -62,8 +62,12 @@ struct OfflineAreasView: View {
             ForEach(offline.areas) { area in
                 OfflineAreaRow(area: area, progress: offline.progress[area.id])
                     .swipeActions(edge: .leading) {
-                        if !area.complete && !offline.isDownloading(area.id) {
-                            Button("Retry") { offline.retry(area) }.tint(.trailGreen)
+                        if !offline.isDownloading(area.id) {
+                            if area.complete {
+                                Button("Update") { offline.refresh(area) }.tint(.blue)
+                            } else {
+                                Button("Retry") { offline.retry(area) }.tint(.trailGreen)
+                            }
                         }
                     }
             }

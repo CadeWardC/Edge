@@ -4,3 +4,4 @@ vendor/
 DerivedData/
 .DS_Store
 __pycache__/
+Switchback/Switchback/Resources/Packs/
