@@ -259,7 +259,7 @@ final class Bot {
     private func expand(workers: [Entity], main: Entity, hqs: [Entity]) {
         guard smart, me.pending[EntityType.hq.rawValue] == 0 else { return }
         let minutes = Double(world.tick) / Double(60 * Defs.tickRate)
-        let maxBases = sharp ? 4 : 2
+        let maxBases = difficulty == .brutal ? 4 : (sharp ? 3 : 2)
         guard hqs.count < maxBases else { return }
         let wantByWorkers = workers.count >= workerTarget - 2
         let early: Double = personality == .turtle ? 4 : (personality == .rusher ? 9 : 6)
@@ -551,7 +551,7 @@ final class Bot {
             let myPower = power(free)
             let near = enemies.filter { e in free.contains { $0.pos.distSq(e.pos) < 500 * 500 } }
             let theirPower = power(near)
-            if smart && theirPower > myPower * (sharp ? 1.6 : 2.2) || armySupply < attackThreshold / 3 {
+            if smart && theirPower > myPower * (sharp ? 1.9 : 2.2) || armySupply < attackThreshold / 3 {
                 // retreat and regroup
                 attacking = false
                 nextAttackTick = world.tick + (difficulty == .easy ? 120 : 60) * Defs.tickRate / 2
@@ -667,7 +667,7 @@ final class Bot {
         // focus fire: everybody in range of the weakest threat shoots it
         guard let weakest = fighters.filter({ e in army.contains { world.canHit($0, e) && $0.gap(to: e) <= world.effectiveRange($0) + 20 } })
             .min(by: { a, b in a.hp / a.maxHp < b.hp / b.maxHp || (a.hp / a.maxHp == b.hp / b.maxHp && a.id < b.id) }) else { return }
-        let shooters = army.filter { $0.type != .mender && !$0.sieged && world.canHit($0, weakest) && $0.gap(to: weakest) <= world.effectiveRange($0) + 40 }
+        let shooters = army.filter { $0.type != .mender && !$0.sieged && world.canHit($0, weakest) && $0.gap(to: weakest) <= world.effectiveRange($0) }
         issue(shooters.filter { $0.order != .attack(weakest.id) }.map { $0.id }, .attack(weakest.id))
     }
 
