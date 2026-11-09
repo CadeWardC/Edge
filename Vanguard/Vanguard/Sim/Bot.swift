@@ -558,8 +558,18 @@ final class Bot {
                 issue(free.map { $0.id }, .move(rally))
                 return
             }
-            if let t = attackTarget, let ac = armyCenter(free), ac.dist(t) < 200, near.isEmpty {
-                attackTarget = pickTarget(from: ac)
+            if let ac = armyCenter(free) {
+                if !knownBuildings.isEmpty {
+                    // always go for the closest building we know about
+                    let next = pickTarget(from: ac)
+                    if let next, attackTarget.map({ $0.distSq(next) > 64 * 64 }) ?? true {
+                        attackTarget = next
+                        issue(free.filter { $0.order != .idle }.map { $0.id }, .attackMove(next))
+                    }
+                } else if let t = attackTarget, near.isEmpty, ac.dist(t) < 260 || world.fog.visible(team: team, t) {
+                    // searched this spot: try another
+                    attackTarget = pickTarget(from: ac)
+                }
             }
             if let t = attackTarget {
                 let idle = free.filter { $0.order == .idle || isRally($0, rally) }
