@@ -157,24 +157,45 @@ final class ExploreModel: ObservableObject {
             loadedOnce = true
             return
         }
+        // what's on screen first (small and quick), then the surroundings
+        let visible = Set(TrailCache.cells(in: view.clamped(maxSpan: 0.12)))
+        let near = missing.filter { visible.contains($0) }
+        let far = missing.filter { !visible.contains($0) }
         // a separate task: moving the map again must not cancel a download that's under way
         // (it's saved for those cells either way, so it's never wasted)
         inFlight.formUnion(missing)
-        Task { await self.fetch(missing) }
+        Task {
+            var done: [(cells: [TrailCache.Cell], main: [Trail])] = []
+            for group in [near, far] where !group.isEmpty {
+                if let main = await self.fetch(group) { done.append((cells: group, main: main)) }
+            }
+            // then, quietly, the unnamed paths and Forest Service trails
+            for d in done {
+                guard let box = TrailCache.box(of: d.cells) else { continue }
+                let all = await TrailSources.withExtras(in: box, main: d.main)
+                guard all.count != d.main.count || all != d.main else { continue }
+                await TrailCache.shared.store(all, for: d.cells)
+                self.merge(all)
+                self.refreshResults()
+            }
+        }
     }
 
-    private func fetch(_ cells: [TrailCache.Cell]) async {
+    /// Fetches the main trails for some cells; returns them, or nil if it failed.
+    private func fetch(_ cells: [TrailCache.Cell]) async -> [Trail]? {
         guard let box = TrailCache.box(of: cells) else {
             inFlight.subtract(cells)
-            return
+            return nil
         }
         isLoading = true
         errorText = nil
+        var result: [Trail]?
         do {
-            let found = try await TrailSources.trails(in: box)
+            let found = try await TrailSources.main(in: box)
             await TrailCache.shared.store(found, for: cells)
             merge(found)
             usedOffline = false
+            result = found
         } catch {
             let offline = OfflineStore.shared.trails(in: box)
             if Self.isCancellation(error) {
@@ -192,6 +213,7 @@ final class ExploreModel: ObservableObject {
         refreshResults()
         let visible = Array(results.prefix(30))
         Task { await Profiles.shared.enrich(visible) }
+        return result
     }
 
     private static func isCancellation(_ error: Error) -> Bool {
@@ -217,7 +239,9 @@ final class ExploreModel: ObservableObject {
 
     private func merge(_ trails: [Trail]) {
         for t in trails {
-            if let old = known[t.id], old.length >= t.length { continue }
+            // a newer copy of the same trail (e.g. with Forest Service details added) replaces the old one,
+            // unless it's a shorter, clipped piece of it
+            if let old = known[t.id], old.length > t.length + 1 { continue }
             known[t.id] = t
             knownBoxes[t.id] = t.bbox
         }

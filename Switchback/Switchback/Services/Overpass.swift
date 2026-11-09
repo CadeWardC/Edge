@@ -64,19 +64,27 @@ enum Overpass {
         UserDefaults.standard.object(forKey: unnamedKey) as? Bool ?? true
     }
 
-    static func trails(in box: BBox) async throws -> [Trail] {
-        let unnamed = includesUnnamed
+    /// Which trails to ask for: the main ones (routes, named paths and tracks) come back much faster than the
+    /// unnamed paths, so the map asks for them first.
+    enum Part { case main, unnamed, all }
+
+    static func trails(in box: BBox, part: Part = .all) async throws -> [Trail] {
+        let unnamed = includesUnnamed && part != .main
+        if part == .unnamed && !unnamed { return [] }
         let b = box.overpass
         let clip = box.expanded(byDegrees: 0.02).overpass
         let unnamedLine = unnamed
             ? "way[\"highway\"=\"path\"][!\"name\"][\"surface\"!~\"^(paved|asphalt|concrete|paving_stones|sett|compacted)$\"][\"access\"!~\"^(private|no)$\"][\"segregated\"!~\".\"](\(b));"
             : ""
-        let query = """
-        [out:json][timeout:25];
-        (
+        let mainLines = """
           relation["type"="route"]["route"~"^(hiking|foot|walking)$"](\(b));
           way["highway"~"^(path|footway|bridleway)$"]["name"]["footway"!~"^(sidewalk|crossing)$"]["access"!~"^(private|no)$"](\(b));
           way["highway"="track"]["name"]["tracktype"!="grade1"]["access"!~"^(private|no)$"](\(b));
+        """
+        let query = """
+        [out:json][timeout:25];
+        (
+          \(part == .unnamed ? "" : mainLines)
           \(unnamedLine)
         );
         out geom(\(clip));
@@ -98,7 +106,7 @@ enum Overpass {
         try await withThrowingTaskGroup(of: Data.self) { group in
             for (i, url) in endpoints.enumerated() {
                 group.addTask {
-                    if i > 0 { try await Task.sleep(nanoseconds: UInt64(i) * 3_000_000_000) }
+                    if i > 0 { try await Task.sleep(nanoseconds: UInt64(i) * 1_500_000_000) }
                     return try await Overpass.fetch(url, body: body)
                 }
             }

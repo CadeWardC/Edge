@@ -190,10 +190,37 @@ enum USFS {
 
 /// Every trail source, combined.
 enum TrailSources {
+    /// Everything at once (for offline downloads).
     static func trails(in box: BBox) async throws -> [Trail] {
         async let forest = USFS.trailsIfAvailable(in: box)
         let osm = try await Overpass.trails(in: box)
         return merge(osm: osm, forest: await forest)
+    }
+
+    /// The quick first pass: routes, named paths and tracks.
+    static func main(in box: BBox) async throws -> [Trail] {
+        try await Overpass.trails(in: box, part: .main)
+    }
+
+    /// The slower second pass, added once the main trails are showing: unnamed paths and Forest Service trails.
+    /// Returns the main trails (with any Forest Service details folded in) plus the new ones. Never throws.
+    static func withExtras(in box: BBox, main: [Trail]) async -> [Trail] {
+        async let forest = USFS.trailsIfAvailable(in: box)
+        let unnamed = (try? await Overpass.trails(in: box, part: .unnamed)) ?? []
+        let combined = main + dropDuplicates(unnamed, against: main)
+        return merge(osm: combined, forest: await forest)
+    }
+
+    /// Unnamed pieces that just retrace a named trail (fetched separately, so not caught while parsing).
+    static func dropDuplicates(_ unnamed: [Trail], against named: [Trail]) -> [Trail] {
+        let boxes = named.map { ($0, $0.bbox.expanded(byDegrees: 0.0005)) }
+        return unnamed.filter { u in
+            let near = boxes.filter { $0.1.intersects(u.bbox) }.map(\.0)
+            guard !near.isEmpty else { return true }
+            let samples = Geo.resample(u.path, count: 5).map(\.coord)
+            let covered = samples.filter { c in near.contains { Geo.distanceToPath(c, segments: $0.segments) < 15 } }
+            return covered.count < 4
+        }
     }
 
     /// Forest Service trails that are already in OpenStreetMap are folded into the OSM trail (adding the
