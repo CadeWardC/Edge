@@ -8,6 +8,7 @@ final class TrailLines: MKMultiPolyline {
     var role: Role = .line
     var color: UIColor = .systemGreen
     var selected = false
+    var dashed = false
 }
 
 /// A pin at the start of a trail.
@@ -136,7 +137,7 @@ struct TrailMapView: UIViewRepresentable {
                 tileOverlay = nil
             }
             switch p.baseMap {
-            case .standard:
+            case .standard, .waymarkedHiking:   // the routes layer is never a base map
                 map.preferredConfiguration = MKStandardMapConfiguration(elevationStyle: .realistic, emphasisStyle: .muted)
             case .satellite:
                 map.preferredConfiguration = MKHybridMapConfiguration(elevationStyle: .realistic)
@@ -199,6 +200,8 @@ struct TrailMapView: UIViewRepresentable {
                 line.trailId = t.id
                 line.selected = isSelected
                 line.color = t.difficulty.mapColor
+                line.dashed = t.isUnnamed
+                casing.dashed = t.isUnnamed
                 let head = TrailheadAnnotation(trail: t, selected: isSelected)
                 shown[t.id] = Shown(signature: signature(t, selected: isSelected), casing: casing, line: line, head: head)
                 if isSelected {
@@ -207,7 +210,8 @@ struct TrailMapView: UIViewRepresentable {
                     newOverlays.append(casing)
                     newOverlays.append(line)
                 }
-                newHeads.append(head)
+                // unnamed paths get no pin, to keep the map calm (except when selected)
+                if !t.isUnnamed || isSelected { newHeads.append(head) }
             }
             // keep the selected trail on top of anything just added
             if selectedOverlays.isEmpty, !newOverlays.isEmpty, let id = p.selectedId, let s = shown[id] {
@@ -307,11 +311,12 @@ struct TrailMapView: UIViewRepresentable {
                 r.lineJoin = .round
                 switch lines.role {
                 case .casing:
-                    r.strokeColor = UIColor.white.withAlphaComponent(0.95)
-                    r.lineWidth = lines.selected ? 10 : 6
+                    r.strokeColor = UIColor.white.withAlphaComponent(lines.dashed && !lines.selected ? 0.7 : 0.95)
+                    r.lineWidth = lines.selected ? 10 : (lines.dashed ? 4.5 : 6)
                 case .line:
                     r.strokeColor = lines.color
-                    r.lineWidth = lines.selected ? 6 : 3.2
+                    r.lineWidth = lines.selected ? 6 : (lines.dashed ? 2.4 : 3.2)
+                    if lines.dashed && !lines.selected { r.lineDashPattern = [6, 5] }
                 case .trackCasing:
                     r.strokeColor = UIColor.white
                     r.lineWidth = 8

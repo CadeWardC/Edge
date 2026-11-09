@@ -10,7 +10,9 @@ subscription and no API keys.
 - **More trails:** in the US, U.S. Forest Service National Forest System trails are added too (Settings toggle, on by
   default). A Forest Service trail that's already in OpenStreetMap is merged into it (adding its trail number, class,
   surface and grade) instead of being drawn twice. The **hiking routes layer** (map style menu) draws Waymarked Trails'
-  worldwide map of signposted hiking routes on top of any base map.
+  worldwide map of signposted hiking routes on top of any base map. **Unnamed trails** (paths mapped in OpenStreetMap
+  without a name, joined into continuous lines of at least 800 m, skipping paved paths) are drawn dashed with no pin, and
+  named tracks (dirt and fire roads) are included too; both can be turned off in Settings.
 - **Fast:** trails found are cached on the phone in 0.05° cells for two weeks, so places you've seen load instantly and a
   search only fetches the cells it doesn't have. If the main Overpass server is slow, a second one is asked after 3 s
   and the first answer wins. Trail shapes are simplified (Douglas–Peucker, 3 m) to draw quickly.

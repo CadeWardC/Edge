@@ -58,14 +58,26 @@ enum Overpass {
         "https://maps.mail.ru/osm/tools/overpass/api/interpreter",
     ].compactMap(URL.init(string:))
 
+    static let unnamedKey = "unnamedTrails"
+
+    static var includesUnnamed: Bool {
+        UserDefaults.standard.object(forKey: unnamedKey) as? Bool ?? true
+    }
+
     static func trails(in box: BBox) async throws -> [Trail] {
+        let unnamed = includesUnnamed
         let b = box.overpass
         let clip = box.expanded(byDegrees: 0.02).overpass
+        let unnamedLine = unnamed
+            ? "way[\"highway\"=\"path\"][!\"name\"][\"surface\"!~\"^(paved|asphalt|concrete|paving_stones|sett|compacted)$\"][\"access\"!~\"^(private|no)$\"][\"segregated\"!~\".\"](\(b));"
+            : ""
         let query = """
         [out:json][timeout:25];
         (
           relation["type"="route"]["route"~"^(hiking|foot|walking)$"](\(b));
           way["highway"~"^(path|footway|bridleway)$"]["name"]["footway"!~"^(sidewalk|crossing)$"]["access"!~"^(private|no)$"](\(b));
+          way["highway"="track"]["name"]["tracktype"!="grade1"]["access"!~"^(private|no)$"](\(b));
+          \(unnamedLine)
         );
         out geom(\(clip));
         """
@@ -156,12 +168,20 @@ enum Overpass {
         let response = try JSONDecoder().decode(Response.self, from: data)
         var trails: [Trail] = []
         var relationNames = Set<String>()
+        var routeEnds = Set<String>()
 
         for e in response.elements where e.type == "relation" {
             let tags = e.tags ?? [:]
             var pieces: [[Coord]] = []
-            for m in e.members ?? [] where m.type == "way" && !skippedRoles.contains(m.role ?? "") {
-                pieces.append(contentsOf: runs(m.geometry))
+            for m in e.members ?? [] where m.type == "way" {
+                let memberRuns = runs(m.geometry)
+                for r in memberRuns {
+                    if let f = r.first, let l = r.last {
+                        routeEnds.insert(endKey(f))
+                        routeEnds.insert(endKey(l))
+                    }
+                }
+                if !skippedRoles.contains(m.role ?? "") { pieces.append(contentsOf: memberRuns) }
             }
             let name = tags["name"] ?? tags["name:en"] ?? tags["ref"].map { "Route \($0)" } ?? "Unnamed route"
             if let trail = makeTrail(id: "r\(e.id)", osmId: e.id, source: .osmRelation, name: name,
@@ -191,7 +211,41 @@ enum Overpass {
                 }
             }
         }
+
+        // Unnamed paths: hiking trails that were mapped without a name. Joined into the longest continuous
+        // lines; short urban shortcuts are dropped by the length limit, and pieces of a route above are skipped.
+        var unnamedPieces: [[Coord]] = []
+        var tagsAtEnd: [String: (id: Int64, tags: [String: String])] = [:]
+        for e in response.elements where e.type == "way" {
+            guard let tags = e.tags, tags["name"] == nil, tags["highway"] == "path" else { continue }
+            for run in runs(e.geometry) {
+                guard let f = run.first, let l = run.last else { continue }
+                if routeEnds.contains(endKey(f)) && routeEnds.contains(endKey(l)) { continue }
+                unnamedPieces.append(run)
+                tagsAtEnd[endKey(f)] = (id: e.id, tags: tags)
+                tagsAtEnd[endKey(l)] = (id: e.id, tags: tags)
+            }
+        }
+        if !unnamedPieces.isEmpty {
+            for chain in Chains.build(unnamedPieces) {
+                guard let f = chain.first, let l = chain.last else { continue }
+                let a = endKey(f), z = endKey(l)
+                let owner = tagsAtEnd[a] ?? tagsAtEnd[z]
+                var tags = owner?.tags ?? [:]
+                tags["switchback:unnamed"] = "yes"
+                let name = tags["ref"].map { "Path \($0)" } ?? "Unnamed trail"
+                if let trail = makeTrail(id: "u" + min(a, z) + "|" + max(a, z), osmId: owner?.id ?? 0, source: .osmWay,
+                                         name: name, chains: [chain], tags: tags, minLength: 800) {
+                    trails.append(trail)
+                }
+            }
+        }
         return trails
+    }
+
+    /// A point rounded to about a metre, for matching line ends.
+    private static func endKey(_ c: Coord) -> String {
+        String(format: "%.5f,%.5f", c.lat, c.lon)
     }
 
     private static func makeTrail(id: String, osmId: Int64, source: Trail.Source, name: String,

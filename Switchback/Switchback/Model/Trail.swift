@@ -106,6 +106,9 @@ struct Trail: Codable, Identifiable, Hashable {
 
     var routeTypeTitle: String { isLoop ? "Loop" : "One way" }
 
+    /// A path mapped in OpenStreetMap without a name.
+    var isUnnamed: Bool { tags["switchback:unnamed"] == "yes" }
+
     var difficulty: Difficulty {
         let km = length / 1000
         let effort = km + (profile?.gain ?? 0) / 100

@@ -7,6 +7,7 @@ struct SettingsView: View {
     @State private var cacheSize: Int64 = 0
     @AppStorage(BaseMap.showRoutesKey) private var showRoutes = false
     @AppStorage(USFS.enabledKey) private var usfsTrails = true
+    @AppStorage(Overpass.unnamedKey) private var unnamedTrails = true
 
     var body: some View {
         NavigationStack {
@@ -24,8 +25,9 @@ struct SettingsView: View {
                     }
                     Toggle("Waymarked hiking routes", isOn: $showRoutes)
                     Toggle("U.S. Forest Service trails", isOn: $usfsTrails)
+                    Toggle("Unnamed trails", isOn: $unnamedTrails)
                 } footer: {
-                    Text("Topo and USGS Satellite maps can be downloaded for offline use (Saved › Offline maps). USGS covers the United States only. Waymarked routes draws every signposted hiking route in the world on top of the map. Forest Service trails add official national forest trails in the US (cleared from the cache to apply to places you've already seen).")
+                    Text("Topo and USGS Satellite maps can be downloaded for offline use (Saved › Offline maps). USGS covers the United States only. Waymarked routes draws every signposted hiking route in the world on top of the map. Forest Service trails add official national forest trails in the US. Unnamed trails are paths mapped without a name, drawn dashed. Clear the cache for these switches to apply to places you've already seen.")
                 }
                 Section("Storage") {
                     LabeledContent("Map cache", value: ByteCountFormatter.string(fromByteCount: cacheSize, countStyle: .file))
