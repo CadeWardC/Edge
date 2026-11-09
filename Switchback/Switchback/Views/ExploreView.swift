@@ -53,13 +53,13 @@ struct ExploreView: View {
                 recorder.locateOnce()
                 if !didCenter, let loc = recorder.lastLocation {
                     didCenter = true
-                    model.center(on: loc, searchIfEmpty: true)
+                    if model.shouldCenter(on: loc) { model.center(on: loc) }
                 }
             }
             .onReceive(recorder.$lastLocation) { loc in
                 guard !didCenter, let loc else { return }
                 didCenter = true
-                model.center(on: loc, searchIfEmpty: true)
+                if model.shouldCenter(on: loc) { model.center(on: loc) }
             }
         }
     }
@@ -70,6 +70,7 @@ struct ExploreView: View {
         let trails = model.filtered
         return ZStack {
             TrailMapView(baseMap: baseMap, trails: trails, selectedId: model.selectedId, camera: model.cameraRequest,
+                         initialBox: model.initialBox,
                          onSelect: { id in withAnimation(.snappy) { model.selectedId = id } },
                          onRegionChange: { model.regionChanged($0) })
 
@@ -118,27 +119,32 @@ struct ExploreView: View {
                 }
                 .font(.subheadline.weight(.semibold))
                 .capsuleStyle()
-            } else if model.regionMoved || model.results.isEmpty {
-                Button { model.searchVisibleArea() } label: {
-                    Label(model.isTooWide ? "Search the middle of this area" : "Search this area", systemImage: "magnifyingglass")
-                        .font(.subheadline.weight(.semibold))
+            } else if model.isTooWide {
+                Label("Zoom in to see trails", systemImage: "plus.magnifyingglass")
+                    .font(.subheadline.weight(.semibold))
+                    .capsuleStyle()
+            }
+            if let e = model.errorText {
+                Button { model.reload() } label: {
+                    Label(e, systemImage: "arrow.clockwise")
+                        .font(.caption)
+                        .multilineTextAlignment(.center)
                         .capsuleStyle()
                 }
                 .buttonStyle(.plain)
-            }
-            if let e = model.errorText {
-                Text(e)
-                    .font(.caption)
-                    .multilineTextAlignment(.center)
-                    .capsuleStyle()
             } else if model.usedOffline {
                 Label("No signal: showing downloaded trails", systemImage: "wifi.slash")
+                    .font(.caption)
+                    .capsuleStyle()
+            } else if model.loadedOnce && model.results.isEmpty && !model.isLoading && !model.isTooWide {
+                Text("No mapped trails here")
                     .font(.caption)
                     .capsuleStyle()
             }
         }
         .padding(.top, 8)
         .padding(.horizontal, 60)
+        .animation(.easeInOut(duration: 0.2), value: model.isLoading)
     }
 
     private var mapStyleMenu: some View {
@@ -188,7 +194,7 @@ struct ExploreView: View {
                     Label("No trails", systemImage: "figure.hiking")
                 } description: {
                     Text(model.results.isEmpty
-                         ? "Move the map to where you want to hike and tap Search this area."
+                         ? "Move the map to where you want to hike; trails load as you go."
                          : "No trails match your filters.")
                 } actions: {
                     if model.results.isEmpty {

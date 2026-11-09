@@ -60,33 +60,55 @@ enum Overpass {
 
     static func trails(in box: BBox) async throws -> [Trail] {
         let b = box.overpass
+        let clip = box.expanded(byDegrees: 0.02).overpass
         let query = """
-        [out:json][timeout:30];
+        [out:json][timeout:25];
         (
           relation["type"="route"]["route"~"^(hiking|foot|walking)$"](\(b));
           way["highway"~"^(path|footway|bridleway)$"]["name"]["footway"!~"^(sidewalk|crossing)$"]["access"!~"^(private|no)$"](\(b));
         );
-        out geom(\(b));
+        out geom(\(clip));
         """
-        let body = "data=" + (query.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? "")
-        var lastError: Error = URLError(.cannotConnectToHost)
-        for url in endpoints {
-            do {
-                var req = URLRequest(url: url, timeoutInterval: 45)
-                req.httpMethod = "POST"
-                req.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
-                req.setValue(Net.userAgent, forHTTPHeaderField: "User-Agent")
-                req.httpBody = body.data(using: .utf8)
-                let (data, resp) = try await URLSession.shared.data(for: req)
-                let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
-                guard code == 200 else { throw OverpassError.status(code) }
-                return try await Task.detached(priority: .userInitiated) { try Overpass.parse(data) }.value
-            } catch {
-                if error is CancellationError || (error as? URLError)?.code == .cancelled { throw error }
-                lastError = error
+        let body = Data(("data=" + (query.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? "")).utf8)
+        let data = try await fetchFastest(body)
+        return try await Task.detached(priority: .userInitiated) { try Overpass.parse(data) }.value
+    }
+
+    /// Asks the main server first; if it hasn't answered after a few seconds, asks the next one too, and so on.
+    /// The first good answer wins.
+    private static func fetchFastest(_ body: Data) async throws -> Data {
+        try await withThrowingTaskGroup(of: Data.self) { group in
+            for (i, url) in endpoints.enumerated() {
+                group.addTask {
+                    if i > 0 { try await Task.sleep(nanoseconds: UInt64(i) * 3_000_000_000) }
+                    return try await Overpass.fetch(url, body: body)
+                }
             }
+            var lastError: Error = URLError(.cannotConnectToHost)
+            while true {
+                do {
+                    guard let data = try await group.next() else { break }
+                    group.cancelAll()
+                    return data
+                } catch {
+                    if Task.isCancelled { throw CancellationError() }
+                    lastError = error
+                }
+            }
+            throw lastError
         }
-        throw lastError
+    }
+
+    private static func fetch(_ url: URL, body: Data) async throws -> Data {
+        var req = URLRequest(url: url, timeoutInterval: 40)
+        req.httpMethod = "POST"
+        req.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
+        req.setValue(Net.userAgent, forHTTPHeaderField: "User-Agent")
+        req.httpBody = body
+        let (data, resp) = try await URLSession.shared.data(for: req)
+        let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
+        guard code == 200 else { throw OverpassError.status(code) }
+        return data
     }
 
     // MARK: - Parsing
@@ -176,8 +198,9 @@ enum Overpass {
                                   chains: [[Coord]], tags: [String: String], minLength: Double) -> Trail? {
         let measured = chains.map { (coords: $0, length: Geo.length($0)) }
         guard let main = measured.max(by: { $0.length < $1.length }), main.length >= minLength else { return nil }
-        let segments = measured.filter { $0.length >= 30 }.map(\.coords)
+        // fewer points: smaller cache, faster drawing, same shape to within a few metres
+        let segments = measured.filter { $0.length >= 30 }.map { Geo.simplify($0.coords, tolerance: 3) }
         return Trail(id: id, name: name, source: source, osmId: osmId, segments: segments,
-                     path: main.coords, length: main.length, tags: tags, profile: nil)
+                     path: Geo.simplify(main.coords, tolerance: 3), length: main.length, tags: tags, profile: nil)
     }
 }

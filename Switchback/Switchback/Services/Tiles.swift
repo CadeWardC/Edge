@@ -1,9 +1,10 @@
 import Foundation
 import MapKit
+import UIKit
 
 /// The map style under the trails.
 enum BaseMap: String, CaseIterable, Identifiable {
-    case standard, satellite, topo, usgs
+    case standard, satellite, topo, usgs, usgsImagery
 
     static let storageKey = "baseMap"
 
@@ -15,6 +16,7 @@ enum BaseMap: String, CaseIterable, Identifiable {
         case .satellite: return "Satellite"
         case .topo: return "Topo (OpenTopoMap)"
         case .usgs: return "USGS Topo (US only)"
+        case .usgsImagery: return "USGS Satellite (US only)"
         }
     }
 
@@ -24,23 +26,32 @@ enum BaseMap: String, CaseIterable, Identifiable {
         case .satellite: return "Satellite"
         case .topo: return "Topo"
         case .usgs: return "USGS"
+        case .usgsImagery: return "USGS Satellite"
         }
     }
 
-    var isTiled: Bool { self == .topo || self == .usgs }
+    var isTiled: Bool { self == .topo || self == .usgs || self == .usgsImagery }
 
-    var maxZoom: Int { self == .usgs ? 16 : 17 }
+    /// The closest zoom the server has tiles for; closer than that, tiles are enlarged from this level.
+    var maxZoom: Int { self == .topo ? 17 : 16 }
+
+    /// Rough size of one tile, for download estimates (photos are bigger than drawn maps).
+    var averageTileBytes: Int64 { self == .usgsImagery ? 45_000 : 20_000 }
 
     var attribution: String? {
         switch self {
         case .topo: return "© OpenStreetMap contributors, SRTM · Map style © OpenTopoMap (CC-BY-SA)"
         case .usgs: return "USGS The National Map"
+        case .usgsImagery: return "USGS The National Map: Orthoimagery"
         default: return nil
         }
     }
 
-    /// Offline maps need tiles, so Apple's styles fall back to Topo.
-    var offlineSource: BaseMap { isTiled ? self : .topo }
+    /// Offline maps need tiles, so Apple's styles fall back to the closest downloadable one.
+    var offlineSource: BaseMap {
+        if isTiled { return self }
+        return self == .satellite ? .usgsImagery : .topo
+    }
 
     func tileURL(z: Int, x: Int, y: Int) -> URL? {
         switch self {
@@ -49,6 +60,8 @@ enum BaseMap: String, CaseIterable, Identifiable {
             return URL(string: "https://\(s).tile.opentopomap.org/\(z)/\(x)/\(y).png")
         case .usgs:
             return URL(string: "https://basemap.nationalmap.gov/arcgis/rest/services/USGSTopo/MapServer/tile/\(z)/\(y)/\(x)")
+        case .usgsImagery:
+            return URL(string: "https://basemap.nationalmap.gov/arcgis/rest/services/USGSImageryOnly/MapServer/tile/\(z)/\(y)/\(x)")
         default:
             return nil
         }
@@ -107,6 +120,34 @@ final class TileStore: @unchecked Sendable {
         return data
     }
 
+    /// Makes a tile by enlarging part of a lower-zoom tile: lets you zoom past the server's last level, and past
+    /// what an offline area downloaded. Without network, only tiles already on the phone are used.
+    static func overzoom(_ source: BaseMap, z: Int, x: Int, y: Int, from base: Int, network: Bool) async throws -> Data {
+        let dz = z - base
+        guard dz > 0, dz <= 6, base >= 0 else { throw URLError(.fileDoesNotExist) }
+        let ax = x >> dz, ay = y >> dz
+        let data: Data
+        if let d = shared.data(source, z: base, x: ax, y: ay) {
+            data = d
+        } else if network {
+            data = try await fetch(source, z: base, x: ax, y: ay)
+            shared.store(data, source, z: base, x: ax, y: ay)
+        } else {
+            throw URLError(.fileDoesNotExist)
+        }
+        guard let image = UIImage(data: data), let cg = image.cgImage else { throw URLError(.cannotDecodeContentData) }
+        let n = 1 << dz
+        let side = Double(cg.width) / Double(n)
+        let rect = CGRect(x: Double(x - (ax << dz)) * side, y: Double(y - (ay << dz)) * side, width: side, height: side)
+        guard let part = cg.cropping(to: rect.integral) else { throw URLError(.cannotDecodeContentData) }
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        let renderer = UIGraphicsImageRenderer(size: CGSize(width: 256, height: 256), format: format)
+        return renderer.jpegData(withCompressionQuality: 0.9) { _ in
+            UIImage(cgImage: part).draw(in: CGRect(x: 0, y: 0, width: 256, height: 256))
+        }
+    }
+
     // Web Mercator tile maths
     static func tileX(_ lon: Double, _ z: Int) -> Int {
         let n = 1 << z
@@ -144,7 +185,8 @@ final class TileStore: @unchecked Sendable {
     }
 }
 
-/// Draws topo tiles from disk when they're there, from the network otherwise.
+/// Draws map tiles from disk when they're there, from the network otherwise, and enlarged from a lower zoom
+/// when neither has them (zooming in past the server's last level, or past an offline area's detail).
 final class CachedTileOverlay: MKTileOverlay {
     let source: BaseMap
 
@@ -153,7 +195,7 @@ final class CachedTileOverlay: MKTileOverlay {
         super.init(urlTemplate: nil)
         canReplaceMapContent = true
         minimumZ = 1
-        maximumZ = source.maxZoom
+        maximumZ = 19
         tileSize = CGSize(width: 256, height: 256)
     }
 
@@ -165,17 +207,35 @@ final class CachedTileOverlay: MKTileOverlay {
         let source = self.source
         let z = path.z, x = path.x, y = path.y
         Task.detached(priority: .userInitiated) {
-            if let d = TileStore.shared.data(source, z: z, x: x, y: y) {
-                result(d, nil)
-                return
-            }
             do {
-                let d = try await TileStore.fetch(source, z: z, x: x, y: y)
-                TileStore.shared.store(d, source, z: z, x: x, y: y)
-                result(d, nil)
+                result(try await CachedTileOverlay.tile(source, z: z, x: x, y: y), nil)
             } catch {
                 result(nil, error)
             }
+        }
+    }
+
+    static func tile(_ source: BaseMap, z: Int, x: Int, y: Int) async throws -> Data {
+        if z > source.maxZoom {
+            if let d = try? await TileStore.overzoom(source, z: z, x: x, y: y, from: source.maxZoom, network: false) { return d }
+        }
+        if z <= source.maxZoom, let d = TileStore.shared.data(source, z: z, x: x, y: y) { return d }
+        do {
+            if z > source.maxZoom {
+                return try await TileStore.overzoom(source, z: z, x: x, y: y, from: source.maxZoom, network: true)
+            }
+            let d = try await TileStore.fetch(source, z: z, x: x, y: y)
+            TileStore.shared.store(d, source, z: z, x: x, y: y)
+            return d
+        } catch {
+            // no signal: enlarge the closest lower zoom already on the phone
+            let top = min(z - 1, source.maxZoom)
+            if top >= 1 {
+                for base in stride(from: top, through: max(1, z - 6), by: -1) {
+                    if let d = try? await TileStore.overzoom(source, z: z, x: x, y: y, from: base, network: false) { return d }
+                }
+            }
+            throw error
         }
     }
 }

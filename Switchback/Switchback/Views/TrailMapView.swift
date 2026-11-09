@@ -1,14 +1,44 @@
 import MapKit
 import SwiftUI
 
-/// Trail lines drawn on the map.
+/// Trail lines drawn on the map: a white casing under a coloured line, so trails stand out on any base map.
 final class TrailLines: MKMultiPolyline {
-    enum Role { case trail, selected, track }
+    enum Role { case casing, line, trackCasing, track }
     var trailId = ""
-    var role: Role = .trail
+    var role: Role = .line
+    var color: UIColor = .systemGreen
+    var selected = false
 }
 
-/// A MapKit map with a choice of base map (Apple or topo tiles), trails, a recorded track and your location.
+/// A pin at the start of a trail.
+final class TrailheadAnnotation: NSObject, MKAnnotation {
+    let trailId: String
+    let coordinate: CLLocationCoordinate2D
+    let title: String?
+    let color: UIColor
+    let selected: Bool
+
+    init(trail: Trail, selected: Bool) {
+        trailId = trail.id
+        coordinate = trail.start.cl
+        title = trail.name
+        color = trail.difficulty.mapColor
+        self.selected = selected
+    }
+}
+
+extension Difficulty {
+    var mapColor: UIColor {
+        switch self {
+        case .easy: return UIColor(red: 0.12, green: 0.62, blue: 0.30, alpha: 1)
+        case .moderate: return UIColor(red: 0.10, green: 0.45, blue: 0.88, alpha: 1)
+        case .hard: return UIColor(red: 0.86, green: 0.20, blue: 0.16, alpha: 1)
+        case .veryHard: return UIColor(red: 0.47, green: 0.22, blue: 0.70, alpha: 1)
+        }
+    }
+}
+
+/// A MapKit map with a choice of base map (Apple or tiles), trails, trailheads, a recorded track and your location.
 struct TrailMapView: UIViewRepresentable {
     var baseMap: BaseMap
     var trails: [Trail] = []
@@ -56,96 +86,31 @@ struct TrailMapView: UIViewRepresentable {
 
     @MainActor
     final class Coordinator: NSObject, MKMapViewDelegate {
+        private struct Shown {
+            let signature: String
+            let casing: TrailLines
+            let line: TrailLines
+            let head: TrailheadAnnotation
+        }
+
         var parent: TrailMapView?
         private var base: BaseMap?
         private var tileOverlay: CachedTileOverlay?
-        private var trailOverlays: [TrailLines] = []
-        private var shownTrailIds: [String] = []
-        private var shownSelected: String?
-        private var trackOverlay: TrailLines?
+        private var shown: [String: Shown] = [:]
+        private var lastSelected: String?
+        private var trackOverlays: [TrailLines] = []
         private var trackCount = -1
         private var lastCamera: UUID?
-        private var startPin: MKPointAnnotation?
         private var wasFollowing = false
         var pendingFit: BBox?
 
         func apply(_ p: TrailMapView, to map: MKMapView) {
             parent = p
+            applyBase(p, map)
+            applyTrails(p, map)
+            applyTrack(p, map)
 
-            if base != p.baseMap {
-                base = p.baseMap
-                if let t = tileOverlay {
-                    map.removeOverlay(t)
-                    tileOverlay = nil
-                }
-                switch p.baseMap {
-                case .standard:
-                    map.preferredConfiguration = MKStandardMapConfiguration(elevationStyle: .realistic, emphasisStyle: .default)
-                case .satellite:
-                    map.preferredConfiguration = MKHybridMapConfiguration(elevationStyle: .realistic)
-                case .topo, .usgs:
-                    map.preferredConfiguration = MKStandardMapConfiguration()
-                    let o = CachedTileOverlay(source: p.baseMap)
-                    map.insertOverlay(o, at: 0, level: .aboveLabels)
-                    tileOverlay = o
-                }
-                map.cameraZoomRange = MKMapView.CameraZoomRange(minCenterCoordinateDistance: p.baseMap.isTiled ? (p.baseMap == .topo ? 700 : 1400) : 80)
-            }
-
-            let ids = p.trails.map(\.id)
-            if ids != shownTrailIds || p.selectedId != shownSelected {
-                map.removeOverlays(trailOverlays)
-                trailOverlays = []
-                var selected: TrailLines?
-                for t in p.trails {
-                    let lines = TrailLines(t.segments.map { seg in
-                        var coords = seg.map(\.cl)
-                        return MKPolyline(coordinates: &coords, count: coords.count)
-                    })
-                    lines.trailId = t.id
-                    if t.id == p.selectedId {
-                        lines.role = .selected
-                        selected = lines
-                    } else {
-                        trailOverlays.append(lines)
-                    }
-                }
-                if let selected { trailOverlays.append(selected) }   // drawn on top
-                map.addOverlays(trailOverlays, level: .aboveLabels)
-                shownTrailIds = ids
-                shownSelected = p.selectedId
-
-                if let pin = startPin { map.removeAnnotation(pin) }
-                startPin = nil
-                if let id = p.selectedId, let t = p.trails.first(where: { $0.id == id }) {
-                    let pin = MKPointAnnotation()
-                    pin.coordinate = t.start.cl
-                    pin.title = "Trailhead"
-                    map.addAnnotation(pin)
-                    startPin = pin
-                }
-            }
-
-            let count = p.track.reduce(0) { $0 + $1.count }
-            if count != trackCount {
-                trackCount = count
-                if let old = trackOverlay { map.removeOverlay(old) }
-                trackOverlay = nil
-                let segs = p.track.filter { $0.count > 1 }
-                if !segs.isEmpty {
-                    let lines = TrailLines(segs.map { seg in
-                        var coords = seg.map(\.cl)
-                        return MKPolyline(coordinates: &coords, count: coords.count)
-                    })
-                    lines.role = .track
-                    map.addOverlay(lines, level: .aboveLabels)
-                    trackOverlay = lines
-                }
-            }
-
-            if p.followUser && !wasFollowing {
-                map.setUserTrackingMode(.follow, animated: true)
-            }
+            if p.followUser && !wasFollowing { map.setUserTrackingMode(.follow, animated: true) }
             wasFollowing = p.followUser
 
             if let c = p.camera, c.id != lastCamera {
@@ -157,6 +122,125 @@ struct TrailMapView: UIViewRepresentable {
                 }
             }
             applyPendingFit(map, attempts: 10)
+        }
+
+        private func applyBase(_ p: TrailMapView, _ map: MKMapView) {
+            guard base != p.baseMap else { return }
+            base = p.baseMap
+            if let t = tileOverlay {
+                map.removeOverlay(t)
+                tileOverlay = nil
+            }
+            switch p.baseMap {
+            case .standard:
+                map.preferredConfiguration = MKStandardMapConfiguration(elevationStyle: .realistic, emphasisStyle: .muted)
+            case .satellite:
+                map.preferredConfiguration = MKHybridMapConfiguration(elevationStyle: .realistic)
+            case .topo, .usgs, .usgsImagery:
+                map.preferredConfiguration = MKStandardMapConfiguration()
+                let o = CachedTileOverlay(source: p.baseMap)
+                map.insertOverlay(o, at: 0, level: .aboveLabels)
+                tileOverlay = o
+            }
+            map.cameraZoomRange = MKMapView.CameraZoomRange(minCenterCoordinateDistance: p.baseMap.isTiled ? 250 : 80)
+        }
+
+        private func signature(_ t: Trail, selected: Bool) -> String {
+            "\(t.difficulty.rawValue)|\(selected)|\(t.segments.count)|\(t.path.count)"
+        }
+
+        /// Adds and removes only the trails that changed, so panning and selecting don't redraw everything.
+        private func applyTrails(_ p: TrailMapView, _ map: MKMapView) {
+            var wanted: [String: Trail] = [:]
+            for t in p.trails where wanted[t.id] == nil { wanted[t.id] = t }
+
+            var oldOverlays: [MKOverlay] = []
+            var oldHeads: [MKAnnotation] = []
+            for (id, s) in shown {
+                if let t = wanted[id], signature(t, selected: id == p.selectedId) == s.signature { continue }
+                oldOverlays.append(s.casing)
+                oldOverlays.append(s.line)
+                oldHeads.append(s.head)
+                shown[id] = nil
+            }
+            if !oldOverlays.isEmpty { map.removeOverlays(oldOverlays) }
+            if !oldHeads.isEmpty { map.removeAnnotations(oldHeads) }
+
+            var newOverlays: [MKOverlay] = []
+            var newHeads: [MKAnnotation] = []
+            var selectedOverlays: [MKOverlay] = []
+            for t in p.trails where shown[t.id] == nil {
+                let isSelected = t.id == p.selectedId
+                let casing = TrailLines(Self.polylines(t.segments))
+                casing.role = .casing
+                casing.trailId = t.id
+                casing.selected = isSelected
+                let line = TrailLines(Self.polylines(t.segments))
+                line.role = .line
+                line.trailId = t.id
+                line.selected = isSelected
+                line.color = t.difficulty.mapColor
+                let head = TrailheadAnnotation(trail: t, selected: isSelected)
+                shown[t.id] = Shown(signature: signature(t, selected: isSelected), casing: casing, line: line, head: head)
+                if isSelected {
+                    selectedOverlays = [casing, line]
+                } else {
+                    newOverlays.append(casing)
+                    newOverlays.append(line)
+                }
+                newHeads.append(head)
+            }
+            // keep the selected trail on top of anything just added
+            if selectedOverlays.isEmpty, !newOverlays.isEmpty, let id = p.selectedId, let s = shown[id] {
+                map.removeOverlays([s.casing, s.line])
+                selectedOverlays = [s.casing, s.line]
+            }
+            if !newOverlays.isEmpty || !selectedOverlays.isEmpty {
+                map.addOverlays(newOverlays + selectedOverlays, level: .aboveLabels)
+            }
+            if !newHeads.isEmpty { map.addAnnotations(newHeads) }
+
+            // fade the other trails while one is selected
+            if p.selectedId != lastSelected {
+                lastSelected = p.selectedId
+                for s in shown.values {
+                    for o in [s.casing, s.line] {
+                        if let r = map.renderer(for: o) {
+                            r.alpha = alpha(for: o)
+                            r.setNeedsDisplay()
+                        }
+                    }
+                }
+            }
+        }
+
+        private func applyTrack(_ p: TrailMapView, _ map: MKMapView) {
+            let count = p.track.reduce(0) { $0 + $1.count }
+            guard count != trackCount else { return }
+            trackCount = count
+            if !trackOverlays.isEmpty { map.removeOverlays(trackOverlays) }
+            trackOverlays = []
+            let segs = p.track.filter { $0.count > 1 }
+            guard !segs.isEmpty else { return }
+            let casing = TrailLines(Self.polylines(segs))
+            casing.role = .trackCasing
+            let line = TrailLines(Self.polylines(segs))
+            line.role = .track
+            trackOverlays = [casing, line]
+            map.addOverlays(trackOverlays, level: .aboveLabels)
+        }
+
+        private static func polylines(_ segments: [[Coord]]) -> [MKPolyline] {
+            segments.map { seg in
+                var coords = seg.map(\.cl)
+                return MKPolyline(coordinates: &coords, count: coords.count)
+            }
+        }
+
+        private func alpha(for overlay: MKOverlay) -> CGFloat {
+            guard let lines = overlay as? TrailLines, lines.role == .casing || lines.role == .line,
+                  let selected = parent?.selectedId else { return 1 }
+            return lines.trailId == selected ? 1 : 0.35
         }
 
         private func applyPendingFit(_ map: MKMapView, attempts: Int) {
@@ -198,19 +282,61 @@ struct TrailMapView: UIViewRepresentable {
                 r.lineCap = .round
                 r.lineJoin = .round
                 switch lines.role {
-                case .trail:
-                    r.strokeColor = UIColor(red: 0.85, green: 0.38, blue: 0.12, alpha: 0.9)
-                    r.lineWidth = 3
-                case .selected:
-                    r.strokeColor = UIColor(red: 0.10, green: 0.55, blue: 0.30, alpha: 1)
-                    r.lineWidth = 6
+                case .casing:
+                    r.strokeColor = UIColor.white.withAlphaComponent(0.95)
+                    r.lineWidth = lines.selected ? 10 : 6
+                case .line:
+                    r.strokeColor = lines.color
+                    r.lineWidth = lines.selected ? 6 : 3.2
+                case .trackCasing:
+                    r.strokeColor = UIColor.white
+                    r.lineWidth = 8
                 case .track:
                     r.strokeColor = UIColor.systemBlue
                     r.lineWidth = 5
                 }
+                r.alpha = alpha(for: lines)
                 return r
             }
             return MKOverlayRenderer(overlay: overlay)
+        }
+
+        func mapView(_ mapView: MKMapView, viewFor annotation: MKAnnotation) -> MKAnnotationView? {
+            if let head = annotation as? TrailheadAnnotation {
+                let view = (mapView.dequeueReusableAnnotationView(withIdentifier: "trailhead") as? MKMarkerAnnotationView)
+                    ?? MKMarkerAnnotationView(annotation: head, reuseIdentifier: "trailhead")
+                view.annotation = head
+                view.markerTintColor = head.color
+                view.glyphImage = UIImage(systemName: "figure.hiking")
+                view.clusteringIdentifier = head.selected ? nil : "trailheads"
+                view.displayPriority = head.selected ? .required : .defaultHigh
+                view.titleVisibility = .adaptive
+                view.subtitleVisibility = .hidden
+                return view
+            }
+            if let cluster = annotation as? MKClusterAnnotation {
+                let view = (mapView.dequeueReusableAnnotationView(withIdentifier: "trailheads") as? MKMarkerAnnotationView)
+                    ?? MKMarkerAnnotationView(annotation: cluster, reuseIdentifier: "trailheads")
+                view.annotation = cluster
+                view.markerTintColor = UIColor(red: 0.13, green: 0.42, blue: 0.27, alpha: 1)
+                view.glyphText = "\(cluster.memberAnnotations.count)"
+                view.titleVisibility = .hidden
+                view.subtitleVisibility = .hidden
+                view.displayPriority = .defaultHigh
+                return view
+            }
+            return nil
+        }
+
+        func mapView(_ mapView: MKMapView, didSelect view: MKAnnotationView) {
+            if let head = view.annotation as? TrailheadAnnotation {
+                mapView.deselectAnnotation(head, animated: false)
+                let id = head.trailId
+                Task { @MainActor [weak self] in self?.parent?.onSelect?(id) }
+            } else if let cluster = view.annotation as? MKClusterAnnotation {
+                mapView.deselectAnnotation(cluster, animated: false)
+                mapView.showAnnotations(cluster.memberAnnotations, animated: true)
+            }
         }
 
         func mapView(_ mapView: MKMapView, regionDidChangeAnimated animated: Bool) {
@@ -223,8 +349,13 @@ struct TrailMapView: UIViewRepresentable {
         @objc func tapped(_ g: UITapGestureRecognizer) {
             guard let map = g.view as? MKMapView, let p = parent, let onSelect = p.onSelect else { return }
             let point = g.location(in: map)
-            // let taps on the map's own buttons and pins through
-            if let hit = map.hitTest(point, with: nil), hit is UIControl || hit is MKAnnotationView { return }
+            // let taps on the map's own buttons and on pins through
+            var hit = map.hitTest(point, with: nil)
+            while let v = hit {
+                if v is UIControl || v is MKAnnotationView { return }
+                if v === map { break }
+                hit = v.superview
+            }
             let coord = Coord(map.convert(point, toCoordinateFrom: map))
             let metersPerPoint = map.region.span.latitudeDelta * Geo.metersPerDegree / max(1, Double(map.bounds.height))
             let threshold = 22 * metersPerPoint

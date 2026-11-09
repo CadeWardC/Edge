@@ -23,7 +23,6 @@ struct OfflineArea: Codable, Identifiable, Hashable {
 final class OfflineStore: ObservableObject {
     static let shared = OfflineStore()
     static let maxTiles = 12_000
-    static let averageTileBytes: Int64 = 20_000
 
     @Published private(set) var areas: [OfflineArea] = []
     @Published private(set) var progress: [UUID: Double] = [:]

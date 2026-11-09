@@ -55,7 +55,7 @@ struct OfflineAreasView: View {
     var body: some View {
         List {
             Section {
-                Text("Download the topo map and the trails for an area before you lose signal. Without signal, switch the map style to Topo (or USGS) to see them.")
+                Text("Download a topo or satellite map and the trails for an area before you lose signal. Without signal, switch the map style to the one you downloaded.")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             }
@@ -130,8 +130,7 @@ struct NewOfflineAreaView: View {
     @State private var name = ""
     @State private var detail = 15
     @State private var start: CameraRequest?
-
-    private var source: BaseMap { baseMap.offlineSource }
+    @State private var source: BaseMap = .topo
     private var box: BBox? { region.map { BBox(region: $0) } }
     private var count: Int {
         guard let box else { return 0 }
@@ -150,6 +149,9 @@ struct NewOfflineAreaView: View {
                 }
                 Form {
                     TextField("Name (e.g. Yosemite Valley)", text: $name)
+                    Picker("Map", selection: $source) {
+                        ForEach(BaseMap.allCases.filter(\.isTiled)) { Text($0.title).tag($0) }
+                    }
                     Picker("Detail", selection: $detail) {
                         Text("Low").tag(13)
                         Text("Medium").tag(14)
@@ -167,7 +169,7 @@ struct NewOfflineAreaView: View {
                             .foregroundStyle(.secondary)
                     }
                 }
-                .frame(height: 290)
+                .frame(height: 330)
             }
             .navigationTitle("Download area")
             .navigationBarTitleDisplayMode(.inline)
@@ -182,7 +184,9 @@ struct NewOfflineAreaView: View {
                     .disabled(box == nil || count == 0 || count > OfflineStore.maxTiles)
                 }
             }
+            .onChange(of: source) { _, new in detail = min(detail, new.maxZoom) }
             .onAppear {
+                source = baseMap.offlineSource
                 if let r = explore.visibleRegion {
                     start = CameraRequest(region: r)
                 } else if let loc = recorder.lastLocation {
@@ -193,7 +197,7 @@ struct NewOfflineAreaView: View {
     }
 
     private var sizeText: String {
-        let bytes = Int64(count) * OfflineStore.averageTileBytes
+        let bytes = Int64(count) * source.averageTileBytes
         return "\(count.formatted()) tiles · about \(ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file))"
     }
 }

@@ -153,6 +153,33 @@ enum Geo {
         return out
     }
 
+    /// Drops points that don't change the line's shape by more than `tolerance` metres (Douglas–Peucker).
+    static func simplify(_ pts: [Coord], tolerance: Double) -> [Coord] {
+        guard pts.count > 2 else { return pts }
+        var keep = [Bool](repeating: false, count: pts.count)
+        keep[0] = true
+        keep[pts.count - 1] = true
+        var stack: [(Int, Int)] = [(0, pts.count - 1)]
+        while let range = stack.popLast() {
+            let (a, b) = range
+            guard b > a + 1 else { continue }
+            var maxD = 0.0, idx = a
+            for i in (a + 1)..<b {
+                let d = project(pts[i], pts[a], pts[b]).distance
+                if d > maxD {
+                    maxD = d
+                    idx = i
+                }
+            }
+            if maxD > tolerance {
+                keep[idx] = true
+                stack.append((a, idx))
+                stack.append((idx, b))
+            }
+        }
+        return pts.indices.filter { keep[$0] }.map { pts[$0] }
+    }
+
     /// Distance in metres from `p` to the segment a–b, and where along it (0…1) the closest point is.
     static func project(_ p: Coord, _ a: Coord, _ b: Coord) -> (distance: Double, t: Double) {
         let k = cos(p.lat * .pi / 180) * metersPerDegree

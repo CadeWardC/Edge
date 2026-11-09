@@ -3,9 +3,13 @@
 A separate iPhone app from Edge and Shuō. Like the big trail apps, but built on open data with no account, no
 subscription and no API keys.
 
-- **Explore:** trails around you or anywhere you search, drawn on the map (Apple Maps, satellite, OpenTopoMap topo, or
-  USGS topo in the US). Tap a line to see the trail; switch to the list to sort (closest, shortest, longest, least or
-  most climb) and filter (difficulty, length, elevation gain, loops only).
+- **Explore:** trails load by themselves as you move the map, drawn in their difficulty colour with a white outline and
+  a hiker pin at each trailhead (pins group into numbered bubbles when they crowd). Base maps: Apple Maps, satellite,
+  OpenTopoMap topo, and USGS topo or USGS satellite in the US. Tap a line or pin to see the trail; switch to the list to
+  sort (closest, shortest, longest, least or most climb) and filter (difficulty, length, elevation gain, loops only).
+- **Fast:** trails found are cached on the phone in 0.05° cells for two weeks, so places you've seen load instantly and a
+  search only fetches the cells it doesn't have. If the main Overpass server is slow, a second one is asked after 3 s
+  and the first answer wins. Trail shapes are simplified (Douglas–Peucker, 3 m) to draw quickly.
 - **Trail page:** the route on a map, length, elevation gain, descent, highest point, estimated time (Naismith's rule),
   difficulty, an interactive elevation chart, OpenStreetMap details (SAC scale, surface, network, operator, website),
   driving directions to the trailhead, GPX export and a bookmark to save it.
@@ -13,7 +17,8 @@ subscription and no API keys.
   elevation gain). Follow a trail and it shows how far is left, and buzzes (plus a notification when the phone is
   locked) if you go more than 60 m off it. A hike in progress survives the app being closed.
 - **Saved:** bookmarked trails, GPX import (from Files or "Open in Switchback"), and **offline maps**: download the topo
-  tiles and the trails for an area, then use it without signal.
+  or USGS satellite tiles and the trails for an area, then use it without signal. Zooming in past a map's last level (or
+  past what you downloaded) enlarges the closest tiles instead of going blank.
 - **Activity:** every recorded hike with its map, stats and elevation chart; share as GPX, rename, or save it as a
   trail to follow again.
 
@@ -24,7 +29,8 @@ subscription and no API keys.
 | Trails | [OpenStreetMap](https://www.openstreetmap.org) via the [Overpass API](https://overpass-api.de) (hiking route relations, plus named paths) | ODbL |
 | Elevation | [Open-Meteo elevation API](https://open-meteo.com/en/docs/elevation-api) (Copernicus DEM GLO-90) | CC BY 4.0 |
 | Topo map | [OpenTopoMap](https://opentopomap.org) | CC-BY-SA |
-| US topo map | [USGS The National Map](https://basemap.nationalmap.gov) | Public domain |
+| US topo map | [USGS The National Map](https://basemap.nationalmap.gov) (USGSTopo) | Public domain |
+| US satellite | [USGS The National Map](https://basemap.nationalmap.gov) (USGSImageryOnly, NAIP aerial photos) | Public domain |
 
 Difficulty is worked out from length + climb (and the SAC scale when mapped); OSM has no star ratings or reviews.
 Offline downloads are capped at 12,000 tiles per area and use three connections at a time, to stay polite to the free
