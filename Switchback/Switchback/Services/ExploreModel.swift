@@ -374,6 +374,9 @@ final class ExploreModel: ObservableObject {
     }
 
     func center(on location: CLLocation) {
+        // get this area's trail file ready before the map even moves there
+        let here = Coord(location.coordinate)
+        Task.detached(priority: .utility) { await TrailPacks.shared.prefetch(near: here) }
         cameraRequest = CameraRequest(region: MKCoordinateRegion(center: location.coordinate,
                                                                  latitudinalMeters: 8_000, longitudinalMeters: 8_000))
     }

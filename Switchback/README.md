@@ -27,7 +27,7 @@ subscription and no API keys.
   it's a fraction of the size of map pictures.
 - **Compact storage:** trail lines are saved as encoded polylines (about 6 characters a point instead of ~40) and every
   file the app writes is compressed with LZFSE; files from earlier versions still load.
-- **Trail packs (fastest, lightest), all US states:** `.github/workflows/trail-packs.yml` turns each state's
+- **Trail packs (fastest, lightest), US states and Canadian provinces:** `.github/workflows/trail-packs.yml` turns each state's
   OpenStreetMap extract (Geofabrik) into one compact file per state (`<state>.trails`: a table of contents, then one
   compressed block per 0.25° cell), all published weekly in the single release `trails-us` with `regions.json`. The app
   downloads a state's file once, the first time the map shows it, then has every trail there instantly and offline,
@@ -40,6 +40,11 @@ subscription and no API keys.
   its area (the smallest named park, nature reserve or protected area it lies in); names unnamed paths from the map
   where it's certain ("Connector: A – B", "A spur"); and drops unnamed paths outside parks that join no trail and
   aren't tagged for hiking. No live search is needed inside covered states. The list groups trails by area, and search matches area names.
+- **Regions:** the pack job's matrix in `trail-packs.yml` lists the areas (any Geofabrik extract); each becomes one
+  `.trails` file with its country, display name and the 1° squares it has trails in (`coverage`), so the app knows
+  exactly which file covers a place. US states are built in; others download in the background as soon as the map
+  knows your location (or the map shows them), and Settings › Trail regions lists them all to download ahead of a
+  trip or remove.
 - **Fast:** trails found are cached on the phone in 0.05° cells for two weeks, so places you've seen load instantly and a
   search only fetches the cells it doesn't have. If the main Overpass server is slow, a second one is asked after 3 s
   and the first answer wins. Trail shapes are simplified (Douglas–Peucker, 3 m) to draw quickly.

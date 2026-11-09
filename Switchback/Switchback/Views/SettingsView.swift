@@ -63,6 +63,11 @@ struct SettingsView: View {
                     if let updateResult {
                         Text(updateResult).font(.footnote).foregroundStyle(.secondary)
                     }
+                    NavigationLink {
+                        TrailRegionsView()
+                    } label: {
+                        Label("Trail regions", systemImage: "square.stack.3d.down.right")
+                    }
                     if packStatus.isEmpty {
                         Text("No state trail files yet; they download when the map first shows a state.")
                             .foregroundStyle(.secondary)
@@ -71,7 +76,7 @@ struct SettingsView: View {
                 } header: {
                     Text("Trail files")
                 } footer: {
-                    Text("Every state's trails come with the app, so they work offline from the start. They're rebuilt from OpenStreetMap every week; the app picks up new versions for the states you look at by itself every few days, or right away here.")
+                    Text("Every US state's trails come with the app, so they work offline from the start; other regions download when the map shows them. They're rebuilt from OpenStreetMap every week; the app picks up new versions for the states you look at by itself every few days, or right away here.")
                 }
                 Section("Data") {
                     Text("Trails: © OpenStreetMap contributors, available under the Open Database Licence.")

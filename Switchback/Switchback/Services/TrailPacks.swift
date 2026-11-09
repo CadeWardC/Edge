@@ -15,8 +15,41 @@ actor TrailPacks {
         let version: String
         let bbox: [Double]
         let bytes: Int?
+        let name: String?
+        let country: String?
+        /// The 1° squares ("lat_lon") with trails, so a far-flung region (France with its overseas parts) only
+        /// counts where it really has trails.
+        let coverage: [String]?
+        let trails: Int?
 
         var box: BBox { BBox(south: bbox[0], west: bbox[1], north: bbox[2], east: bbox[3]).expanded(byDegrees: 0.05) }
+
+        func covers(_ b: BBox) -> Bool {
+            guard bbox.count == 4, box.intersects(b) else { return false }
+            guard let coverage, !coverage.isEmpty else { return true }
+            let set = Set(coverage)
+            for lat in Int(floor(b.south))...Int(floor(b.north)) {
+                for lon in Int(floor(b.west))...Int(floor(b.east)) where set.contains("\(lat)_\(lon)") { return true }
+            }
+            return false
+        }
+
+        func contains(_ c: Coord) -> Bool {
+            guard bbox.count == 4, box.contains(c) else { return false }
+            guard let coverage, !coverage.isEmpty else { return true }
+            return coverage.contains("\(Int(floor(c.lat)))_\(Int(floor(c.lon)))")
+        }
+    }
+
+    /// A region as shown in Settings.
+    struct Summary: Identifiable, Hashable {
+        let id: String
+        let name: String
+        let country: String
+        let bytes: Int
+        let trails: Int
+        let onPhone: Bool
+        let builtIn: Bool
     }
 
     private struct RegionList: Codable { let regions: [String: Region] }
@@ -73,7 +106,7 @@ actor TrailPacks {
 
     /// Trails from the packs for the box, or nil if no pack covers it.
     func trails(in box: BBox) async -> Result? {
-        guard let regions = await regionList()?.regions.values.filter({ $0.bbox.count == 4 && $0.box.intersects(box) }),
+        guard let regions = await regionList()?.regions.values.filter({ $0.covers(box) }),
               !regions.isEmpty else { return nil }
         var trails: [Trail] = []
         var loaded = 0
@@ -85,7 +118,7 @@ actor TrailPacks {
             }
         }
         guard loaded > 0 else { return nil }
-        let inside = regions.contains { $0.box.contains(box.center) }
+        let inside = regions.contains { $0.contains(box.center) }
         return Result(trails: trails, complete: loaded == regions.count && inside)
     }
 
@@ -275,6 +308,47 @@ actor TrailPacks {
             guard let dash = base.lastIndex(of: "-") else { return nil }
             return String(base[..<dash])
         })
+    }
+
+    // MARK: Regions
+
+    /// Downloads (if needed) the trails for wherever you are, as soon as the map knows your location.
+    func prefetch(near c: Coord) async {
+        guard let list = await regionList() else { return }
+        for r in list.regions.values where r.contains(c) {
+            if let p = packs[r.region], p.header.version == r.version { continue }
+            _ = await pack(for: r)
+        }
+    }
+
+    /// Every region, with whether it's on the phone, for Settings.
+    func summaries() async -> [Summary] {
+        guard let list = await regionList() else { return [] }
+        let downloaded = Self.downloadedRegions(in: dir)
+        return list.regions.values.map { r in
+            Summary(id: r.region, name: r.name ?? r.region.replacingOccurrences(of: "-", with: " ").capitalized,
+                    country: r.country ?? "US", bytes: r.bytes ?? 0, trails: r.trails ?? 0,
+                    onPhone: downloaded.contains(r.region) || Self.bundledFile(r.region) != nil,
+                    builtIn: Self.bundledFile(r.region) != nil)
+        }.sorted { ($0.country, $0.name) < ($1.country, $1.name) }
+    }
+
+    /// Downloads one region now (for planning a trip). Returns whether it worked.
+    func download(region id: String) async -> Bool {
+        guard let r = await regionList()?.regions[id] else { return false }
+        let url = dir.appendingPathComponent("\(r.region)-\(r.version).trails")
+        if open(url) != nil { return true }
+        return await download(r, to: url) != nil
+    }
+
+    /// Removes a downloaded region (a built-in one stays).
+    func remove(region id: String) {
+        packs[id] = nil
+        memory = memory.filter { !$0.key.hasPrefix(id + "/") }
+        let files = (try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)) ?? []
+        for f in files where f.pathExtension == "trails" && f.lastPathComponent.hasPrefix(id + "-") {
+            try? FileManager.default.removeItem(at: f)
+        }
     }
 
     // MARK: Settings

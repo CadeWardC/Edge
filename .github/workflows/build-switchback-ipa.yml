@@ -36,7 +36,7 @@ jobs:
 
       - name: Build in trail packs (fast first launch, works offline from the start)
         env:
-          # states whose trail files ship inside the app ("all" for every state; or a list like "missouri kansas")
+          # areas whose trail files ship inside the app ("all" = every US state; or a list like "missouri kansas")
           BUNDLED_STATES: "all"
         run: |
           mkdir -p Switchback/Switchback/Resources/Packs
@@ -44,7 +44,8 @@ jobs:
           curl -fsSL --retry 4 -o Switchback/Switchback/Resources/Packs/regions.json "$base/regions.json" || echo "no regions.json yet"
           states="$BUNDLED_STATES"
           if [ "$states" = "all" ] && [ -f Switchback/Switchback/Resources/Packs/regions.json ]; then
-            states=$(python3 -c "import json; print(' '.join(json.load(open('Switchback/Switchback/Resources/Packs/regions.json'))['regions']))")
+            # every US state (other countries download when the map first shows them)
+            states=$(python3 -c "import json; r=json.load(open('Switchback/Switchback/Resources/Packs/regions.json'))['regions']; print(' '.join(k for k, v in r.items() if v.get('country', 'US') == 'US'))")
           fi
           for s in $states; do
             curl -fsSL --retry 4 -o "Switchback/Switchback/Resources/Packs/$s.trails" "$base/$s.trails" || echo "no pack for $s yet"

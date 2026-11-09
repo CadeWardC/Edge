@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Builds Switchback's lightweight trail packs from an OpenStreetMap extract.
 
-    build_trail_pack.py <region.osm.pbf> <region-name> <out-dir>
+    build_trail_pack.py <region.osm.pbf> <region-id> <out-dir> [country] [display name]
 
 Writes, into <out-dir>:
   c_<row>_<col>.z   one file per 0.25° cell that has trails: a raw-DEFLATE-compressed JSON list of trails in exactly
@@ -398,11 +398,15 @@ def main():
     so the app downloads the state once and unpacks only the cells it needs.
     """
     pbf, region, out = sys.argv[1], sys.argv[2], sys.argv[3]
+    country = sys.argv[4] if len(sys.argv) > 4 else "US"
+    display = sys.argv[5] if len(sys.argv) > 5 else region.replace("-", " ").title()
     os.makedirs(out, exist_ok=True)
     trails = build(pbf)
     cells = defaultdict(list)
+    coverage = set()   # 1° squares with trails: lets the app tell exactly which regions cover a place
     lats, lons = [], []
     for t, start in trails:
+        coverage.add(f"{math.floor(start[0])}_{math.floor(start[1])}")
         row, col = math.floor(start[0] / CELL), math.floor(start[1] / CELL)
         cells[f"{row}_{col}"].append(t)
         lats.append(start[0])
@@ -423,8 +427,9 @@ def main():
         f.write(MAGIC + len(header).to_bytes(4, "big") + header + b"".join(blobs))
     size = len(MAGIC) + 4 + len(header) + offset
     with open(os.path.join(out, f"{region}.json"), "w") as f:
-        json.dump({"region": region, "version": version, "bbox": bbox, "cells": len(table), "bytes": size,
-                   "trails": len(trails)}, f, separators=(",", ":"))
+        json.dump({"region": region, "name": display, "country": country, "version": version, "bbox": bbox,
+                   "coverage": sorted(coverage), "cells": len(table), "bytes": size, "trails": len(trails)},
+                  f, separators=(",", ":"))
     named = sum(1 for t, _ in trails if not t.get("tags", {}).get("switchback:unnamed"))
     areas = len({t.get("tags", {}).get("switchback:area") for t, _ in trails} - {None})
     print(f"{region}: {len(trails)} trails ({named} named) in {areas} areas and {len(table)} cells, "
