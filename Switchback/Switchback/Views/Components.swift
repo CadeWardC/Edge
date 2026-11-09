@@ -93,7 +93,8 @@ struct TrailRow: View {
                     .font(.subheadline.monospacedDigit())
                     .foregroundStyle(.secondary)
                 if let d = distanceAway {
-                    Text("\(Fmt.distance(d)) away")
+                    Text("\(Fmt.distance(d)) away" + (trail.area.map { " · \($0)" } ?? ""))
+                        .lineLimit(1)
                         .font(.caption)
                         .foregroundStyle(.tertiary)
                 }

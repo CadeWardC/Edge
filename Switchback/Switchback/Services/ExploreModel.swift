@@ -104,9 +104,27 @@ final class ExploreModel: ObservableObject {
     private func matchesName(_ t: Trail) -> Bool {
         let words = Self.fold(nameFilter).split(whereSeparator: { $0 == " " || $0 == "'" || $0 == "-" }).map(String.init)
         guard !words.isEmpty else { return true }
-        guard !t.isUnnamed else { return false }
-        let name = Self.fold(t.name)
-        return words.allSatisfy { name.contains($0) }
+        // the trail's own name (not for unnamed paths), or its area: "cedar creek" finds everything in Cedar Creek
+        let name = t.isUnnamed && !t.name.hasPrefix("Connector") && !t.name.hasSuffix("spur") ? "" : Self.fold(t.name)
+        let area = Self.fold(t.area ?? "")
+        return words.allSatisfy { name.contains($0) } || (!area.isEmpty && words.allSatisfy { area.contains($0) })
+    }
+
+    /// The trails grouped by area, nearest area first (trails outside any area come last, as "Other trails").
+    func grouped(_ trails: [Trail]) -> [(area: String, trails: [Trail])] {
+        var order: [String] = []
+        var groups: [String: [Trail]] = [:]
+        for t in trails {
+            let key = t.area ?? ""
+            if groups[key] == nil { order.append(key) }
+            groups[key, default: []].append(t)
+        }
+        let named = order.filter { !$0.isEmpty }
+        let result = named.map { (area: $0, trails: groups[$0] ?? []) }
+        if let other = groups[""], !other.isEmpty {
+            return result + [(area: named.isEmpty ? "" : "Other trails", trails: other)]
+        }
+        return result
     }
 
     var filtered: [Trail] {

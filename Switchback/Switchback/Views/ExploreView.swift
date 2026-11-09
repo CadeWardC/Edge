@@ -181,13 +181,10 @@ struct ExploreView: View {
 
     private var listMode: some View {
         let trails = model.filtered
+        let groups = model.grouped(trails)
         return List {
             Section {
-                ForEach(trails) { t in
-                    NavigationLink(value: t) {
-                        TrailRow(trail: t, distanceAway: model.distanceFromUser(t))
-                    }
-                }
+                EmptyView()
             } header: {
                 HStack {
                     Text(model.isLoading ? "Searching…" : "\(trails.count) trails")
@@ -199,6 +196,30 @@ struct ExploreView: View {
                     } label: {
                         Label(model.sort.title, systemImage: "arrow.up.arrow.down")
                             .font(.caption.weight(.semibold))
+                    }
+                }
+            }
+            ForEach(groups, id: \.area) { group in
+                Section {
+                    ForEach(group.trails) { t in
+                        NavigationLink(value: t) {
+                            TrailRow(trail: t, distanceAway: model.distanceFromUser(t))
+                        }
+                    }
+                } header: {
+                    if !group.area.isEmpty {
+                        HStack(spacing: 6) {
+                            Image(systemName: group.area == "Other trails" ? "point.topleft.down.to.point.bottomright.curvepath" : "tree.fill")
+                                .foregroundStyle(Color.trailGreen)
+                            Text(group.area)
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(.primary)
+                                .textCase(nil)
+                            Spacer()
+                            Text("\(group.trails.count)")
+                                .font(.caption.monospacedDigit())
+                                .foregroundStyle(.secondary)
+                        }
                     }
                 }
             }

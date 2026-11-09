@@ -6,10 +6,53 @@ import Foundation
 actor TrailPacks {
     static let shared = TrailPacks()
 
-    /// States with packs, and roughly where they are (to know which index to ask for).
-    static let regions: [String: BBox] = [
+    /// Used until the list of regions has been downloaded once.
+    private static let fallbackRegions: [String: BBox] = [
         "missouri": BBox(south: 35.99, west: -95.78, north: 40.62, east: -89.09),
     ]
+
+    private struct RegionList: Codable {
+        struct Region: Codable { let bbox: [Double] }
+        let regions: [String: Region]
+    }
+
+    private struct StampedRegions: Codable {
+        let checked: Date
+        let regions: [String: BBox]
+    }
+
+    private var regionBoxes: [String: BBox]?
+    private var regionsFailedUntil = Date.distantPast
+
+    /// Which states have packs, and where (the release "trails-index", re-checked every few days).
+    private func regions() async -> [String: BBox] {
+        let file = dir.appendingPathComponent("regions.json")
+        let saved = Files.load(StampedRegions.self, from: file)
+        if let r = regionBoxes, let saved, Date().timeIntervalSince(saved.checked) < 3 * 86400 { return r }
+        if let saved, Date().timeIntervalSince(saved.checked) < 3 * 86400 {
+            regionBoxes = saved.regions
+            return saved.regions
+        }
+        if regionsFailedUntil > Date() { return regionBoxes ?? saved?.regions ?? Self.fallbackRegions }
+        do {
+            let data = try await Self.get("https://github.com/CadeWardC/Edge/releases/download/trails-index/regions.json")
+            let list = try JSONDecoder().decode(RegionList.self, from: data)
+            var boxes: [String: BBox] = [:]
+            for (name, r) in list.regions where r.bbox.count == 4 {
+                boxes[name] = BBox(south: r.bbox[0], west: r.bbox[1], north: r.bbox[2], east: r.bbox[3]).expanded(byDegrees: 0.05)
+            }
+            if !boxes.isEmpty {
+                Files.save(StampedRegions(checked: Date(), regions: boxes), to: file)
+                regionBoxes = boxes
+                return boxes
+            }
+        } catch {
+            regionsFailedUntil = Date().addingTimeInterval(10 * 60)
+        }
+        let r = regionBoxes ?? saved?.regions ?? Self.fallbackRegions
+        regionBoxes = r
+        return r
+    }
 
     private struct Index: Codable {
         let version: String
@@ -40,12 +83,14 @@ actor TrailPacks {
 
     /// Trails from the packs for the box, or nil if no pack covers any of it.
     func trails(in box: BBox) async -> Result? {
-        let regions = Self.regions.filter { $0.value.intersects(box) }.map(\.key)
+        let all = await regions()
+        let regions = all.filter { $0.value.intersects(box) }.map(\.key)
         guard !regions.isEmpty else { return nil }
         var trails: [Trail] = []
-        var wanted = 0, covered = 0
+        var wanted = 0, covered = 0, loaded = 0
         for region in regions {
             guard let index = await index(for: region) else { continue }
+            loaded += 1
             for key in Self.cells(box, size: index.cell) {
                 wanted += 1
                 guard index.cells[key] != nil else { continue }
@@ -55,8 +100,10 @@ actor TrailPacks {
                 }
             }
         }
-        guard wanted > 0, covered > 0 else { return nil }
-        return Result(trails: trails, complete: covered == wanted)
+        guard loaded > 0 else { return nil }
+        // inside a state that has packs, a cell without a file simply has no trails
+        let inside = all.values.contains { $0.contains(box.center) }
+        return Result(trails: trails, complete: loaded == regions.count && (covered == wanted || inside))
     }
 
     static func cells(_ box: BBox, size: Double) -> [String] {

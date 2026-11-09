@@ -43,6 +43,11 @@ struct TrailDetailView: View {
                 VStack(alignment: .leading, spacing: 6) {
                     Text(t.name)
                         .font(.title2.bold())
+                    if let area = t.area {
+                        Label(area, systemImage: "tree.fill")
+                            .font(.subheadline.weight(.medium))
+                            .foregroundStyle(Color.trailGreen)
+                    }
                     HStack(spacing: 8) {
                         DifficultyBadge(difficulty: t.difficulty)
                         Text(t.routeTypeTitle)

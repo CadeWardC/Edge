@@ -47,6 +47,9 @@ enum TileTrails {
 }
 
 extension Trail {
+    /// The park, reserve or protected area the trail is in (from the trail packs).
+    var area: String? { tags["switchback:area"] }
+
     /// Read from the map tiles, waiting for the exact version.
     var isPreview: Bool { tags[TileTrails.previewTag] == "yes" }
 }
