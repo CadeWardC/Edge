@@ -19,9 +19,23 @@ SideStore, Sideloadly or TrollStore, like Edge). CI first runs the headless simu
   Light / Armored / Structure armor classes with bonus damage; units get Veteran (4 kills) and Elite (10 kills) ranks.
 - **Tech:** Barracks → Factory and Tech Lab. Lab upgrades: Weapons I/II, Plating I/II, Siege Mode, Sprint.
   Turrets for defense.
-- **Fog of war** with explored/seen/visible areas; enemy buildings are remembered where you last saw them.
-- **Four maps:** Crossroads and Twin Rivers (1v1), Highlands (up to 4, free-for-all), Frontier (2v2).
-  All are symmetric and checked for paths between every start.
+- **Fog of war** with explored/seen/visible areas; enemy buildings are remembered where you last saw them. A player
+  with no Command Center left has their remaining buildings revealed, so games never stall on a hidden depot.
+- **High ground:** main bases sit on plateaus ringed by cliffs with one ramp. Ground units can't see up a cliff (so they
+  can't shoot what's up there) unless a unit up top, a gunship, a Radar Tower or a watch tower gives vision; shooting
+  uphill does 25% less damage. Small hills and mesas dot the maps.
+- **Watch towers:** a ground unit standing alone next to one gives its team vision 560 around it, cliffs included.
+- **Rich (violet) crystals** at exposed expansions: 12 per trip instead of 8.
+- **Building specializations:** each Command Center, Barracks and Factory can specialize once, choosing one of two:
+  Fortress (heavy gun, +600 HP) or Refinery (+25% crystals); Drill Yard (60% faster) or Armory (+25% infantry HP);
+  Assembly Line (50% faster) or Reactive Armor (+2 vehicle armor). Plus a **Radar Tower** (vision 640, sees up
+  cliffs), a **Shield Generator** (30% less damage within 230) and **drone repair** for buildings and vehicles.
+- **Seven maps in four biomes:** Crossroads and Twin Rivers (grassland), Dune Sea and Frontier (desert), Frostbite
+  (snow, pine forests and frozen lakes), Highlands (grassland, 4 players) and Caldera (volcanic, a lava crater).
+  All are symmetric and checked for paths between every start and to every base, beacon and tower.
+- **Art:** buildings drawn in 2.5D (roof, south wall, cast shadow) with animated parts: a spinning radar dish, shield
+  dome, factory smoke, blinking lights. Biome terrain with lit cliffs, ramps, forests, lava and ice, weather
+  (snow, sand, embers), shimmering water, burnt wrecks and rubble that stay on the field, and screen shake.
 - **Touch controls:** drag to scroll, pinch to zoom, tap to select or command, press-and-hold then drag for a box,
   double-tap a unit for all of its type on screen, Attack button for attack-move, Army / Idle drone buttons,
   three control groups, minimap, rally points, a ghost for placing buildings, hints on long press.
@@ -57,7 +71,13 @@ SideStore, Sideloadly or TrollStore, like Edge). CI first runs the headless simu
 - **Lockstep multiplayer from day one.** The simulation is deterministic and command-driven, as in classic RTS
   networking. Checksums catch desyncs, and the same code runs single player, bots and network games.
 
-Sources consulted: [Game Developer: the three layers of control in strategy games](https://www.gamedeveloper.com/design/the-three-layers-of-control-in-strategy-games-),
+Sources consulted (round 2: map design, tech depth, readable art): [Liquipedia: Twilight Fortress](https://liquipedia.net/starcraft2/Twilight_Fortress),
+[Frost Giant community on competitive map design](https://lr.in.psf.lt/r/FrostGiant/comments/ryl1hv/our_thoughts_on_competitive_map_design),
+[Game Developer: research and upgrades in RTS games](https://www.gamedeveloper.com/design/some-thoughts-about-research-and-upgrades-in-rts-games),
+[Stardock: tech trees vs building upgrades](https://forums.sorcererking.com/538909/ashes-ii-dev-journal-7-tech-trees-vs-building-upgrades),
+[contrast-first lighting for top-down games](https://gamineai.com/blog/top-down-dungeon-lighting-2026-12-contrast-rules-readable-combat-spaces).
+
+Sources consulted (round 1): [Game Developer: the three layers of control in strategy games](https://www.gamedeveloper.com/design/the-three-layers-of-control-in-strategy-games-),
 [GameCloud: what makes RTS games fun (micro and unit differentiation)](https://gamecloud.net.au/features/opinion/what-makes-rts-games-fun-micro-unit-differentiation),
 [Mobile Free to Play: touch control design, less is more](https://mobilefreetoplay.com/touch-control-design-less-is-more/),
 [Spring RTS on its lockstep model](https://springrts.com/phpbb/viewtopic.php?p=587472),
