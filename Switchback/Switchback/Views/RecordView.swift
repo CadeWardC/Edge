@@ -5,6 +5,8 @@ import UIKit
 struct RecordView: View {
     @EnvironmentObject private var recorder: Recorder
     @EnvironmentObject private var library: Library
+    @EnvironmentObject private var profiles: Profiles
+    @EnvironmentObject private var highlights: Highlights
     @AppStorage(BaseMap.storageKey) private var baseMap: BaseMap = .standard
     @AppStorage(BaseMap.showRoutesKey) private var showRoutes = false
     @State private var askName = false
@@ -25,7 +27,8 @@ struct RecordView: View {
                                  track: recorder.trackCoords,
                                  camera: camera,
                                  followUser: recorder.state == .recording,
-                                 showsRoutes: showRoutes)
+                                 showsRoutes: showRoutes,
+                                 pois: recorder.following.flatMap { highlights.pois(for: $0.id) } ?? [])
                     VStack(spacing: 8) {
                         if recorder.isDenied { permissionBanner }
                         if recorder.offTrail, let off = recorder.offset { offTrailBanner(off) }
@@ -47,6 +50,20 @@ struct RecordView: View {
                 if camera == nil { centerCamera() }
             }
             .onChange(of: recorder.following?.id) { _, _ in centerCamera() }
+            .task(id: recorder.following?.id) {
+                guard let t = recorder.following else { return }
+                async let profile = profiles.ensureProfile(for: t)
+                await highlights.ensure(for: t)
+                _ = await profile
+            }
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button { recorder.voiceOn.toggle() } label: {
+                        Image(systemName: recorder.voiceOn ? "speaker.wave.2.fill" : "speaker.slash")
+                    }
+                    .accessibilityLabel(recorder.voiceOn ? "Turn spoken updates off" : "Turn spoken updates on")
+                }
+            }
             .alert("Save hike", isPresented: $askName) {
                 TextField("Name", text: $activityName)
                 Button("Save") {
@@ -143,6 +160,10 @@ struct RecordView: View {
                             .accessibilityLabel("Stop following")
                     }
                 }
+            }
+
+            if let t = recorder.following, recorder.state != .idle {
+                NavigationCard(trail: profiles.withProfile(t), pois: highlights.pois(for: t.id) ?? [], recorder: recorder)
             }
 
             if recorder.state != .idle {
@@ -258,5 +279,73 @@ struct FollowPicker: View {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
             }
         }
+    }
+}
+
+/// While following a trail: where you are on its elevation, when you'll get to the end compared with sunset,
+/// the climbing left and the next water.
+struct NavigationCard: View {
+    let trail: Trail
+    let pois: [TrailPOI]
+    @ObservedObject var recorder: Recorder
+
+    var body: some View {
+        let along = recorder.along ?? 0
+        let remaining = recorder.remaining ?? trail.length
+        let climbLeft = Self.climbLeft(trail.profile, after: along)
+        let arrival = Date().addingTimeInterval(timeLeft(remaining: remaining, climb: climbLeft))
+        let sun = recorder.lastLocation.flatMap { Sun.times(on: Date(), at: Coord($0.coordinate)) }
+        let late = sun.map { arrival > $0.sunset } ?? false
+        let nextWater = pois.first { $0.kind == .water && $0.along > along + 20 }
+
+        VStack(alignment: .leading, spacing: 8) {
+            if let p = trail.profile {
+                ElevationChart(profile: p, marker: recorder.along, height: 100)
+            }
+            HStack(alignment: .top) {
+                tile("Arrive", arrival.formatted(date: .omitted, time: .shortened), warn: late)
+                tile("Sunset", sun.map { $0.sunset.formatted(date: .omitted, time: .shortened) } ?? "–")
+                tile("Climb left", Fmt.elevation(climbLeft))
+                if let w = nextWater {
+                    tile("Next water", Fmt.distance(w.along - along))
+                }
+            }
+            if late {
+                Label("At this pace you'd finish after sunset", systemImage: "sunset.fill")
+                    .font(.caption.bold())
+                    .foregroundStyle(.orange)
+            }
+        }
+    }
+
+    private func tile(_ title: String, _ value: String, warn: Bool = false) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(title).font(.caption).foregroundStyle(.secondary)
+            Text(value).font(.subheadline.weight(.semibold).monospacedDigit())
+                .foregroundStyle(warn ? Color.orange : Color.primary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// Your own moving pace once there's enough of it, Naismith's rule before that.
+    private func timeLeft(remaining: Double, climb: Double) -> TimeInterval {
+        if recorder.movingTime > 300 && recorder.distance > 400 {
+            let speed = recorder.distance / recorder.movingTime
+            return remaining / speed + climb / 600 * 3600 * 0.5
+        }
+        return (remaining / 1000 / 4.5 + climb / 600) * 3600
+    }
+
+    /// The climbing still ahead on the profile.
+    static func climbLeft(_ p: ElevationProfile?, after along: Double) -> Double {
+        guard let p, var last = ElevationChart.elevation(at: along, in: p) else { return 0 }
+        var total = 0.0
+        for (d, e) in zip(p.distances, p.elevations) where d > along {
+            if e > last { total += e - last }
+            last = e
+        }
+        return total
     }
 }

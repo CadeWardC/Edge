@@ -17,6 +17,9 @@ targets:
     platform: iOS
     sources:
       - path: Switchback
+      - path: Shared
+    dependencies:
+      - target: SwitchbackWidgets
     info:
       path: Switchback/Info.plist
       properties:
@@ -25,8 +28,11 @@ targets:
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         NSLocationWhenInUseUsageDescription: Switchback shows where you are on the map, finds trails near you and records your hikes.
         NSLocationAlwaysAndWhenInUseUsageDescription: Switchback keeps recording your hike while the phone is locked.
+        NSPhotoLibraryUsageDescription: Switchback shows the photos you took during a hike on its map. They stay on your phone.
+        NSSupportsLiveActivities: true
         UIBackgroundModes:
           - location
+          - audio
         CFBundleDocumentTypes:
           # lets Files, Mail and other apps open .gpx tracks in Switchback
           - CFBundleTypeName: GPX track
@@ -62,3 +68,24 @@ targets:
         TARGETED_DEVICE_FAMILY: "1,2"
         ENABLE_BITCODE: NO
     scheme: {}
+
+  SwitchbackWidgets:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: Widgets
+      - path: Shared
+    info:
+      path: Widgets/Info.plist
+      properties:
+        CFBundleDisplayName: Switchback
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.cadewardc.switchback.widgets
+        PRODUCT_NAME: SwitchbackWidgets
+        TARGETED_DEVICE_FAMILY: "1,2"
+        ENABLE_BITCODE: NO

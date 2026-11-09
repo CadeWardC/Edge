@@ -86,6 +86,12 @@ enum Overpass {
         return try await Task.detached(priority: .userInitiated) { try Overpass.parse(data) }.value
     }
 
+    /// Runs any Overpass query (with the same fallback servers).
+    static func run(_ query: String) async throws -> Data {
+        let body = Data(("data=" + (query.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? "")).utf8)
+        return try await fetchFastest(body)
+    }
+
     /// Asks the main server first; if it hasn't answered after a few seconds, asks the next one too, and so on.
     /// The first good answer wins.
     private static func fetchFastest(_ body: Data) async throws -> Data {

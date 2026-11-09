@@ -1,3 +1,4 @@
+import AVFoundation
 import CoreLocation
 import UIKit
 import UserNotifications
@@ -21,6 +22,8 @@ final class Recorder: NSObject, ObservableObject {
     @Published private(set) var offTrail = false
     @Published private(set) var offset: Double?
     @Published private(set) var remaining: Double?
+    /// How far along the followed trail you are, in metres.
+    @Published private(set) var along: Double?
     @Published private(set) var lastLocation: CLLocation?
     @Published private(set) var authorization: CLAuthorizationStatus = .notDetermined
 
@@ -29,6 +32,18 @@ final class Recorder: NSObject, ObservableObject {
     private var altRef: Double?
     private var followCumulative: [Double] = []
     private var unsavedPoints = 0
+    private var endAlerted = false
+    private var announcedUnits = 0
+    private let voice = Voice()
+    static let voiceKey = "voiceUpdates"
+
+    var voiceOn: Bool {
+        get { UserDefaults.standard.bool(forKey: Self.voiceKey) }
+        set {
+            objectWillChange.send()
+            UserDefaults.standard.set(newValue, forKey: Self.voiceKey)
+        }
+    }
     private let draftURL = Files.support.appendingPathComponent("recording-in-progress.json")
 
     override init() {
@@ -74,6 +89,8 @@ final class Recorder: NSObject, ObservableObject {
         offTrail = false
         offset = nil
         remaining = nil
+        along = nil
+        endAlerted = false
         if let loc = lastLocation, state != .idle { updateFollow(loc) }
         if trail != nil { requestNotificationPermission() }
         saveDraft()
@@ -93,8 +110,10 @@ final class Recorder: NSObject, ObservableObject {
         pausedTotal = 0
         pausedAt = nil
         state = .recording
+        announcedUnits = 0
         beginUpdates()
         saveDraft()
+        pushLive(force: true)
     }
 
     func pause() {
@@ -103,6 +122,7 @@ final class Recorder: NSObject, ObservableObject {
         pausedAt = Date()
         endUpdates()
         saveDraft()
+        pushLive(force: true)
     }
 
     func resume() {
@@ -114,6 +134,7 @@ final class Recorder: NSObject, ObservableObject {
         state = .recording
         beginUpdates()
         saveDraft()
+        pushLive(force: true)
     }
 
     /// Ends the hike and saves it to Activity. Returns nil if too little was recorded.
@@ -152,6 +173,9 @@ final class Recorder: NSObject, ObservableObject {
         offTrail = false
         offset = nil
         remaining = nil
+        along = nil
+        endAlerted = false
+        LiveHike.shared.end()
         try? FileManager.default.removeItem(at: draftURL)
     }
 
@@ -176,6 +200,8 @@ final class Recorder: NSObject, ObservableObject {
         guard state == .recording else { return }
         for loc in locations { record(loc) }
         if following != nil { updateFollow(latest) }
+        announceMilestone()
+        pushLive()
     }
 
     fileprivate func authorizationChanged(_ status: CLAuthorizationStatus) {
@@ -225,23 +251,69 @@ final class Recorder: NSObject, ObservableObject {
         offset = off
         if let located = Geo.locate(p, on: trail.path, cumulative: followCumulative) {
             remaining = max(0, trail.length - located.along)
+            along = located.along
+            // the end of the trail (for a loop, only once you've been round most of it)
+            if !endAlerted, located.offset < 60, trail.length - located.along < 40, distance > trail.length * 0.5 {
+                endAlerted = true
+                alert(title: "You've reached the end", body: "\(trail.name) · \(Fmt.distance(distance)) hiked.", speak: "You've reached the end of the trail.")
+            }
         }
         if !offTrail && off > 60 {
             offTrail = true
             alertOffTrail(off, trail: trail)
+            pushLive(force: true)
         } else if offTrail && off < 35 {
             offTrail = false
+            pushLive(force: true)
         }
     }
 
     private func alertOffTrail(_ meters: Double, trail: Trail) {
+        alert(title: "You've left the trail", body: "You're \(Fmt.shortDistance(meters)) from \(trail.name).",
+              speak: "You've left the trail.")
+    }
+
+    private func alert(title: String, body: String, speak: String) {
         UINotificationFeedbackGenerator().notificationOccurred(.warning)
+        if voiceOn { voice.say(speak) }
         guard UIApplication.shared.applicationState != .active else { return }
         let content = UNMutableNotificationContent()
-        content.title = "You've left the trail"
-        content.body = "You're \(Fmt.shortDistance(meters)) from \(trail.name)."
+        content.title = title
+        content.body = body
         content.sound = .default
-        UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: "off-trail", content: content, trigger: nil))
+        UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: title, content: content, trigger: nil))
+    }
+
+    /// Every mile (or kilometre): distance, time, and what's left.
+    private func announceMilestone() {
+        guard voiceOn, state == .recording else { return }
+        let unit = Units.current == .imperial ? Fmt.metersPerMile : 1000
+        let units = Int(distance / unit)
+        guard units > announcedUnits else { return }
+        announcedUnits = units
+        let name = Units.current == .imperial ? (units == 1 ? "mile" : "miles") : (units == 1 ? "kilometre" : "kilometres")
+        var text = "\(units) \(name). \(spokenDuration(elapsed(at: Date())))."
+        if let r = remaining, following != nil {
+            text += " \(String(format: "%.1f", r / unit)) to go."
+        }
+        voice.say(text)
+    }
+
+    private func spokenDuration(_ s: TimeInterval) -> String {
+        let mins = Int(s / 60), h = mins / 60, m = mins % 60
+        if h == 0 { return "\(m) minutes" }
+        return "\(h) hour\(h == 1 ? "" : "s") \(m) minutes"
+    }
+
+    private func pushLive(force: Bool = false) {
+        guard state != .idle, let start = startDate else { return }
+        let elapsed = elapsed(at: Date())
+        let st = HikeAttributes.ContentState(distance: distance, gain: gain, remaining: following == nil ? nil : remaining,
+                                             timerStart: Date().addingTimeInterval(-elapsed),
+                                             pausedElapsed: state == .paused ? elapsed : nil,
+                                             offTrail: offTrail, imperial: Units.current == .imperial)
+        _ = start
+        LiveHike.shared.update(trailName: following?.name, state: st, force: force)
     }
 
     private func requestNotificationPermission() {
@@ -299,4 +371,29 @@ extension Recorder: CLLocationManagerDelegate {
     }
 
     nonisolated func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {}
+}
+
+/// Speaks short updates, lowering music while it talks.
+final class Voice: NSObject, AVSpeechSynthesizerDelegate {
+    private let synth = AVSpeechSynthesizer()
+
+    override init() {
+        super.init()
+        synth.delegate = self
+    }
+
+    func say(_ text: String) {
+        let session = AVAudioSession.sharedInstance()
+        try? session.setCategory(.playback, mode: .voicePrompt, options: [.duckOthers, .interruptSpokenAudioAndMixWithOthers])
+        try? session.setActive(true)
+        let u = AVSpeechUtterance(string: text)
+        u.rate = AVSpeechUtteranceDefaultSpeechRate
+        synth.speak(u)
+    }
+
+    func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didFinish utterance: AVSpeechUtterance) {
+        if !synthesizer.isSpeaking {
+            try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+        }
+    }
 }

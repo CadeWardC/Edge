@@ -63,6 +63,51 @@ struct ActivityDetailView: View {
     @State private var newName = ""
     @State private var confirmDelete = false
     @State private var savedAsTrail = false
+    @State private var hikePhotos: [HikePhoto] = []
+    @State private var thumbs: [String: UIImage] = [:]
+    @State private var photosChecked = false
+
+    private var photoPins: [PhotoPin] {
+        hikePhotos.compactMap { p in
+            guard let c = p.coord, let img = thumbs[p.id] else { return nil }
+            return PhotoPin(id: p.id, coord: c, image: img)
+        }
+    }
+
+    @ViewBuilder
+    private var photosSection: some View {
+        if !hikePhotos.isEmpty {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Your photos").font(.headline)
+                HikePhotoStrip(photos: hikePhotos, thumbs: thumbs)
+            }
+        } else if !HikePhotos.isAuthorized {
+            Button {
+                Task {
+                    if await HikePhotos.requestAccess() { await loadPhotos(current) }
+                }
+            } label: {
+                Label("Show my photos from this hike", systemImage: "photo.on.rectangle")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.bordered)
+        } else if photosChecked {
+            Text("No photos in your library from during this hike.")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private func loadPhotos(_ a: Activity) async {
+        let found = HikePhotos.photos(for: a)
+        hikePhotos = found
+        photosChecked = true
+        for p in found.prefix(60) {
+            if let img = await HikePhotos.image(p.asset, size: CGSize(width: 240, height: 240)) {
+                thumbs[p.id] = img
+            }
+        }
+    }
 
     private var current: Activity { library.activities.first { $0.id == activity.id } ?? activity }
 
@@ -71,7 +116,8 @@ struct ActivityDetailView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
                 ZStack(alignment: .bottomLeading) {
-                    TrailMapView(baseMap: baseMap, track: a.coordSegments, initialBox: a.bbox, showsUserButton: false)
+                    TrailMapView(baseMap: baseMap, track: a.coordSegments, initialBox: a.bbox, showsUserButton: false,
+                                 photos: photoPins)
                     MapAttribution(baseMap: baseMap)
                 }
                 .frame(height: 300)
@@ -97,6 +143,8 @@ struct ActivityDetailView: View {
                     StatTile(title: "Total time", value: Fmt.clock(a.elapsedTime))
                     StatTile(title: "Finished", value: a.end.formatted(date: .omitted, time: .shortened))
                 }
+
+                photosSection
 
                 if let p = a.profile {
                     VStack(alignment: .leading, spacing: 8) {
@@ -152,6 +200,9 @@ struct ActivityDetailView: View {
                 library.deleteActivity(id: a.id)
                 dismiss()
             }
+        }
+        .task(id: a.id) {
+            if HikePhotos.isAuthorized { await loadPhotos(a) }
         }
         .task(id: a.name) {
             savedAsTrail = library.isSaved("rec-\(a.id.uuidString)")

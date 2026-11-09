@@ -60,6 +60,7 @@ jobs:
         run: |
           APP=build/dd/Build/Products/Release-iphoneos/Switchback.app
           test -f "$APP/Switchback"
+          test -d "$APP/PlugIns/SwitchbackWidgets.appex"
           test -f "$APP/Assets.car" && plutil -extract CFBundleIcons xml1 -o - "$APP/Info.plist" > /dev/null
           rm -rf build/ipa && mkdir -p build/ipa/Payload
           cp -R "$APP" build/ipa/Payload/

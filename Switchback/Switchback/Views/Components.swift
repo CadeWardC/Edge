@@ -18,8 +18,35 @@ struct DifficultyBadge: View {
 struct TrailThumbnail: View {
     let trail: Trail
     var size: CGFloat = 64
+    @State private var image: UIImage?
 
     var body: some View {
+        ZStack {
+            if let image {
+                Image(uiImage: image)
+                    .resizable()
+                    .scaledToFill()
+                    .transition(.opacity)
+            } else {
+                drawing
+            }
+        }
+        .frame(width: size, height: size)
+        .clipShape(RoundedRectangle(cornerRadius: 12))
+        .task(id: trail.id) {
+            let px = CGSize(width: size * 2, height: size * 2)
+            if let cached = Snapshots.shared.cached(for: trail, size: px) {
+                image = cached
+                return
+            }
+            if let img = await Snapshots.shared.image(for: trail, size: px), !Task.isCancelled {
+                withAnimation(.easeIn(duration: 0.2)) { image = img }
+            }
+        }
+    }
+
+    /// The trail's shape, drawn while the satellite picture loads (or without signal).
+    private var drawing: some View {
         Canvas { ctx, canvas in
             let b = trail.bbox
             let k = cos(b.center.lat * .pi / 180)
@@ -41,8 +68,7 @@ struct TrailThumbnail: View {
             let sp = CGPoint(x: ox + (s.lon - b.west) * k * scale, y: oy + (b.north - s.lat) * scale)
             ctx.fill(Path(ellipseIn: CGRect(x: sp.x - 3.5, y: sp.y - 3.5, width: 7, height: 7)), with: .color(.orange))
         }
-        .frame(width: size, height: size)
-        .background(Color.trailGreen.opacity(0.10), in: RoundedRectangle(cornerRadius: 12))
+        .background(Color.trailGreen.opacity(0.10))
     }
 }
 
@@ -105,7 +131,19 @@ struct StatTile: View {
 
 struct ElevationChart: View {
     let profile: ElevationProfile
+    /// Where you are along the trail (metres), drawn as a dot.
+    var marker: Double? = nil
+    var height: CGFloat = 190
     @State private var selectedX: Double?
+
+    /// The height of the profile at a distance along it.
+    static func elevation(at d: Double, in p: ElevationProfile) -> Double? {
+        guard let i = p.distances.firstIndex(where: { $0 >= d }) else { return p.elevations.last }
+        guard i > 0 else { return p.elevations.first }
+        let d0 = p.distances[i - 1], d1 = p.distances[i]
+        let t = d1 > d0 ? (d - d0) / (d1 - d0) : 0
+        return p.elevations[i - 1] + (p.elevations[i] - p.elevations[i - 1]) * t
+    }
 
     private struct Point: Identifiable {
         let id: Int
@@ -137,6 +175,11 @@ struct ElevationChart: View {
                     .foregroundStyle(Color.trailGreen)
                     .lineStyle(StrokeStyle(lineWidth: 2))
             }
+            if let m = marker, let e = ElevationChart.elevation(at: m, in: profile) {
+                PointMark(x: .value("You", Fmt.displayDistance(m)), y: .value("Elevation", Fmt.displayElevation(e)))
+                    .foregroundStyle(Color.blue)
+                    .symbolSize(140)
+            }
             if let s = selected {
                 RuleMark(x: .value("Selected", s.x))
                     .foregroundStyle(.secondary)
@@ -152,6 +195,6 @@ struct ElevationChart: View {
         .chartXAxisLabel(Fmt.distanceUnit)
         .chartYAxisLabel(Fmt.elevationUnit)
         .chartXSelection(value: $selectedX)
-        .frame(height: 190)
+        .frame(height: height)
     }
 }

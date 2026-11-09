@@ -11,6 +11,47 @@ final class TrailLines: MKMultiPolyline {
     var dashed = false
 }
 
+/// A highlight along a trail (viewpoint, water, shelter…).
+final class POIAnnotation: NSObject, MKAnnotation {
+    let poi: TrailPOI
+    let coordinate: CLLocationCoordinate2D
+    let title: String?
+
+    init(_ poi: TrailPOI) {
+        self.poi = poi
+        coordinate = poi.coord.cl
+        title = poi.displayName
+    }
+}
+
+/// One of your photos, placed where you took it.
+struct PhotoPin: Identifiable, Hashable {
+    let id: String
+    let coord: Coord
+    let image: UIImage
+}
+
+final class PhotoAnnotation: NSObject, MKAnnotation {
+    let pin: PhotoPin
+    let coordinate: CLLocationCoordinate2D
+
+    init(_ pin: PhotoPin) {
+        self.pin = pin
+        coordinate = pin.coord.cl
+    }
+}
+
+extension POIKind {
+    var mapColor: UIColor {
+        switch self {
+        case .water, .lake, .waterfall: return UIColor(red: 0.05, green: 0.55, blue: 0.80, alpha: 1)
+        case .viewpoint, .peak, .cave: return UIColor(red: 0.55, green: 0.36, blue: 0.20, alpha: 1)
+        case .shelter, .campsite, .picnic: return UIColor(red: 0.85, green: 0.50, blue: 0.10, alpha: 1)
+        case .toilets, .parking: return UIColor.systemGray
+        }
+    }
+}
+
 /// A pin at the start of a trail.
 final class TrailheadAnnotation: NSObject, MKAnnotation {
     let trailId: String
@@ -52,6 +93,10 @@ struct TrailMapView: UIViewRepresentable {
     var followUser = false
     /// Draw the Waymarked Trails hiking-routes layer on top of the base map.
     var showsRoutes = false
+    /// Highlights along the selected trail.
+    var pois: [TrailPOI] = []
+    /// Your photos from a hike.
+    var photos: [PhotoPin] = []
     var onSelect: ((String?) -> Void)? = nil
     var onRegionChange: ((MKCoordinateRegion) -> Void)? = nil
 
@@ -103,6 +148,8 @@ struct TrailMapView: UIViewRepresentable {
         private var shown: [String: Shown] = [:]
         private var lastSelected: String?
         private var trackOverlays: [TrailLines] = []
+        private var poiAnnotations: [POIAnnotation] = []
+        private var photoAnnotations: [PhotoAnnotation] = []
         private var trackCount = -1
         private var lastCamera: UUID?
         private var wasFollowing = false
@@ -114,6 +161,7 @@ struct TrailMapView: UIViewRepresentable {
             applyRoutes(p, map)
             applyTrails(p, map)
             applyTrack(p, map)
+            applyPins(p, map)
 
             if p.followUser && !wasFollowing { map.setUserTrackingMode(.follow, animated: true) }
             wasFollowing = p.followUser
@@ -253,6 +301,19 @@ struct TrailMapView: UIViewRepresentable {
             map.addOverlays(trackOverlays, level: .aboveLabels)
         }
 
+        private func applyPins(_ p: TrailMapView, _ map: MKMapView) {
+            if p.pois.map(\.id) != poiAnnotations.map(\.poi.id) {
+                map.removeAnnotations(poiAnnotations)
+                poiAnnotations = p.pois.map(POIAnnotation.init)
+                map.addAnnotations(poiAnnotations)
+            }
+            if p.photos.map(\.id) != photoAnnotations.map(\.pin.id) {
+                map.removeAnnotations(photoAnnotations)
+                photoAnnotations = p.photos.map(PhotoAnnotation.init)
+                map.addAnnotations(photoAnnotations)
+            }
+        }
+
         private static func polylines(_ segments: [[Coord]]) -> [MKPolyline] {
             segments.map { seg in
                 var coords = seg.map(\.cl)
@@ -341,6 +402,38 @@ struct TrailMapView: UIViewRepresentable {
                 view.displayPriority = head.selected ? .required : .defaultHigh
                 view.titleVisibility = .adaptive
                 view.subtitleVisibility = .hidden
+                return view
+            }
+            if let poi = annotation as? POIAnnotation {
+                let view = (mapView.dequeueReusableAnnotationView(withIdentifier: "poi") as? MKMarkerAnnotationView)
+                    ?? MKMarkerAnnotationView(annotation: poi, reuseIdentifier: "poi")
+                view.annotation = poi
+                view.markerTintColor = poi.poi.kind.mapColor
+                view.glyphImage = UIImage(systemName: poi.poi.kind.symbol)
+                view.clusteringIdentifier = nil
+                view.displayPriority = poi.poi.kind.isSight || poi.poi.kind == .water ? .defaultHigh : .defaultLow
+                view.titleVisibility = .adaptive
+                view.canShowCallout = true
+                return view
+            }
+            if let photo = annotation as? PhotoAnnotation {
+                let view = mapView.dequeueReusableAnnotationView(withIdentifier: "photo")
+                    ?? MKAnnotationView(annotation: photo, reuseIdentifier: "photo")
+                view.annotation = photo
+                let side: CGFloat = 44
+                let renderer = UIGraphicsImageRenderer(size: CGSize(width: side + 4, height: side + 4))
+                view.image = renderer.image { _ in
+                    UIColor.white.setFill()
+                    UIBezierPath(roundedRect: CGRect(x: 0, y: 0, width: side + 4, height: side + 4), cornerRadius: 10).fill()
+                    let clip = UIBezierPath(roundedRect: CGRect(x: 2, y: 2, width: side, height: side), cornerRadius: 8)
+                    clip.addClip()
+                    photo.pin.image.draw(in: CGRect(x: 2, y: 2, width: side, height: side))
+                }
+                view.layer.shadowColor = UIColor.black.cgColor
+                view.layer.shadowOpacity = 0.3
+                view.layer.shadowRadius = 3
+                view.layer.shadowOffset = CGSize(width: 0, height: 1)
+                view.displayPriority = .required
                 return view
             }
             if let cluster = annotation as? MKClusterAnnotation {

@@ -16,9 +16,21 @@ subscription and no API keys.
 - **Fast:** trails found are cached on the phone in 0.05° cells for two weeks, so places you've seen load instantly and a
   search only fetches the cells it doesn't have. If the main Overpass server is slow, a second one is asked after 3 s
   and the first answer wins. Trail shapes are simplified (Douglas–Peucker, 3 m) to draw quickly.
+- **Photos:** each trail page opens with photos from Wikimedia Commons (ones OpenStreetMap or Wikidata link to the
+  trail and its sights first, then ones taken nearby, with their author and licence), and a satellite picture of the
+  route drawn by MapKit. List rows show small satellite pictures of each trail. Recorded hikes can show the photos you
+  took during them (from your library, placed on the map where you took them; they never leave the phone).
+- **Highlights:** viewpoints, peaks, waterfalls, lakes, caves, water, shelters, campsites, picnic areas, toilets and
+  trailhead parking along each trail (from OpenStreetMap), on the map and listed with their distance along the trail.
 - **Trail page:** the route on a map, length, elevation gain, descent, highest point, estimated time (Naismith's rule),
   difficulty, an interactive elevation chart, OpenStreetMap details (SAC scale, surface, network, operator, website),
   driving directions to the trailhead, GPX export and a bookmark to save it.
+- **Navigate:** while following a trail, a you-are-here dot on its elevation chart, the climbing left, your
+  arrival time (from your own pace) against today's sunset (worked out on the phone), and the distance to the next
+  water. Optional spoken updates every mile or km, when you leave the trail and when you reach its end. A Live Activity
+  shows time, distance, climb and what's left on the lock screen and in the Dynamic Island.
+- **One-tap offline:** "Download for offline" on a trail page saves it and downloads the map around it (about a km of
+  margin), as detailed as the size limit allows.
 - **Record & navigate:** GPS recording that keeps going with the phone locked (distance, time, moving time, pace,
   elevation gain). Follow a trail and it shows how far is left, and buzzes (plus a notification when the phone is
   locked) if you go more than 60 m off it. A hike in progress survives the app being closed.
@@ -33,6 +45,7 @@ subscription and no API keys.
 | | Source | Licence |
 | --- | --- | --- |
 | Trails | [OpenStreetMap](https://www.openstreetmap.org) via the [Overpass API](https://overpass-api.de) (hiking route relations, plus named paths) | ODbL |
+| Photos | [Wikimedia Commons](https://commons.wikimedia.org) and [Wikidata](https://www.wikidata.org) | Each photo's own licence (shown) |
 | Elevation | [Open-Meteo elevation API](https://open-meteo.com/en/docs/elevation-api) (Copernicus DEM GLO-90) | CC BY 4.0 |
 | Topo map | [OpenTopoMap](https://opentopomap.org) | CC-BY-SA |
 | US topo map | [USGS The National Map](https://basemap.nationalmap.gov) (USGSTopo) | Public domain |

@@ -47,6 +47,21 @@ final class OfflineStore: ObservableObject {
 
     func isDownloading(_ id: UUID) -> Bool { tasks[id] != nil }
 
+    /// A downloaded (or downloading) area that holds the whole box.
+    func area(covering box: BBox) -> OfflineArea? {
+        areas.first {
+            $0.bbox.contains(Coord(lat: box.south, lon: box.west)) && $0.bbox.contains(Coord(lat: box.north, lon: box.east))
+        }
+    }
+
+    /// Downloads the map around a trail (about a kilometre of margin), as detailed as the size limit allows.
+    func download(trail: Trail, source: BaseMap) {
+        let box = trail.bbox.expanded(byDegrees: 0.01)
+        var zoom = source.maxZoom
+        while zoom > 12 && TileStore.tileCount(box, minZoom: 6, maxZoom: zoom) > Self.maxTiles { zoom -= 1 }
+        download(name: trail.name, bbox: box, source: source, maxZoom: zoom)
+    }
+
     func download(name: String, bbox: BBox, source: BaseMap, maxZoom: Int) {
         let minZoom = 6
         let top = min(maxZoom, source.maxZoom)

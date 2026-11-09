@@ -7,6 +7,9 @@ struct TrailDetailView: View {
     @EnvironmentObject private var recorder: Recorder
     @EnvironmentObject private var app: AppState
     @EnvironmentObject private var profiles: Profiles
+    @EnvironmentObject private var highlights: Highlights
+    @EnvironmentObject private var trailPhotos: TrailPhotos
+    @EnvironmentObject private var offline: OfflineStore
     @AppStorage(BaseMap.storageKey) private var baseMap: BaseMap = .standard
     @AppStorage(BaseMap.showRoutesKey) private var showRoutes = false
     @State private var gpxURL: URL?
@@ -24,11 +27,14 @@ struct TrailDetailView: View {
 
     var body: some View {
         let t = shown
+        let pois = highlights.pois(for: t.id) ?? []
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
+                TrailHero(trail: t, photos: trailPhotos.photos(for: t.id) ?? [])
+
                 ZStack(alignment: .bottomLeading) {
                     TrailMapView(baseMap: baseMap, trails: [t], selectedId: t.id, initialBox: t.bbox, showsUserButton: false,
-                                 showsRoutes: showRoutes)
+                                 showsRoutes: showRoutes, pois: pois)
                     MapAttribution(baseMap: baseMap)
                 }
                 .frame(height: 300)
@@ -46,6 +52,11 @@ struct TrailDetailView: View {
                     }
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
+                    if let summary = highlightSummary(pois) {
+                        Label(summary, systemImage: "sparkles")
+                            .font(.subheadline)
+                            .foregroundStyle(Color.trailGreen)
+                    }
                 }
 
                 LazyVGrid(columns: Array(repeating: GridItem(.flexible(), alignment: .leading), count: 3), alignment: .leading, spacing: 14) {
@@ -60,6 +71,7 @@ struct TrailDetailView: View {
                 }
 
                 actions(t)
+                offlineButton(t)
 
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Elevation").font(.headline)
@@ -72,6 +84,16 @@ struct TrailDetailView: View {
                         Button("Load elevation") { Task { await profiles.ensureProfile(for: t) } }
                             .frame(maxWidth: .infinity, minHeight: 120)
                     }
+                }
+
+                if !pois.isEmpty {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("Along the trail").font(.headline)
+                        HighlightsList(pois: pois)
+                    }
+                } else if highlights.isLoading(t.id) {
+                    HStack { ProgressView(); Text("Finding viewpoints, water and more…").foregroundStyle(.secondary) }
+                        .font(.subheadline)
                 }
 
                 if t.summary != nil || !t.facts.isEmpty || t.website != nil {
@@ -130,8 +152,11 @@ struct TrailDetailView: View {
             Button("Cancel", role: .cancel) {}
         }
         .task(id: t.id) {
-            await profiles.ensureProfile(for: t)
             gpxURL = try? GPX.file(named: t.name, contents: GPX.document(for: shown))
+            async let profile = profiles.ensureProfile(for: t)
+            let found = await highlights.ensure(for: t)
+            await trailPhotos.ensure(for: t, pois: found)
+            _ = await profile
         }
     }
 
@@ -164,6 +189,36 @@ struct TrailDetailView: View {
             }
         }
         .controlSize(.large)
+    }
+
+    @ViewBuilder
+    private func offlineButton(_ t: Trail) -> some View {
+        let area = offline.area(covering: t.bbox)
+        let progress = area.flatMap { offline.progress[$0.id] }
+        Button {
+            if let area, !area.complete, progress == nil {
+                offline.retry(area)
+            } else if area == nil {
+                library.save(t)
+                offline.download(trail: t, source: baseMap.offlineSource)
+            }
+        } label: {
+            Group {
+                if let progress {
+                    Label("Downloading map… \(Int(progress * 100))%", systemImage: "arrow.down.circle")
+                } else if let area, area.complete {
+                    Label("Available offline (\(area.baseMap.shortTitle))", systemImage: "checkmark.circle.fill")
+                } else if area != nil {
+                    Label("Offline map incomplete · Retry", systemImage: "arrow.clockwise")
+                } else {
+                    Label("Download for offline", systemImage: "arrow.down.circle")
+                }
+            }
+            .frame(maxWidth: .infinity)
+        }
+        .buttonStyle(.bordered)
+        .controlSize(.large)
+        .disabled(progress != nil || area?.complete == true)
     }
 
     private func distanceAway(_ t: Trail) -> Double? {
