@@ -22,9 +22,16 @@ struct ExploreView: View {
             }
             .navigationTitle("Explore")
             .navigationBarTitleDisplayMode(.inline)
-            .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search a place or park")
+            .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search trails or places")
+            .autocorrectionDisabled()
+            .onChange(of: query) { _, text in model.nameFilter = text }
             .onSubmit(of: .search) {
-                Task { await model.searchPlace(query) }
+                // no trail by that name here: look it up as a place instead, and go there
+                guard model.filtered.isEmpty else { return }
+                let place = query
+                Task {
+                    if await model.searchPlace(place) { query = "" }
+                }
             }
             .toolbar {
                 ToolbarItem(placement: .principal) {
@@ -198,7 +205,7 @@ struct ExploreView: View {
         }
         .listStyle(.plain)
         .overlay {
-            if trails.isEmpty && !model.isLoading {
+            if trails.isEmpty && !model.isLoading && model.nameFilter.isEmpty {
                 ContentUnavailableView {
                     Label("No trails", systemImage: "figure.hiking")
                 } description: {

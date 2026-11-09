@@ -67,7 +67,7 @@ final class ExploreModel: ObservableObject {
     private var cancellables = Set<AnyCancellable>()
 
     /// Trails are fetched for at most this many degrees around the middle of the map…
-    static let fetchSpan = 0.3
+    static let fetchSpan = 0.2
     /// …and shown (from what's loaded) up to this zoomed-out span.
     static let showSpan = 0.8
     private static let regionKey = "lastExploreRegion"
@@ -94,8 +94,23 @@ final class ExploreModel: ObservableObject {
         Recorder.shared.lastLocation.map { Geo.distance(Coord($0.coordinate), t.start) }
     }
 
+    /// What's typed in the search box: trails whose names contain every word (any order, case and accents ignored).
+    @Published var nameFilter = ""
+
+    static func fold(_ s: String) -> String {
+        s.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: nil)
+    }
+
+    private func matchesName(_ t: Trail) -> Bool {
+        let words = Self.fold(nameFilter).split(whereSeparator: { $0 == " " || $0 == "'" || $0 == "-" }).map(String.init)
+        guard !words.isEmpty else { return true }
+        guard !t.isUnnamed else { return false }
+        let name = Self.fold(t.name)
+        return words.allSatisfy { name.contains($0) }
+    }
+
     var filtered: [Trail] {
-        var list = results.map { Profiles.shared.withProfile($0) }.filter { filters.matches($0) }
+        var list = results.map { Profiles.shared.withProfile($0) }.filter { filters.matches($0) && matchesName($0) }
         switch sort {
         case .closest:
             if let o = origin { list.sort { Geo.distance(o, $0.start) < Geo.distance(o, $1.start) } }
@@ -228,7 +243,7 @@ final class ExploreModel: ObservableObject {
         isLoading = !inFlight.isEmpty
         loadedOnce = true
         refreshResults()
-        let visible = Array(results.prefix(30))
+        let visible = Array(results.prefix(15))
         Task { await Profiles.shared.enrich(visible) }
         return result
     }
@@ -294,9 +309,10 @@ final class ExploreModel: ObservableObject {
 
     // MARK: Moving the map
 
-    func searchPlace(_ text: String) async {
+    @discardableResult
+    func searchPlace(_ text: String) async -> Bool {
         let q = text.trimmingCharacters(in: .whitespaces)
-        guard !q.isEmpty else { return }
+        guard !q.isEmpty else { return false }
         let req = MKLocalSearch.Request()
         req.naturalLanguageQuery = q
         req.resultTypes = [.address, .pointOfInterest]
@@ -310,12 +326,14 @@ final class ExploreModel: ObservableObject {
             let response = try await MKLocalSearch(request: req).start()
             guard let item = response.mapItems.first else {
                 errorText = "Couldn't find \(q)."
-                return
+                return false
             }
             let c = item.placemark.coordinate
             cameraRequest = CameraRequest(region: MKCoordinateRegion(center: c, latitudinalMeters: 8_000, longitudinalMeters: 8_000))
+            return true
         } catch {
             errorText = "Couldn't find \(q)."
+            return false
         }
     }
 
