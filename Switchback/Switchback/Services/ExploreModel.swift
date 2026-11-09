@@ -365,6 +365,9 @@ final class ExploreModel: ObservableObject {
                 return false
             }
             let c = item.placemark.coordinate
+            // start downloading that area's trail file (another state or country) while the map flies there
+            let there = Coord(c)
+            Task.detached(priority: .userInitiated) { await TrailPacks.shared.prefetch(near: there) }
             cameraRequest = CameraRequest(region: MKCoordinateRegion(center: c, latitudinalMeters: 8_000, longitudinalMeters: 8_000))
             return true
         } catch {
