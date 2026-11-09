@@ -27,6 +27,22 @@ struct HowToPlayView: View {
                     • Army and Idle buttons on the left; 1–3 are control groups (press and hold to save the selection).
                     • Press and hold a command button to read what it does.
                     """)
+                    section("Terrain", """
+                    • High ground: main bases sit on plateaus ringed by cliffs, reached by a ramp. Units below can't see \
+                    up a cliff (so they can't shoot what's up there) unless something gives them vision: a unit on top, \
+                    a gunship, a Radar Tower or a watch tower. Shooting uphill does 25% less damage.
+                    • Watch towers: keep a ground unit next to one (and no enemy) to see far around it, cliffs included.
+                    • Violet crystals are rich: 12 per trip instead of 8. They sit at exposed expansions.
+                    • Forests, rocks, water and lava block movement; only gunships fly over them.
+                    """)
+                    section("Buildings", """
+                    • Specialize each Command Center, Barracks and Factory once, choosing one of two options:
+                      Command Center: Fortress (heavy gun, +600 HP) or Refinery (+25% crystals delivered there).
+                      Barracks: Drill Yard (trains 60% faster) or Armory (infantry +25% HP).
+                      Factory: Assembly Line (50% faster) or Reactive Armor (vehicles +2 armor).
+                    • Radar Tower: sees 640 around it and up cliffs. Shield Generator: friends within 230 take 30% less damage.
+                    • Drones repair buildings and vehicles: tap Repair, then the target (or tap a damaged building with drones selected).
+                    """)
                     section("Counters", """
                     • Troopers beat light units and hit air; tanks crush them.
                     • Lancers wreck tanks and gunships; troopers and skimmers beat lancers.
