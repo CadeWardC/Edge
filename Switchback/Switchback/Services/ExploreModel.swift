@@ -157,12 +157,17 @@ final class ExploreModel: ObservableObject {
             loadedOnce = true
             return
         }
-        await fetch(missing)
+        // a separate task: moving the map again must not cancel a download that's under way
+        // (it's saved for those cells either way, so it's never wasted)
+        inFlight.formUnion(missing)
+        Task { await self.fetch(missing) }
     }
 
     private func fetch(_ cells: [TrailCache.Cell]) async {
-        guard let box = TrailCache.box(of: cells) else { return }
-        inFlight.formUnion(cells)
+        guard let box = TrailCache.box(of: cells) else {
+            inFlight.subtract(cells)
+            return
+        }
         isLoading = true
         errorText = nil
         do {
@@ -172,8 +177,10 @@ final class ExploreModel: ObservableObject {
             usedOffline = false
         } catch {
             let offline = OfflineStore.shared.trails(in: box)
-            if offline.isEmpty {
-                errorText = "Couldn't load trails: \(error.localizedDescription)"
+            if Self.isCancellation(error) {
+                // not a real failure; the next map move asks again
+            } else if offline.isEmpty {
+                errorText = Self.message(for: error)
             } else {
                 merge(offline)
                 usedOffline = true
@@ -185,6 +192,27 @@ final class ExploreModel: ObservableObject {
         refreshResults()
         let visible = Array(results.prefix(30))
         Task { await Profiles.shared.enrich(visible) }
+    }
+
+    private static func isCancellation(_ error: Error) -> Bool {
+        error is CancellationError || (error as? URLError)?.code == .cancelled
+    }
+
+    private static func message(for error: Error) -> String {
+        if let e = error as? URLError {
+            switch e.code {
+            case .notConnectedToInternet, .networkConnectionLost, .dataNotAllowed:
+                return "No signal, so no new trails here. Tap to try again."
+            case .timedOut:
+                return "The trail server is slow right now. Tap to try again."
+            default:
+                break
+            }
+        }
+        if let e = error as? OverpassError, let text = e.errorDescription {
+            return text + " Tap to try again."
+        }
+        return "Couldn't load trails. Tap to try again."
     }
 
     private func merge(_ trails: [Trail]) {

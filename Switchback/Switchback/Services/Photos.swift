@@ -156,6 +156,8 @@ final class TrailPhotos: ObservableObject {
                 photos.append(p)
             }
         }
+        // a search cut short (you left the page) isn't saved, so it runs again next time
+        if Task.isCancelled { return }
         byId[trail.id] = Array(photos.prefix(14))
         if byId.count > 1500 { byId = Dictionary(uniqueKeysWithValues: byId.suffix(1000).map { ($0.key, $0.value) }) }
         Files.save(byId, to: url)
