@@ -6,14 +6,14 @@ import Foundation
 final class LiveHike {
     static let shared = LiveHike()
 
-    private var activity: Activity<HikeAttributes>?
+    private var activity: ActivityKit.Activity<HikeAttributes>?
     private var lastUpdate = Date.distantPast
     private var lastState: HikeAttributes.ContentState?
 
     func update(trailName: String?, state: HikeAttributes.ContentState, force: Bool = false) {
         guard ActivityAuthorizationInfo().areActivitiesEnabled else { return }
         if activity == nil {
-            activity = try? Activity.request(attributes: HikeAttributes(trailName: trailName),
+            activity = try? ActivityKit.Activity.request(attributes: HikeAttributes(trailName: trailName),
                                              content: ActivityContent(state: state, staleDate: nil), pushType: nil)
             lastUpdate = Date()
             lastState = state
