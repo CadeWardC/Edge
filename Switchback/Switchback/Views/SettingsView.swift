@@ -5,6 +5,7 @@ struct SettingsView: View {
     @AppStorage(BaseMap.storageKey) private var baseMap: BaseMap = .switchback
     @Environment(\.dismiss) private var dismiss
     @State private var cacheSize: Int64 = 0
+    @State private var packStatus: [String] = []
     @AppStorage(BaseMap.showRoutesKey) private var showRoutes = false
     @AppStorage(USFS.enabledKey) private var usfsTrails = true
     @AppStorage(Overpass.unnamedKey) private var unnamedTrails = true
@@ -40,6 +41,13 @@ struct SettingsView: View {
                         cacheSize = 0
                     }
                 }
+                Section("Trail files") {
+                    if packStatus.isEmpty {
+                        Text("No state trail files yet; they download when the map first shows a state.")
+                            .foregroundStyle(.secondary)
+                    }
+                    ForEach(packStatus, id: \.self) { Text($0).font(.caption.monospaced()) }
+                }
                 Section("Data") {
                     Text("Trails: © OpenStreetMap contributors, available under the Open Database Licence.")
                     Text("Elevation: Open-Meteo (CC BY 4.0), from the Copernicus DEM GLO-90.")
@@ -56,6 +64,7 @@ struct SettingsView: View {
                 ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
             }
             .task {
+                packStatus = await TrailPacks.shared.statusLines()
                 let tiles = await Task.detached { TileStore.shared.cacheSize() }.value
                 cacheSize = tiles + (await TrailCache.shared.size()) + (await TrailPacks.shared.size())
             }

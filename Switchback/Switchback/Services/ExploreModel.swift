@@ -198,10 +198,9 @@ final class ExploreModel: ObservableObject {
         // 1. whatever is already on the phone, straight away
         merge(await TrailCache.shared.trails(in: view.clamped(maxSpan: Self.showSpan)))
         refreshResults()
-        guard !wide else { return }
 
-        // 2. a trail pack, where one exists: small files fetched once, then instant and offline
-        let packArea = view.clamped(maxSpan: Self.fetchSpan)
+        // 2. a trail pack, where one exists (one file per state, fetched once, then instant and offline)
+        let packArea = view.clamped(maxSpan: wide ? Self.showSpan : Self.fetchSpan)
         if !isLoading { isLoading = true }
         let pack = await TrailPacks.shared.trails(in: packArea)
         isLoading = !inFlight.isEmpty
@@ -209,13 +208,15 @@ final class ExploreModel: ObservableObject {
             merge(pack.trails)
             refreshResults()
             loadedOnce = true
-            if pack.complete {
+            if pack.complete || wide {
                 errorText = nil
                 let visible = Array(results.prefix(15))
                 Task { await Profiles.shared.enrich(visible) }
                 return
             }
         }
+
+        guard !wide else { return }
 
         // 3. otherwise the live search, only for the parts of the map not loaded yet
         let missing = await TrailCache.shared.missing(in: view.clamped(maxSpan: Self.fetchSpan))

@@ -178,7 +178,14 @@ enum Overpass {
 
     private static let skippedRoles: Set<String> = ["alternative", "excursion", "approach", "connection", "link"]
 
+    private struct Remark: Decodable { let remark: String? }
+
     static func parse(_ data: Data) throws -> [Trail] {
+        // a query that ran out of time still answers 200, with a remark and few or no elements: that's a failure
+        if let remark = (try? JSONDecoder().decode(Remark.self, from: data))?.remark,
+           remark.localizedCaseInsensitiveContains("error") || remark.localizedCaseInsensitiveContains("timed out") {
+            throw OverpassError.status(504)
+        }
         let response = try JSONDecoder().decode(Response.self, from: data)
         var trails: [Trail] = []
         var relationNames = Set<String>()

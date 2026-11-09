@@ -24,6 +24,9 @@ actor TrailCache {
         var trails: [Trail]
     }
 
+    /// An empty answer is trusted for a day only (it may have been a hiccup), a real one for two weeks.
+    static let emptyMaxAge: TimeInterval = 24 * 3600
+
     private var memory: [Cell: Entry] = [:]
     private let dir = Files.caches.appendingPathComponent("TrailCells", isDirectory: true)
 
@@ -65,7 +68,7 @@ actor TrailCache {
     func missing(in box: BBox) -> [Cell] {
         Self.cells(in: box).filter { c in
             guard let e = entry(c) else { return true }
-            return Date().timeIntervalSince(e.fetched) > Self.maxAge
+            return Date().timeIntervalSince(e.fetched) > (e.trails.isEmpty ? Self.emptyMaxAge : Self.maxAge)
         }
     }
 

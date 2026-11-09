@@ -38,6 +38,26 @@ actor TrailPacks {
         let bodyStart: UInt64
     }
 
+    /// One trail that may fail to decode without taking its neighbours with it.
+    private struct Lenient: Decodable {
+        let trail: Trail?
+        init(from decoder: Decoder) throws { trail = try? Trail(from: decoder) }
+    }
+
+    /// What happened, for Settings (and for sending a screenshot when something's wrong).
+    private(set) var status: [String] = []
+
+    private func note(_ line: String) {
+        status.append("\(Date().formatted(date: .omitted, time: .shortened)) \(line)")
+        if status.count > 12 { status.removeFirst(status.count - 12) }
+    }
+
+    func statusLines() -> [String] {
+        var lines = packs.map { "\($0.key): v\($0.value.header.version), \($0.value.header.cells.count) cells, on the phone" }.sorted()
+        lines += status
+        return lines
+    }
+
     private var list: RegionList?
     private var listFailedUntil = Date.distantPast
     private var packs: [String: Pack] = [:]
@@ -94,8 +114,10 @@ actor TrailPacks {
             let fresh = try JSONDecoder().decode(RegionList.self, from: try await Self.get(Self.release + "regions.json"))
             Files.save(Stamped(checked: Date(), list: fresh), to: file)
             list = fresh
+            note("list of states: \(fresh.regions.count)")
             return fresh
         } catch {
+            note("list of states failed: \(error.localizedDescription)")
             listFailedUntil = Date().addingTimeInterval(10 * 60)
             list = list ?? saved?.list
             return list
@@ -114,7 +136,14 @@ actor TrailPacks {
         // download once (shared by every caller asking for this state at the same time)
         if let running = downloading[r.region] { return await running.value }
         let task = Task<Pack?, Never> {
-            guard let data = try? await Self.get(Self.release + "\(r.region).trails") else { return nil }
+            let data: Data
+            do {
+                data = try await Self.get(Self.release + "\(r.region).trails")
+            } catch {
+                await self.note("\(r.region) download failed: \(error.localizedDescription)")
+                return nil
+            }
+            await self.note("\(r.region) downloaded (\(ByteCountFormatter.string(fromByteCount: Int64(data.count), countStyle: .file)))")
             try? FileManager.default.createDirectory(at: self.dir, withIntermediateDirectories: true)
             guard (try? data.write(to: url, options: .atomic)) != nil else { return nil }
             return await self.opened(url, region: r.region)
@@ -126,7 +155,11 @@ actor TrailPacks {
     }
 
     private func opened(_ url: URL, region: String) -> Pack? {
-        guard let p = open(url) else { return nil }
+        guard let p = open(url) else {
+            note("\(region) file couldn't be read")
+            try? FileManager.default.removeItem(at: url)
+            return nil
+        }
         packs[region] = p
         memory = memory.filter { !$0.key.hasPrefix(region + "/") }
         // older versions of this state's file aren't needed any more
@@ -152,9 +185,20 @@ actor TrailPacks {
               let handle = try? FileHandle(forReadingFrom: pack.url) else { return [] }
         defer { try? handle.close() }
         guard (try? handle.seek(toOffset: pack.bodyStart + UInt64(range[0]))) != nil,
-              let blob = try? handle.read(upToCount: range[1]),
-              let json = try? (blob as NSData).decompressed(using: .zlib) as Data,
-              let trails = try? JSONDecoder().decode([Trail].self, from: json) else { return [] }
+              let blob = try? handle.read(upToCount: range[1]) else {
+            note("\(region) \(key): couldn't read")
+            return []
+        }
+        guard let json = try? (blob as NSData).decompressed(using: .zlib) as Data else {
+            note("\(region) \(key): couldn't unpack")
+            return []
+        }
+        guard let items = try? JSONDecoder().decode([Lenient].self, from: json) else {
+            note("\(region) \(key): couldn't decode")
+            return []
+        }
+        let trails = items.compactMap(\.trail)
+        if trails.count < items.count { note("\(region) \(key): skipped \(items.count - trails.count) bad trails") }
         if memory.count > 120 { memory.removeAll() }
         memory[memKey] = trails
         return trails
