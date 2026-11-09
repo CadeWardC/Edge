@@ -365,7 +365,16 @@ def build(pbf):
             t.setdefault("tags", {})["switchback:area"] = area
     return trails
 
+MAGIC = b"SBTP1"
+
 def main():
+    """Writes one file per region: <region>.trails, plus a small summary <region>.json.
+
+    <region>.trails = "SBTP1" + 4-byte big-endian header length + header JSON
+                      {version, region, cell, bbox, cells: {"row_col": [offset, length]}}
+                      + one raw-DEFLATE JSON list of trails per cell (offsets count from the end of the header),
+    so the app downloads the state once and unpacks only the cells it needs.
+    """
     pbf, region, out = sys.argv[1], sys.argv[2], sys.argv[3]
     os.makedirs(out, exist_ok=True)
     trails = build(pbf)
@@ -376,22 +385,28 @@ def main():
         cells[f"{row}_{col}"].append(t)
         lats.append(start[0])
         lons.append(start[1])
-    index = {"version": os.environ.get("PACK_VERSION", "dev"), "region": region, "cell": CELL,
-             "bbox": [min(lats), min(lons), max(lats), max(lons)] if lats else None, "cells": {}}
-    total = 0
+    version = os.environ.get("PACK_VERSION", "dev")
+    bbox = [min(lats), min(lons), max(lats), max(lons)] if lats else None
+    blobs, table, offset = [], {}, 0
     for key, ts in sorted(cells.items()):
         raw = json.dumps(ts, ensure_ascii=False, separators=(",", ":")).encode()
         c = zlib.compressobj(9, zlib.DEFLATED, -15)   # raw DEFLATE, which the app reads with NSData's .zlib
         z = c.compress(raw) + c.flush()
-        with open(os.path.join(out, f"c_{key}.z"), "wb") as f:
-            f.write(z)
-        index["cells"][key] = len(z)
-        total += len(z)
-    with open(os.path.join(out, "index.json"), "w") as f:
-        json.dump(index, f, separators=(",", ":"))
+        table[key] = [offset, len(z)]
+        blobs.append(z)
+        offset += len(z)
+    header = json.dumps({"version": version, "region": region, "cell": CELL, "bbox": bbox, "cells": table},
+                        separators=(",", ":")).encode()
+    with open(os.path.join(out, f"{region}.trails"), "wb") as f:
+        f.write(MAGIC + len(header).to_bytes(4, "big") + header + b"".join(blobs))
+    size = len(MAGIC) + 4 + len(header) + offset
+    with open(os.path.join(out, f"{region}.json"), "w") as f:
+        json.dump({"region": region, "version": version, "bbox": bbox, "cells": len(table), "bytes": size,
+                   "trails": len(trails)}, f, separators=(",", ":"))
     named = sum(1 for t, _ in trails if not t.get("tags", {}).get("switchback:unnamed"))
-    print(f"{region}: {len(trails)} trails ({named} named) in {len(cells)} cells, {total / 1024:.0f} KB total, "
-          f"largest cell {max(index['cells'].values(), default=0) / 1024:.1f} KB")
+    areas = len({t.get("tags", {}).get("switchback:area") for t, _ in trails} - {None})
+    print(f"{region}: {len(trails)} trails ({named} named) in {areas} areas and {len(table)} cells, "
+          f"one file of {size / 1024:.0f} KB")
 
 if __name__ == "__main__":
     main()

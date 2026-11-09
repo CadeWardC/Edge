@@ -1,109 +1,72 @@
 import Foundation
 
-/// Lightweight trail packs: each state's trails, pre-built weekly from OpenStreetMap (scripts/build_trail_pack.py) and
-/// split into small compressed files per 0.25° cell (about 25 km). The app downloads only the cells around where you
-/// look, once, and keeps them; wherever a pack exists, trails load instantly and need no live search.
+/// Trail packs: one compact file per US state, pre-built weekly from OpenStreetMap (scripts/build_trail_pack.py) and
+/// published in the release "trails-us". The app downloads a state's file once, the first time the map shows it, and
+/// keeps it: every trail in the state is then on the phone, instantly and offline. The file starts with a table of
+/// contents, so only the cells (0.25°, about 25 km) around the map are unpacked.
 actor TrailPacks {
     static let shared = TrailPacks()
 
-    /// Used until the list of regions has been downloaded once.
-    private static let fallbackRegions: [String: BBox] = [
-        "missouri": BBox(south: 35.99, west: -95.78, north: 40.62, east: -89.09),
-    ]
+    private static let release = "https://github.com/CadeWardC/Edge/releases/download/trails-us/"
+    private static let magic = Data("SBTP1".utf8)
 
-    private struct RegionList: Codable {
-        struct Region: Codable { let bbox: [Double] }
-        let regions: [String: Region]
-    }
-
-    private struct StampedRegions: Codable {
-        let checked: Date
-        let regions: [String: BBox]
-    }
-
-    private var regionBoxes: [String: BBox]?
-    private var regionsFailedUntil = Date.distantPast
-
-    /// Which states have packs, and where (the release "trails-index", re-checked every few days).
-    private func regions() async -> [String: BBox] {
-        let file = dir.appendingPathComponent("regions.json")
-        let saved = Files.load(StampedRegions.self, from: file)
-        if let r = regionBoxes, let saved, Date().timeIntervalSince(saved.checked) < 3 * 86400 { return r }
-        if let saved, Date().timeIntervalSince(saved.checked) < 3 * 86400 {
-            regionBoxes = saved.regions
-            return saved.regions
-        }
-        if regionsFailedUntil > Date() { return regionBoxes ?? saved?.regions ?? Self.fallbackRegions }
-        do {
-            let data = try await Self.get("https://github.com/CadeWardC/Edge/releases/download/trails-index/regions.json")
-            let list = try JSONDecoder().decode(RegionList.self, from: data)
-            var boxes: [String: BBox] = [:]
-            for (name, r) in list.regions where r.bbox.count == 4 {
-                boxes[name] = BBox(south: r.bbox[0], west: r.bbox[1], north: r.bbox[2], east: r.bbox[3]).expanded(byDegrees: 0.05)
-            }
-            if !boxes.isEmpty {
-                Files.save(StampedRegions(checked: Date(), regions: boxes), to: file)
-                regionBoxes = boxes
-                return boxes
-            }
-        } catch {
-            regionsFailedUntil = Date().addingTimeInterval(10 * 60)
-        }
-        let r = regionBoxes ?? saved?.regions ?? Self.fallbackRegions
-        regionBoxes = r
-        return r
-    }
-
-    private struct Index: Codable {
-        let version: String
+    private struct Region: Codable {
         let region: String
-        let cell: Double
-        let cells: [String: Int]
+        let version: String
+        let bbox: [Double]
+        let bytes: Int?
+
+        var box: BBox { BBox(south: bbox[0], west: bbox[1], north: bbox[2], east: bbox[3]).expanded(byDegrees: 0.05) }
     }
 
+    private struct RegionList: Codable { let regions: [String: Region] }
     private struct Stamped: Codable {
         let checked: Date
-        let index: Index
+        let list: RegionList
     }
 
-    private var indexes: [String: Index] = [:]
+    private struct Header: Codable {
+        let version: String
+        let cell: Double
+        let cells: [String: [Int]]
+    }
+
+    /// An opened state file: its table of contents and where the cells start.
+    private struct Pack {
+        let url: URL
+        let header: Header
+        let bodyStart: UInt64
+    }
+
+    private var list: RegionList?
+    private var listFailedUntil = Date.distantPast
+    private var packs: [String: Pack] = [:]
+    private var downloading: [String: Task<Pack?, Never>] = [:]
     private var memory: [String: [Trail]] = [:]
-    private var failedUntil: [String: Date] = [:]
-    private let dir = Files.caches.appendingPathComponent("TrailPacks", isDirectory: true)
-
-    private static func base(_ region: String) -> String {
-        "https://github.com/CadeWardC/Edge/releases/download/trails-\(region)/"
-    }
+    private let dir = Files.support.appendingPathComponent("TrailPacks", isDirectory: true)
 
     struct Result {
         let trails: [Trail]
-        /// Every cell of the box is covered by a pack (so no live search is needed there).
+        /// The packs cover the whole box (so no live search is needed there).
         let complete: Bool
     }
 
-    /// Trails from the packs for the box, or nil if no pack covers any of it.
+    /// Trails from the packs for the box, or nil if no pack covers it.
     func trails(in box: BBox) async -> Result? {
-        let all = await regions()
-        let regions = all.filter { $0.value.intersects(box) }.map(\.key)
-        guard !regions.isEmpty else { return nil }
+        guard let regions = await regionList()?.regions.values.filter({ $0.bbox.count == 4 && $0.box.intersects(box) }),
+              !regions.isEmpty else { return nil }
         var trails: [Trail] = []
-        var wanted = 0, covered = 0, loaded = 0
-        for region in regions {
-            guard let index = await index(for: region) else { continue }
+        var loaded = 0
+        for r in regions {
+            guard let pack = await pack(for: r) else { continue }
             loaded += 1
-            for key in Self.cells(box, size: index.cell) {
-                wanted += 1
-                guard index.cells[key] != nil else { continue }
-                if let ts = await cell(key, region: region, index: index) {
-                    trails += ts
-                    covered += 1
-                }
+            for key in Self.cells(box, size: pack.header.cell) where pack.header.cells[key] != nil {
+                trails += cell(key, region: r.region, pack: pack)
             }
         }
         guard loaded > 0 else { return nil }
-        // inside a state that has packs, a cell without a file simply has no trails
-        let inside = all.values.contains { $0.contains(box.center) }
-        return Result(trails: trails, complete: loaded == regions.count && (covered == wanted || inside))
+        let inside = regions.contains { $0.box.contains(box.center) }
+        return Result(trails: trails, complete: loaded == regions.count && inside)
     }
 
     static func cells(_ box: BBox, size: Double) -> [String] {
@@ -117,75 +80,103 @@ actor TrailPacks {
         return out
     }
 
-    // MARK: Index (a tiny list of which cells exist; re-checked every few days)
+    // MARK: The list of states (re-checked every few days)
 
-    private func index(for region: String) async -> Index? {
-        let file = dir.appendingPathComponent(region).appendingPathComponent("index.json")
+    private func regionList() async -> RegionList? {
+        let file = dir.appendingPathComponent("regions.json")
         let saved = Files.load(Stamped.self, from: file)
-        if let i = indexes[region], let saved, Date().timeIntervalSince(saved.checked) < 3 * 86400 { return i }
         if let saved, Date().timeIntervalSince(saved.checked) < 3 * 86400 {
-            indexes[region] = saved.index
-            return saved.index
+            list = saved.list
+            return saved.list
         }
-        if let until = failedUntil[region], until > Date() { return saved?.index }
+        if listFailedUntil > Date() { return list ?? saved?.list }
         do {
-            let data = try await Self.get(Self.base(region) + "index.json")
-            let fresh = try JSONDecoder().decode(Index.self, from: data)
-            Files.save(Stamped(checked: Date(), index: fresh), to: file)
-            if let old = saved?.index, old.version != fresh.version { clearCells(region: region) }
-            indexes[region] = fresh
+            let fresh = try JSONDecoder().decode(RegionList.self, from: try await Self.get(Self.release + "regions.json"))
+            Files.save(Stamped(checked: Date(), list: fresh), to: file)
+            list = fresh
             return fresh
         } catch {
-            // no signal or no pack yet: use what's saved, and don't ask again for a while
-            failedUntil[region] = Date().addingTimeInterval(10 * 60)
-            if let saved { indexes[region] = saved.index }
-            return saved?.index
+            listFailedUntil = Date().addingTimeInterval(10 * 60)
+            list = list ?? saved?.list
+            return list
         }
     }
 
-    // MARK: Cells
+    // MARK: State files
 
-    private func cell(_ key: String, region: String, index: Index) async -> [Trail]? {
+    private func pack(for r: Region) async -> Pack? {
+        if let p = packs[r.region], p.header.version == r.version { return p }
+        let url = dir.appendingPathComponent("\(r.region)-\(r.version).trails")
+        if let p = open(url) {
+            packs[r.region] = p
+            return p
+        }
+        // download once (shared by every caller asking for this state at the same time)
+        if let running = downloading[r.region] { return await running.value }
+        let task = Task<Pack?, Never> {
+            guard let data = try? await Self.get(Self.release + "\(r.region).trails") else { return nil }
+            try? FileManager.default.createDirectory(at: self.dir, withIntermediateDirectories: true)
+            guard (try? data.write(to: url, options: .atomic)) != nil else { return nil }
+            return await self.opened(url, region: r.region)
+        }
+        downloading[r.region] = task
+        let p = await task.value
+        downloading[r.region] = nil
+        return p
+    }
+
+    private func opened(_ url: URL, region: String) -> Pack? {
+        guard let p = open(url) else { return nil }
+        packs[region] = p
+        memory = memory.filter { !$0.key.hasPrefix(region + "/") }
+        // older versions of this state's file aren't needed any more
+        let files = (try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)) ?? []
+        for f in files where f.lastPathComponent.hasPrefix(region + "-") && f != url { try? FileManager.default.removeItem(at: f) }
+        return p
+    }
+
+    private func open(_ url: URL) -> Pack? {
+        guard let handle = try? FileHandle(forReadingFrom: url) else { return nil }
+        defer { try? handle.close() }
+        guard let start = try? handle.read(upToCount: 9), start.count == 9, start.prefix(5) == Self.magic else { return nil }
+        let length = start.suffix(4).reduce(0) { ($0 << 8) | Int($1) }
+        guard length > 0, length < 50_000_000, let headerData = try? handle.read(upToCount: length), headerData.count == length,
+              let header = try? JSONDecoder().decode(Header.self, from: headerData) else { return nil }
+        return Pack(url: url, header: header, bodyStart: UInt64(9 + length))
+    }
+
+    private func cell(_ key: String, region: String, pack: Pack) -> [Trail] {
         let memKey = "\(region)/\(key)"
         if let ts = memory[memKey] { return ts }
-        let file = dir.appendingPathComponent(region).appendingPathComponent("\(index.version)_\(key).z")
-        var data = try? Data(contentsOf: file)
-        if data == nil {
-            data = try? await Self.get(Self.base(region) + "c_\(key).z")
-            if let data {
-                try? FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
-                try? data.write(to: file)
-            }
-        }
-        guard let data,
-              let json = try? (data as NSData).decompressed(using: .zlib) as Data,
-              let trails = try? JSONDecoder().decode([Trail].self, from: json) else { return nil }
-        if memory.count > 80 { memory.removeAll() }
+        guard let range = pack.header.cells[key], range.count == 2,
+              let handle = try? FileHandle(forReadingFrom: pack.url) else { return [] }
+        defer { try? handle.close() }
+        guard (try? handle.seek(toOffset: pack.bodyStart + UInt64(range[0]))) != nil,
+              let blob = try? handle.read(upToCount: range[1]),
+              let json = try? (blob as NSData).decompressed(using: .zlib) as Data,
+              let trails = try? JSONDecoder().decode([Trail].self, from: json) else { return [] }
+        if memory.count > 120 { memory.removeAll() }
         memory[memKey] = trails
         return trails
     }
 
-    private func clearCells(region: String) {
-        let folder = dir.appendingPathComponent(region)
-        let files = (try? FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)) ?? []
-        for f in files where f.pathExtension == "z" { try? FileManager.default.removeItem(at: f) }
-        memory = memory.filter { !$0.key.hasPrefix(region + "/") }
-    }
-
     private static func get(_ string: String) async throws -> Data {
         guard let url = URL(string: string) else { throw URLError(.badURL) }
-        var req = URLRequest(url: url, timeoutInterval: 20)
+        var req = URLRequest(url: url, timeoutInterval: 60)
         req.setValue(Net.userAgent, forHTTPHeaderField: "User-Agent")
         let (data, resp) = try await URLSession.shared.data(for: req)
         guard (resp as? HTTPURLResponse)?.statusCode == 200 else { throw URLError(.badServerResponse) }
         return data
     }
 
+    // MARK: Settings
+
     func size() -> Int64 { Files.directorySize(dir) }
 
     func clear() {
         memory.removeAll()
-        indexes.removeAll()
+        packs.removeAll()
+        list = nil
         try? FileManager.default.removeItem(at: dir)
     }
 }

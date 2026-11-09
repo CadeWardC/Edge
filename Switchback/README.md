@@ -28,13 +28,14 @@ subscription and no API keys.
 - **Compact storage:** trail lines are saved as encoded polylines (about 6 characters a point instead of ~40) and every
   file the app writes is compressed with LZFSE; files from earlier versions still load.
 - **Trail packs (fastest, lightest), all US states:** `.github/workflows/trail-packs.yml` turns each state's
-  OpenStreetMap extract (Geofabrik) into small compressed files, one per 0.25° cell (about 25 km), plus an index,
-  published weekly as the release `trails-<state>`; a final step lists the states in `trails-index/regions.json`.
+  OpenStreetMap extract (Geofabrik) into one compact file per state (`<state>.trails`: a table of contents, then one
+  compressed block per 0.25° cell), all published weekly in the single release `trails-us` with `regions.json`. The app
+  downloads a state's file once, the first time the map shows it, then has every trail there instantly and offline,
+  unpacking only the cells around the map.
   `scripts/build_trail_pack.py` uses the same rules (and trail ids) as the live search, and also: puts every trail in
   its area (the smallest named park, nature reserve or protected area it lies in); names unnamed paths from the map
   where it's certain ("Connector: A – B", "A spur"); and drops unnamed paths outside parks that join no trail and
-  aren't tagged for hiking. The app downloads only the cells around where you look, once, keeps them, and needs no
-  live search inside covered states. The list groups trails by area, and search matches area names.
+  aren't tagged for hiking. No live search is needed inside covered states. The list groups trails by area, and search matches area names.
 - **Fast:** trails found are cached on the phone in 0.05° cells for two weeks, so places you've seen load instantly and a
   search only fetches the cells it doesn't have. If the main Overpass server is slow, a second one is asked after 3 s
   and the first answer wins. Trail shapes are simplified (Douglas–Peucker, 3 m) to draw quickly.

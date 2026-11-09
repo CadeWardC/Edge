@@ -1,8 +1,8 @@
 name: Build trail packs (Switchback)
 
-# Turns OpenStreetMap's US state extracts (Geofabrik) into Switchback's lightweight trail packs: one small compressed
-# file per 0.25° cell plus an index per state, published as the release "trails-<state>", and a master list of the
-# states (regions.json) in the release "trails-index". Weekly, by hand, or when the builder changes.
+# Turns OpenStreetMap's US state extracts (Geofabrik) into Switchback's trail packs: one compact file per state
+# (<state>.trails) plus a small summary (<state>.json), all in the single release "trails-us", with the list of
+# states (regions.json). Weekly, by hand, or when the builder changes.
 
 on:
   schedule:
@@ -67,11 +67,10 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          TAG="trails-${{ matrix.region }}"
-          gh release view "$TAG" > /dev/null 2>&1 || gh release create "$TAG" --target "${{ github.sha }}" \
-            --title "Switchback trail packs: ${{ matrix.region }}" --latest=false \
-            --notes "Trails for Switchback built from OpenStreetMap (© OpenStreetMap contributors, ODbL) via Geofabrik. One compressed file per 0.25° cell plus index.json. Rebuilt weekly."
-          for i in 1 2 3; do gh release upload "$TAG" out/* --clobber && break; sleep 20; done
+          gh release view trails-us > /dev/null 2>&1 || gh release create trails-us --target "${{ github.sha }}" \
+            --title "Switchback trail packs (US)" --latest=false \
+            --notes "Trails for Switchback built from OpenStreetMap (© OpenStreetMap contributors, ODbL) via Geofabrik: one file per state plus regions.json. Rebuilt weekly." || true
+          for i in 1 2 3 4; do gh release upload trails-us out/* --clobber && break; sleep $((i * 15)); done
 
   index:
     needs: pack
@@ -84,30 +83,24 @@ jobs:
           REPO: ${{ github.repository }}
         run: |
           mkdir -p idx
-          for tag in $(gh release list -R "$REPO" --limit 200 --json tagName --jq '.[].tagName' | grep '^trails-' | grep -v '^trails-index$'); do
-            gh release download "$tag" -R "$REPO" -p index.json -O "idx/${tag#trails-}.json" --clobber || true
-          done
+          gh release download trails-us -R "$REPO" -p "*.json" -D idx --clobber
+          rm -f idx/regions.json
           python3 - <<'PY'
-          import json, glob, os
-          regions, total, cells = {}, 0, 0
+          import json, glob
+          regions, total, trails = {}, 0, 0
           for f in sorted(glob.glob("idx/*.json")):
               i = json.load(open(f))
               if not i.get("bbox"):
                   continue
-              size = sum(i["cells"].values())
-              regions[i["region"]] = {"bbox": i["bbox"], "version": i["version"], "cells": len(i["cells"]), "bytes": size}
-              total += size; cells += len(i["cells"])
+              regions[i["region"]] = i
+              total += i["bytes"]; trails += i.get("trails", 0)
           json.dump({"regions": regions}, open("regions.json", "w"), separators=(",", ":"))
-          print(f"{len(regions)} regions, {cells} cells, {total / 1024 / 1024:.1f} MB in all")
+          print(f"{len(regions)} regions, {trails} trails, {total / 1024 / 1024:.1f} MB in all")
           for name, r in sorted(regions.items(), key=lambda kv: -kv[1]["bytes"]):
-              print(f"  {name:<22} {r['bytes'] / 1024:8.0f} KB  {r['cells']:5d} cells")
+              print(f"  {name:<22} {r['bytes'] / 1024:8.0f} KB  {r.get('trails', 0):7d} trails")
           PY
       - name: Publish regions.json
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
-        run: |
-          gh release view trails-index -R "$REPO" > /dev/null 2>&1 || gh release create trails-index -R "$REPO" \
-            --target "${{ github.sha }}" --title "Switchback trail packs: list of regions" --latest=false \
-            --notes "regions.json: which trail packs exist and where."
-          gh release upload trails-index regions.json -R "$REPO" --clobber
+        run: gh release upload trails-us regions.json -R "$REPO" --clobber
