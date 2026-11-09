@@ -49,6 +49,8 @@ struct TrailMapView: UIViewRepresentable {
     var initialBox: BBox? = nil
     var showsUserButton = true
     var followUser = false
+    /// Draw the Waymarked Trails hiking-routes layer on top of the base map.
+    var showsRoutes = false
     var onSelect: ((String?) -> Void)? = nil
     var onRegionChange: ((MKCoordinateRegion) -> Void)? = nil
 
@@ -96,6 +98,7 @@ struct TrailMapView: UIViewRepresentable {
         var parent: TrailMapView?
         private var base: BaseMap?
         private var tileOverlay: CachedTileOverlay?
+        private var routesOverlay: CachedTileOverlay?
         private var shown: [String: Shown] = [:]
         private var lastSelected: String?
         private var trackOverlays: [TrailLines] = []
@@ -107,6 +110,7 @@ struct TrailMapView: UIViewRepresentable {
         func apply(_ p: TrailMapView, to map: MKMapView) {
             parent = p
             applyBase(p, map)
+            applyRoutes(p, map)
             applyTrails(p, map)
             applyTrack(p, map)
 
@@ -143,6 +147,21 @@ struct TrailMapView: UIViewRepresentable {
                 tileOverlay = o
             }
             map.cameraZoomRange = MKMapView.CameraZoomRange(minCenterCoordinateDistance: p.baseMap.isTiled ? 250 : 80)
+        }
+
+        private func applyRoutes(_ p: TrailMapView, _ map: MKMapView) {
+            if p.showsRoutes, routesOverlay == nil {
+                let o = CachedTileOverlay(source: .waymarkedHiking)
+                if let base = tileOverlay {
+                    map.insertOverlay(o, above: base)
+                } else {
+                    map.insertOverlay(o, at: 0, level: .aboveLabels)
+                }
+                routesOverlay = o
+            } else if !p.showsRoutes, let o = routesOverlay {
+                map.removeOverlay(o)
+                routesOverlay = nil
+            }
         }
 
         private func signature(_ t: Trail, selected: Bool) -> String {
@@ -274,6 +293,11 @@ struct TrailMapView: UIViewRepresentable {
         // MARK: MKMapViewDelegate
 
         func mapView(_ mapView: MKMapView, rendererFor overlay: MKOverlay) -> MKOverlayRenderer {
+            if let t = overlay as? CachedTileOverlay, t.source.isOverlay {
+                let r = MKTileOverlayRenderer(tileOverlay: t)
+                r.alpha = 0.85
+                return r
+            }
             if let t = overlay as? MKTileOverlay {
                 return MKTileOverlayRenderer(tileOverlay: t)
             }

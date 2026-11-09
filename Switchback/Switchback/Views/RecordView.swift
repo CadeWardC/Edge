@@ -6,6 +6,7 @@ struct RecordView: View {
     @EnvironmentObject private var recorder: Recorder
     @EnvironmentObject private var library: Library
     @AppStorage(BaseMap.storageKey) private var baseMap: BaseMap = .standard
+    @AppStorage(BaseMap.showRoutesKey) private var showRoutes = false
     @State private var askName = false
     @State private var activityName = ""
     @State private var finished: Activity?
@@ -23,7 +24,8 @@ struct RecordView: View {
                                  selectedId: recorder.following?.id,
                                  track: recorder.trackCoords,
                                  camera: camera,
-                                 followUser: recorder.state == .recording)
+                                 followUser: recorder.state == .recording,
+                                 showsRoutes: showRoutes)
                     VStack(spacing: 8) {
                         if recorder.isDenied { permissionBanner }
                         if recorder.offTrail, let off = recorder.offset { offTrailBanner(off) }

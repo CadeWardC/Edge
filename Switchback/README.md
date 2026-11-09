@@ -7,6 +7,10 @@ subscription and no API keys.
   a hiker pin at each trailhead (pins group into numbered bubbles when they crowd). Base maps: Apple Maps, satellite,
   OpenTopoMap topo, and USGS topo or USGS satellite in the US. Tap a line or pin to see the trail; switch to the list to
   sort (closest, shortest, longest, least or most climb) and filter (difficulty, length, elevation gain, loops only).
+- **More trails:** in the US, U.S. Forest Service National Forest System trails are added too (Settings toggle, on by
+  default). A Forest Service trail that's already in OpenStreetMap is merged into it (adding its trail number, class,
+  surface and grade) instead of being drawn twice. The **hiking routes layer** (map style menu) draws Waymarked Trails'
+  worldwide map of signposted hiking routes on top of any base map.
 - **Fast:** trails found are cached on the phone in 0.05° cells for two weeks, so places you've seen load instantly and a
   search only fetches the cells it doesn't have. If the main Overpass server is slow, a second one is asked after 3 s
   and the first answer wins. Trail shapes are simplified (Douglas–Peucker, 3 m) to draw quickly.
@@ -30,6 +34,8 @@ subscription and no API keys.
 | Elevation | [Open-Meteo elevation API](https://open-meteo.com/en/docs/elevation-api) (Copernicus DEM GLO-90) | CC BY 4.0 |
 | Topo map | [OpenTopoMap](https://opentopomap.org) | CC-BY-SA |
 | US topo map | [USGS The National Map](https://basemap.nationalmap.gov) (USGSTopo) | Public domain |
+| US trails | [USDA Forest Service EDW](https://data.fs.usda.gov/geodata/edw/datasets.php) (National Forest System Trails) | Public domain |
+| Hiking routes layer | [Waymarked Trails](https://hiking.waymarkedtrails.org) | CC-BY-SA |
 | US satellite | [USGS The National Map](https://basemap.nationalmap.gov) (USGSImageryOnly, NAIP aerial photos) | Public domain |
 
 Difficulty is worked out from length + climb (and the SAC scale when mapped); OSM has no star ratings or reviews.

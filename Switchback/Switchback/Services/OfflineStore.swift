@@ -70,7 +70,7 @@ final class OfflineStore: ObservableObject {
                 var found: [String: Trail] = [:]
                 for cell in area.bbox.tiles(cell: 0.25).prefix(16) {
                     if Task.isCancelled { break }
-                    if let trails = try? await Overpass.trails(in: cell) {
+                    if let trails = try? await TrailSources.trails(in: cell) {
                         for t in trails { found[t.id] = t }
                     }
                 }

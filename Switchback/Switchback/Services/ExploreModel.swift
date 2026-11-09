@@ -166,7 +166,7 @@ final class ExploreModel: ObservableObject {
         isLoading = true
         errorText = nil
         do {
-            let found = try await Overpass.trails(in: box)
+            let found = try await TrailSources.trails(in: box)
             await TrailCache.shared.store(found, for: cells)
             merge(found)
             usedOffline = false

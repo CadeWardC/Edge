@@ -5,6 +5,8 @@ struct SettingsView: View {
     @AppStorage(BaseMap.storageKey) private var baseMap: BaseMap = .standard
     @Environment(\.dismiss) private var dismiss
     @State private var cacheSize: Int64 = 0
+    @AppStorage(BaseMap.showRoutesKey) private var showRoutes = false
+    @AppStorage(USFS.enabledKey) private var usfsTrails = true
 
     var body: some View {
         NavigationStack {
@@ -18,10 +20,12 @@ struct SettingsView: View {
                 }
                 Section {
                     Picker("Map style", selection: $baseMap) {
-                        ForEach(BaseMap.allCases) { Text($0.title).tag($0) }
+                        ForEach(BaseMap.baseStyles) { Text($0.title).tag($0) }
                     }
+                    Toggle("Waymarked hiking routes", isOn: $showRoutes)
+                    Toggle("U.S. Forest Service trails", isOn: $usfsTrails)
                 } footer: {
-                    Text("Topo and USGS Satellite maps can be downloaded for offline use (Saved › Offline maps). USGS covers the United States only.")
+                    Text("Topo and USGS Satellite maps can be downloaded for offline use (Saved › Offline maps). USGS covers the United States only. Waymarked routes draws every signposted hiking route in the world on top of the map. Forest Service trails add official national forest trails in the US (cleared from the cache to apply to places you've already seen).")
                 }
                 Section("Storage") {
                     LabeledContent("Map cache", value: ByteCountFormatter.string(fromByteCount: cacheSize, countStyle: .file))
@@ -35,6 +39,7 @@ struct SettingsView: View {
                     Text("Trails: © OpenStreetMap contributors, available under the Open Database Licence.")
                     Text("Elevation: Open-Meteo (CC BY 4.0), from the Copernicus DEM GLO-90.")
                     Text("Topo map: OpenTopoMap (CC-BY-SA). USGS Topo and Satellite: U.S. Geological Survey (public domain).")
+                    Text("Hiking routes layer: waymarkedtrails.org (CC-BY-SA). Forest Service trails: USDA Forest Service (public domain).")
                     Link("OpenStreetMap copyright", destination: URL(string: "https://www.openstreetmap.org/copyright")!)
                     Link("Fix or add a trail on OpenStreetMap", destination: URL(string: "https://www.openstreetmap.org/")!)
                 }

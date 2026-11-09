@@ -6,6 +6,7 @@ struct ExploreView: View {
     @EnvironmentObject private var recorder: Recorder
     @EnvironmentObject private var profiles: Profiles
     @AppStorage(BaseMap.storageKey) private var baseMap: BaseMap = .standard
+    @AppStorage(BaseMap.showRoutesKey) private var showRoutes = false
     @State private var mode: Mode = .map
     @State private var query = ""
     @State private var showFilters = false
@@ -71,6 +72,7 @@ struct ExploreView: View {
         return ZStack {
             TrailMapView(baseMap: baseMap, trails: trails, selectedId: model.selectedId, camera: model.cameraRequest,
                          initialBox: model.initialBox,
+                         showsRoutes: showRoutes,
                          onSelect: { id in withAnimation(.snappy) { model.selectedId = id } },
                          onRegionChange: { model.regionChanged($0) })
 
@@ -99,8 +101,11 @@ struct ExploreView: View {
                     }
                     .buttonStyle(.plain)
                 }
-                HStack {
-                    MapAttribution(baseMap: baseMap)
+                HStack(alignment: .bottom) {
+                    VStack(alignment: .leading, spacing: 0) {
+                        if showRoutes { MapAttribution(baseMap: .waymarkedHiking) }
+                        MapAttribution(baseMap: baseMap)
+                    }
                     Spacer()
                     mapStyleMenu
                 }
@@ -150,7 +155,10 @@ struct ExploreView: View {
     private var mapStyleMenu: some View {
         Menu {
             Picker("Map style", selection: $baseMap) {
-                ForEach(BaseMap.allCases) { Text($0.title).tag($0) }
+                ForEach(BaseMap.baseStyles) { Text($0.title).tag($0) }
+            }
+            Toggle(isOn: $showRoutes) {
+                Label("Hiking routes layer", systemImage: "signpost.right.and.left")
             }
         } label: {
             Image(systemName: "square.3.layers.3d")

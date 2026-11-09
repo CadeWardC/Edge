@@ -150,7 +150,7 @@ struct NewOfflineAreaView: View {
                 Form {
                     TextField("Name (e.g. Yosemite Valley)", text: $name)
                     Picker("Map", selection: $source) {
-                        ForEach(BaseMap.allCases.filter(\.isTiled)) { Text($0.title).tag($0) }
+                        ForEach(BaseMap.baseStyles.filter(\.isTiled)) { Text($0.title).tag($0) }
                     }
                     Picker("Detail", selection: $detail) {
                         Text("Low").tag(13)

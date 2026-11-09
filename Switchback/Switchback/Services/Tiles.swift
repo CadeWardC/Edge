@@ -4,7 +4,11 @@ import UIKit
 
 /// The map style under the trails.
 enum BaseMap: String, CaseIterable, Identifiable {
-    case standard, satellite, topo, usgs, usgsImagery
+    case standard, satellite, topo, usgs, usgsImagery, waymarkedHiking
+
+    /// The styles you can pick as the map underneath (not the see-through layers).
+    static var baseStyles: [BaseMap] { allCases.filter { !$0.isOverlay } }
+    static let showRoutesKey = "showWaymarkedRoutes"
 
     static let storageKey = "baseMap"
 
@@ -17,6 +21,7 @@ enum BaseMap: String, CaseIterable, Identifiable {
         case .topo: return "Topo (OpenTopoMap)"
         case .usgs: return "USGS Topo (US only)"
         case .usgsImagery: return "USGS Satellite (US only)"
+        case .waymarkedHiking: return "Waymarked hiking routes"
         }
     }
 
@@ -27,10 +32,14 @@ enum BaseMap: String, CaseIterable, Identifiable {
         case .topo: return "Topo"
         case .usgs: return "USGS"
         case .usgsImagery: return "USGS Satellite"
+        case .waymarkedHiking: return "Routes"
         }
     }
 
     var isTiled: Bool { self == .topo || self == .usgs || self == .usgsImagery }
+
+    /// A see-through layer drawn on top of the base map.
+    var isOverlay: Bool { self == .waymarkedHiking }
 
     /// The closest zoom the server has tiles for; closer than that, tiles are enlarged from this level.
     var maxZoom: Int { self == .topo ? 17 : 16 }
@@ -43,6 +52,7 @@ enum BaseMap: String, CaseIterable, Identifiable {
         case .topo: return "© OpenStreetMap contributors, SRTM · Map style © OpenTopoMap (CC-BY-SA)"
         case .usgs: return "USGS The National Map"
         case .usgsImagery: return "USGS The National Map: Orthoimagery"
+        case .waymarkedHiking: return "Routes © waymarkedtrails.org, OpenStreetMap contributors (CC-BY-SA)"
         default: return nil
         }
     }
@@ -62,6 +72,8 @@ enum BaseMap: String, CaseIterable, Identifiable {
             return URL(string: "https://basemap.nationalmap.gov/arcgis/rest/services/USGSTopo/MapServer/tile/\(z)/\(y)/\(x)")
         case .usgsImagery:
             return URL(string: "https://basemap.nationalmap.gov/arcgis/rest/services/USGSImageryOnly/MapServer/tile/\(z)/\(y)/\(x)")
+        case .waymarkedHiking:
+            return URL(string: "https://tile.waymarkedtrails.org/hiking/\(z)/\(x)/\(y).png")
         default:
             return nil
         }
@@ -143,9 +155,11 @@ final class TileStore: @unchecked Sendable {
         let format = UIGraphicsImageRendererFormat()
         format.scale = 1
         let renderer = UIGraphicsImageRenderer(size: CGSize(width: 256, height: 256), format: format)
-        return renderer.jpegData(withCompressionQuality: 0.9) { _ in
+        let draw: (UIGraphicsImageRendererContext) -> Void = { _ in
             UIImage(cgImage: part).draw(in: CGRect(x: 0, y: 0, width: 256, height: 256))
         }
+        // see-through layers keep their transparency
+        return source.isOverlay ? renderer.pngData(actions: draw) : renderer.jpegData(withCompressionQuality: 0.9, actions: draw)
     }
 
     // Web Mercator tile maths
@@ -193,7 +207,7 @@ final class CachedTileOverlay: MKTileOverlay {
     init(source: BaseMap) {
         self.source = source
         super.init(urlTemplate: nil)
-        canReplaceMapContent = true
+        canReplaceMapContent = !source.isOverlay
         minimumZ = 1
         maximumZ = 19
         tileSize = CGSize(width: 256, height: 256)

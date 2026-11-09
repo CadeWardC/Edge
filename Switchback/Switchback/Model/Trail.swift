@@ -72,7 +72,7 @@ struct TrailFact: Hashable {
 
 struct Trail: Codable, Identifiable, Hashable {
     enum Source: String, Codable {
-        case osmRelation, osmWay, imported, recorded
+        case osmRelation, osmWay, imported, recorded, usfs
     }
 
     var id: String
@@ -110,6 +110,8 @@ struct Trail: Codable, Identifiable, Hashable {
         let km = length / 1000
         let effort = km + (profile?.gain ?? 0) / 100
         var level: Difficulty = effort < 8 ? .easy : effort < 16 ? .moderate : effort < 26 ? .hard : .veryHard
+        // Forest Service class 1 (minimally developed) trails are rough going
+        if tags["usfs:trail_class"]?.filter(\.isNumber) == "1" { level = max(level, .moderate) }
         switch tags["sac_scale"] {
         case "mountain_hiking": level = max(level, .moderate)
         case "demanding_mountain_hiking": level = max(level, .hard)
@@ -159,6 +161,17 @@ struct Trail: Codable, Identifiable, Hashable {
         if let vis = tags["trail_visibility"] { out.append(TrailFact(title: "Trail visibility", value: vis.capitalized)) }
         if let ref = tags["ref"] { out.append(TrailFact(title: "Ref", value: ref)) }
         if let symbol = tags["symbol"] { out.append(TrailFact(title: "Waymarks", value: symbol)) }
+        if let cls = tags["usfs:trail_class"] {
+            let digits = cls.filter(\.isNumber)
+            let names = ["1": "TC1 · Minimally developed", "2": "TC2 · Moderately developed", "3": "TC3 · Developed",
+                         "4": "TC4 · Highly developed", "5": "TC5 · Fully developed"]
+            out.append(TrailFact(title: "Forest Service class", value: names[digits] ?? cls))
+        }
+        if let surface = tags["usfs:surface"], tags["surface"] == nil {
+            out.append(TrailFact(title: "Surface", value: surface.replacingOccurrences(of: "_", with: " ").capitalized))
+        }
+        if let grade = tags["usfs:grade"] { out.append(TrailFact(title: "Typical grade", value: grade)) }
+        if let nat = tags["usfs:national"] { out.append(TrailFact(title: "National designation", value: nat.capitalized)) }
         if let dogs = tags["dog"] { out.append(TrailFact(title: "Dogs", value: dogs.capitalized)) }
         return out
     }

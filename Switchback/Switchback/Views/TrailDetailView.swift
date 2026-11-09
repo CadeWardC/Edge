@@ -8,6 +8,7 @@ struct TrailDetailView: View {
     @EnvironmentObject private var app: AppState
     @EnvironmentObject private var profiles: Profiles
     @AppStorage(BaseMap.storageKey) private var baseMap: BaseMap = .standard
+    @AppStorage(BaseMap.showRoutesKey) private var showRoutes = false
     @State private var gpxURL: URL?
     @State private var renaming = false
     @State private var newName = ""
@@ -26,7 +27,8 @@ struct TrailDetailView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
                 ZStack(alignment: .bottomLeading) {
-                    TrailMapView(baseMap: baseMap, trails: [t], selectedId: t.id, initialBox: t.bbox, showsUserButton: false)
+                    TrailMapView(baseMap: baseMap, trails: [t], selectedId: t.id, initialBox: t.bbox, showsUserButton: false,
+                                 showsRoutes: showRoutes)
                     MapAttribution(baseMap: baseMap)
                 }
                 .frame(height: 300)
@@ -171,7 +173,9 @@ struct TrailDetailView: View {
     private func credit(_ t: Trail) -> String {
         switch t.source {
         case .osmRelation, .osmWay:
-            return "Trail data © OpenStreetMap contributors (ODbL). Elevation from Open-Meteo / Copernicus DEM. Difficulty and time are estimates; check conditions before you go."
+            return (t.tags["usfs:trail_class"] != nil ? "Includes U.S. Forest Service details. " : "") + "Trail data © OpenStreetMap contributors (ODbL). Elevation from Open-Meteo / Copernicus DEM. Difficulty and time are estimates; check conditions before you go."
+        case .usfs:
+            return "Trail data from the U.S. Forest Service (public domain). Elevation from Open-Meteo / Copernicus DEM. Difficulty and time are estimates; check conditions with the ranger district before you go."
         case .imported:
             return "Imported from a GPX file."
         case .recorded:
