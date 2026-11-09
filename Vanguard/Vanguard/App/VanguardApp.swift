@@ -60,6 +60,9 @@ struct RootView: View {
             if args.contains("-demo"), app.game == nil {
                 var setup = SkirmishView.quickSetup()
                 setup.seed = 11
+                if let i = args.firstIndex(of: "-demo-map"), i + 1 < args.count, let raw = Int(args[i + 1]), let m = MapID(rawValue: raw) {
+                    setup.map = m
+                }
                 setup.players[1].difficulty = .hard
                 app.start(setup, localPlayer: 0, autopilot: true)
                 app.game?.speed = 3

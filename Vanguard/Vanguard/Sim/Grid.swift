@@ -69,6 +69,14 @@ final class Fog {
             let seesUp = e.isAir || e.type == .radar || e.type == .tower
             reveal(team: e.team, at: e.pos, radius: e.st.sight, level: seesUp ? 255 : map.elevation(at: e.pos), map: map)
         }
+        // a player with no Command Center left (and none being built) is exposed: everyone sees their buildings
+        for e in world.entities where e.alive && e.isBuilding && e.owner >= 0 {
+            let p = world.players[e.owner]
+            guard p.count(.hq) == 0 && p.pending[EntityType.hq.rawValue] == 0 else { continue }
+            for t in 0..<cells.count where t != e.team {
+                reveal(team: t, at: e.pos, radius: 40, level: 255, map: map)
+            }
+        }
         version += 1
     }
 

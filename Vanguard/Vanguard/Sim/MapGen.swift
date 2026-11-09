@@ -209,9 +209,10 @@ private final class Builder {
             tower(22, 25)
             beacon(31.5, 31.5)
             beacon(34, 14)
-            scatter(5, .forest, 1.5, 3)
-            scatter(12, .rock, 1, 2.4)
+            scatter(8, .forest, 1.5, 3.2)
+            scatter(18, .rock, 1, 2.6)
             line(30, 40, 36, 46, 1.2, .rock)
+            line(4, 40, 10, 40, 1.3, .forest)
         case .twinRivers:
             plateau(9, 9, 9, ramps: [(1, 1)])
             base(9, 9, back: (-1, -1), start: true)
@@ -231,8 +232,8 @@ private final class Builder {
                     set(x, y, bridge ? .dirt : .water)
                 }
             }
-            scatter(7, .forest, 1.5, 3)
-            scatter(8, .rock, 1, 2)
+            scatter(11, .forest, 1.5, 3.2)
+            scatter(12, .rock, 1, 2.2)
         case .duneSea:
             plateau(9, 31, 8.5, ramps: [(1, 0)])
             base(9, 31, back: (-1, 0), start: true)
@@ -246,8 +247,10 @@ private final class Builder {
             // mesas: high ground nobody can walk onto (gunships can)
             plateau(36, 18, 2.5, ramps: [])
             plateau(18, 40, 2, ramps: [])
-            scatter(10, .rock, 1, 2.2)
-            scatter(3, .forest, 1, 1.6)
+            plateau(30, 25, 1.8, ramps: [])
+            plateau(6, 46, 2.2, ramps: [])
+            scatter(16, .rock, 1, 2.6)
+            scatter(4, .forest, 1, 1.6)
         case .frostbite:
             plateau(10, 10, 9, ramps: [(1, 0)])
             base(10, 10, back: (-1, -1), start: true)
@@ -259,8 +262,8 @@ private final class Builder {
             tower(26, 28)
             blob(24, 37, 2.8, .water)
             line(18, 22, 22, 18, 1.4, .forest)
-            scatter(14, .forest, 1.5, 3.2)
-            scatter(5, .rock, 1, 1.8)
+            scatter(22, .forest, 1.5, 3.4)
+            scatter(7, .rock, 1, 1.8)
         case .highlands:
             plateau(10, 10, 9, ramps: [(1, 1)])
             base(10, 10, back: (-1, -1), start: true)
@@ -269,8 +272,8 @@ private final class Builder {
             plateau(39.5, 39.5, 4.5, ramps: [(1, 1), (-1, -1), (1, -1), (-1, 1)])
             tower(39.5, 39.5)
             beacon(39.5, 18)
-            scatter(6, .forest, 1.5, 3)
-            scatter(8, .rock, 1, 2.4)
+            scatter(10, .forest, 1.5, 3.2)
+            scatter(12, .rock, 1, 2.6)
             blob(20, 33, 2, .water)
         case .frontier:
             plateau(9, 14, 8, ramps: [(1, 0)])
@@ -284,8 +287,10 @@ private final class Builder {
             beacon(33, 57)
             tower(33, 39.5)
             plateau(9, 65, 8, ramps: [(1, 0)])
-            scatter(12, .rock, 1, 2.4)
-            scatter(4, .forest, 1, 2)
+            plateau(30, 30, 2.2, ramps: [])
+            plateau(30, 49, 2.2, ramps: [])
+            scatter(18, .rock, 1, 2.6)
+            scatter(6, .forest, 1, 2)
         case .caldera:
             blob(39.5, 39.5, 8, .water)
             plateau(10, 10, 9, ramps: [(1, 1)])
@@ -295,8 +300,9 @@ private final class Builder {
             beacon(39.5, 22)
             tower(17, 33)
             line(31, 31, 34, 34, 1.5, .water)
-            scatter(10, .rock, 1, 2.4)
-            scatter(4, .forest, 1, 2)
+            blob(14, 24, 1.8, .water)
+            scatter(16, .rock, 1, 2.6)
+            scatter(6, .forest, 1, 2)
         }
     }
 

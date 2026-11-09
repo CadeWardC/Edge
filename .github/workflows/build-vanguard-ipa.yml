@@ -79,16 +79,16 @@ jobs:
           xcrun simctl launch "$DEV" com.cadewardc.vanguard
           sleep 8
           xcrun simctl io "$DEV" screenshot shots/1-menu.png
-          xcrun simctl terminate "$DEV" com.cadewardc.vanguard
-          xcrun simctl launch "$DEV" com.cadewardc.vanguard -demo
-          sleep 20
-          xcrun simctl io "$DEV" screenshot shots/2-start.png
-          sleep 45
-          xcrun simctl io "$DEV" screenshot shots/3-midgame.png
-          sleep 60
-          xcrun simctl io "$DEV" screenshot shots/4-battle.png
-          sleep 60
-          xcrun simctl io "$DEV" screenshot shots/5-late.png
+          shoot() {  # map, name, seconds before the first and second shot
+            xcrun simctl terminate "$DEV" com.cadewardc.vanguard || true
+            xcrun simctl launch "$DEV" com.cadewardc.vanguard -demo -demo-map "$1"
+            sleep "$3"; xcrun simctl io "$DEV" screenshot "shots/$2-a.png"
+            sleep "$4"; xcrun simctl io "$DEV" screenshot "shots/$2-b.png"
+          }
+          shoot 0 2-crossroads 25 70
+          shoot 3 3-frostbite 25 60
+          shoot 2 4-dunesea 25 60
+          shoot 6 5-caldera 25 60
           ls -l shots
           # also print small JPEGs into the log (readable where artifact downloads are not)
           for f in shots/*.png; do

@@ -601,7 +601,14 @@ final class Bot {
         }) { return k.pos }
         let mine = world.map.starts[player % world.map.starts.count].center
         let others = world.map.starts.map { $0.center }.filter { $0.distSq(mine) > 100 && !world.fog.visible(team: team, $0) }
-        return others.min { $0.distSq(p) < $1.distSq(p) } ?? world.map.starts.map { $0.center }.first { $0.distSq(mine) > 100 }
+        if let s = others.min(by: { $0.distSq(p) < $1.distSq(p) }) { return s }
+        // nothing known: search the other bases and landmarks we can't see right now
+        var spots = world.map.bases.map { $0.center }
+        spots += world.map.beacons.map { world.map.center($0) }
+        spots += world.map.towers.map { world.map.center($0) }
+        let hidden = spots.filter { $0.distSq(mine) > 300 * 300 && !world.fog.visible(team: team, $0) }
+        if !hidden.isEmpty { return hidden[rng.int(hidden.count)] }
+        return Vec2(rng.range(100, world.map.worldWidth - 100), rng.range(100, world.map.worldHeight - 100))
     }
 
     private func sendBeaconSquad(_ army: [Entity]) {
