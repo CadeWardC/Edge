@@ -1,3 +1,4 @@
+import Charts
 import SpriteKit
 import SwiftUI
 
@@ -245,17 +246,49 @@ struct GameView: View {
 
     private func resultView(_ r: MatchResult) -> some View {
         ZStack {
-            Color.black.opacity(0.55).ignoresSafeArea()
-            VStack(spacing: 10) {
-                Text(r.title).font(.system(size: 44, weight: .black, design: .rounded))
-                    .foregroundStyle(r.won ? Theme.gold : .red)
-                ForEach(r.lines, id: \.self) { Text($0).font(.callout) }
-                Button { onExit() } label: { Text("Back to menu").frame(width: 200) }
-                    .buttonStyle(.borderedProminent)
-                    .padding(.top, 6)
+            Color.black.opacity(0.6).ignoresSafeArea()
+            HStack(alignment: .top, spacing: 18) {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(r.title).font(.system(size: 40, weight: .black, design: .rounded))
+                        .foregroundStyle(r.won ? Theme.gold : .red)
+                    ForEach(r.lines, id: \.self) { Text($0).font(.caption) }
+                    Spacer(minLength: 4)
+                    Button { onExit() } label: { Text("Back to menu").frame(width: 200) }
+                        .buttonStyle(.borderedProminent)
+                }
+                .frame(maxWidth: 320, alignment: .leading)
+                ResultCharts(game: game)
+                    .frame(maxWidth: 380)
             }
-            .padding(26)
+            .padding(22)
             .panel()
+            .padding(20)
+        }
+    }
+}
+
+/// Army value and crystals mined over the match, one line per player.
+struct ResultCharts: View {
+    let game: GameController
+    @State private var showArmy = true
+
+    var body: some View {
+        let names = game.world.players.map { $0.name }
+        let colors = game.world.players.map { Color(Art.color($0.color)) }
+        VStack(alignment: .leading, spacing: 8) {
+            Picker("", selection: $showArmy) {
+                Text("Army value").tag(true)
+                Text("Crystals mined").tag(false)
+            }
+            .pickerStyle(.segmented)
+            Chart(game.samples) { s in
+                LineMark(x: .value("Minute", s.minute), y: .value(showArmy ? "Army" : "Mined", showArmy ? s.army : s.mined))
+                    .foregroundStyle(by: .value("Player", s.player))
+                    .interpolationMethod(.monotone)
+            }
+            .chartForegroundStyleScale(domain: names, range: colors)
+            .chartXAxisLabel("minutes")
+            .frame(height: 190)
         }
     }
 }
@@ -290,6 +323,7 @@ struct CommandTile: View {
 
     var body: some View {
         Button {
+            Sound.shared.play(button.enabled ? .click : .error)
             if button.enabled { button.run() } else { showHint(button.hint) }
         } label: {
             VStack(spacing: 2) {

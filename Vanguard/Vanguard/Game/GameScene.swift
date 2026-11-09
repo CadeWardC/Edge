@@ -14,6 +14,9 @@ private final class EntityNode {
     var dome: SKSpriteNode?
     var badge: SKSpriteNode?
     var lastSmoke = 0
+    var frame = 0
+    var type: EntityType = .worker
+    var team: TeamColor = .blue
     let ring: SKSpriteNode
     let hpBack: SKSpriteNode
     let hpFront: SKSpriteNode
@@ -81,7 +84,7 @@ final class GameScene: SKScene, UIGestureRecognizerDelegate {
         view.ignoresSiblingOrder = true
         view.isMultipleTouchEnabled = true
         if !ready { build() }
-        addGestures(view)
+        if !controller.isBackdrop { addGestures(view) }
     }
 
     private func build() {
@@ -166,8 +169,17 @@ final class GameScene: SKScene, UIGestureRecognizerDelegate {
         controller.tap(worldPoint(g.location(in: v)))
     }
 
+    private var camVel = CGVector.zero
+    private var backdropTime: Double = 0
+    private let alwaysHP = UserDefaults.standard.bool(forKey: "alwaysHP")
+
     @objc private func onPan(_ g: UIPanGestureRecognizer) {
         guard let v = view else { return }
+        if g.state == .began { camVel = .zero }
+        if g.state == .ended {
+            let vel = g.velocity(in: v)
+            camVel = CGVector(dx: -vel.x * cam.xScale, dy: vel.y * cam.xScale)
+        }
         let t = g.translation(in: v)
         g.setTranslation(.zero, in: v)
         cam.position = CGPoint(x: cam.position.x - t.x * cam.xScale, y: cam.position.y + t.y * cam.xScale)
@@ -236,11 +248,13 @@ final class GameScene: SKScene, UIGestureRecognizerDelegate {
     func onScreen(_ p: Vec2) -> Bool { visibleWorldRect?.contains(CGPoint(x: p.x, y: p.y)) ?? false }
 
     func focus(_ p: Vec2) {
+        camVel = .zero
         cam.removeAllActions()
         cam.run(SKAction.move(to: CGPoint(x: p.x, y: p.y), duration: 0.25)) { [weak self] in self?.clampCamera() }
     }
 
     func jump(toFraction fx: Double, _ fy: Double) {
+        camVel = .zero
         cam.position = CGPoint(x: fx * world.map.worldWidth, y: (1 - fy) * world.map.worldHeight)
         clampCamera()
     }
@@ -252,6 +266,18 @@ final class GameScene: SKScene, UIGestureRecognizerDelegate {
         lastTime = currentTime
         controller.frame(dt)
         ambient(dt)
+        if controller.isBackdrop {
+            // drift slowly over the battle
+            backdropTime += dt
+            let W = CGFloat(world.map.worldWidth), H = CGFloat(world.map.worldHeight)
+            cam.setScale(1.15)
+            cam.position = CGPoint(x: W / 2 + CGFloat(cos(backdropTime * 0.045)) * W * 0.28, y: H / 2 + CGFloat(sin(backdropTime * 0.06)) * H * 0.28)
+        } else if abs(camVel.dx) + abs(camVel.dy) > 5 {
+            cam.position = CGPoint(x: cam.position.x + camVel.dx * CGFloat(dt), y: cam.position.y + camVel.dy * CGFloat(dt))
+            let k = CGFloat(pow(0.04, dt))
+            camVel = CGVector(dx: camVel.dx * k, dy: camVel.dy * k)
+            clampCamera()
+        }
         if world.fog.version != fogVersion { updateFog() }
         sync()
     }
@@ -387,7 +413,7 @@ final class GameScene: SKScene, UIGestureRecognizerDelegate {
                 n.shadow = sh
                 if e.type == .tank {
                     let g = SKSpriteNode(texture: Art.tankTurret(colorOf))
-                    g.size = CGSize(width: 56, height: 56)
+                    g.size = CGSize(width: 60, height: 60)
                     g.zPosition = 0.5
                     body.addChild(g)
                     n.gun = g
@@ -397,6 +423,8 @@ final class GameScene: SKScene, UIGestureRecognizerDelegate {
                 }
             }
         }
+        n.type = e.type
+        n.team = colorOf
         // re-layout bars now that the width is known
         n.hpBack.size = CGSize(width: n.barWidth + 2, height: 4.5)
         n.hpFront.size = CGSize(width: n.barWidth, height: 3)
@@ -434,6 +462,25 @@ final class GameScene: SKScene, UIGestureRecognizerDelegate {
             n.root.position = cp
             if e.isUnit {
                 n.body.zRotation = CGFloat(atan2(e.dir.y, e.dir.x))
+                // animation frames: walk / roll / flicker while moving, idle engines flicker slowly
+                let frames = Art.unitFrames(e.type)
+                if frames > 1 {
+                    let moving = e.pos.distSq(e.prevPos) > 0.01
+                    let rate = e.type == .tank ? 2 : (e.isAir || e.type == .skimmer || e.isWorker ? 3 : 4)
+                    let f = moving || e.isAir || e.isWorker ? (world.tick / rate) % frames : 0
+                    if f != n.frame {
+                        n.frame = f
+                        n.body.texture = Art.unit(e.type, n.team, frame: f)
+                    }
+                }
+                // sparks while mining or building
+                if e.isWorker && world.tick - e.lastShotTick < 2 && Int.random(in: 0..<10) == 0 && rect.contains(cp) {
+                    let tip = CGPoint(x: cp.x + CGFloat(e.dir.x) * 14, y: cp.y + CGFloat(e.dir.y) * 14)
+                    var building = false
+                    if case .construct = e.order { building = true }
+                    if case .repair = e.order { building = true }
+                    spark(tip, building ? UIColor(red: 1, green: 0.85, blue: 0.4, alpha: 1) : UIColor(red: 0.5, green: 1, blue: 1, alpha: 1), building ? 7 : 6)
+                }
                 if let g = n.gun { g.zRotation = CGFloat(atan2(e.aimDir.y, e.aimDir.x) - atan2(e.dir.y, e.dir.x)) }
                 // worker at work: a little bob
                 if e.isWorker && world.tick - e.lastShotTick < 2 {
@@ -514,7 +561,7 @@ final class GameScene: SKScene, UIGestureRecognizerDelegate {
                 n.ring.colorBlendFactor = 1
             }
             let damaged = e.hp < e.maxHp - 0.5
-            let showBar = !e.type.isNeutral && ((isSel && selected.count <= 12) || damaged || (e.isBuilding && !e.isComplete))
+            let showBar = !e.type.isNeutral && !controller.isBackdrop && ((isSel && selected.count <= 12) || damaged || alwaysHP || (e.isBuilding && !e.isComplete))
             n.hpBack.isHidden = !showBar
             n.hpFront.isHidden = !showBar
             if showBar {
@@ -601,6 +648,14 @@ final class GameScene: SKScene, UIGestureRecognizerDelegate {
         r.run(.sequence([.group([.scale(to: 4, duration: 0.9), .fadeOut(withDuration: 0.9)]), .removeFromParent()]))
     }
 
+    /// Louder near the middle of the screen, quieter toward the edges and when zoomed out.
+    private func soundGain(_ p: Vec2) -> Float {
+        guard !controller.isBackdrop, let r = visibleWorldRect else { return 0 }
+        let d = Vec2(Double(r.midX), Double(r.midY)).dist(p)
+        let reach = Double(max(r.width, r.height)) * 0.75
+        return Float(max(0.15, 1 - d / reach)) * Float(min(1, 1.3 / max(0.6, Double(cam.xScale))))
+    }
+
     private func near(_ p: Vec2) -> Bool {
         guard let r = visibleWorldRect else { return false }
         return r.insetBy(dx: -80, dy: -80).contains(CGPoint(x: p.x, y: p.y))
@@ -614,13 +669,49 @@ final class GameScene: SKScene, UIGestureRecognizerDelegate {
                 guard budget > 0, near(fromPos) || near(to), visibleToMe(fromPos) || visibleToMe(to) else { continue }
                 budget -= 1
                 shot(from: from, fromPos: fromPos, to: to, style: style)
+                let gain = soundGain(fromPos)
+                switch style {
+                case .rifle: Sound.shared.play(.rifle, gain: gain * 0.6)
+                case .laser: Sound.shared.play(.laser, gain: gain * 0.6)
+                case .rocket: Sound.shared.play(.rocket, gain: gain)
+                case .cannon: Sound.shared.play(.cannon, gain: gain)
+                case .heal: Sound.shared.play(.heal, gain: gain * 0.5)
+                case .claw: Sound.shared.play(.claw, gain: gain * 0.5)
+                case .none: break
+                }
             case let .died(e):
                 guard near(e.pos), visibleToMe(e.pos) || e.team == controller.localTeam else { continue }
                 if e.type == .crystal { continue }
-                explode(e.pos, size: e.isBuilding ? CGFloat(e.st.radius) * 1.4 : CGFloat(e.st.radius) * 1.6, big: e.isBuilding || e.type == .tank || e.type == .gunship)
+                Sound.shared.play(e.isBuilding || e.type == .tank || e.type == .gunship ? .boomBig : .boomSmall, gain: soundGain(e.pos))
+                if e.st.isBio {
+                    collapse(e)
+                } else if e.isBuilding {
+                    for k in 0..<4 {
+                        let off = Vec2(Double.random(in: -1...1), Double.random(in: -1...1)) * (e.st.radius * 0.6)
+                        run(.wait(forDuration: Double(k) * 0.14)) { [weak self] in
+                            self?.explode(e.pos + off, size: CGFloat(e.st.radius) * (k == 3 ? 1.5 : 0.8), big: k == 3)
+                        }
+                    }
+                } else {
+                    explode(e.pos, size: CGFloat(e.st.radius) * 1.6, big: e.type == .tank || e.type == .gunship || e.type == .skimmer)
+                }
                 scorch(e.pos, size: e.isBuilding ? 110 : CGFloat(e.st.radius) * 3)
                 wreck(e)
                 if e.isBuilding || e.type == .tank || e.type == .gunship { shake(e.isBuilding ? 7 : 4) }
+            case let .trained(u):
+                guard near(u.pos), u.team == controller.localTeam || spectator else { continue }
+                flash(CGPoint(x: u.pos.x, y: u.pos.y), 30, UIColor(red: 0.6, green: 0.9, blue: 1, alpha: 1))
+            case let .captured(bid, _):
+                if let b = world.entity(bid), near(b.pos) {
+                    let r = SKSpriteNode(texture: Art.ring())
+                    r.size = CGSize(width: 60, height: 60)
+                    r.position = CGPoint(x: b.pos.x, y: b.pos.y)
+                    r.color = b.owner >= 0 ? Art.color(world.players[b.owner].color) : .white
+                    r.colorBlendFactor = 1
+                    r.zPosition = 12
+                    effects.addChild(r)
+                    r.run(.sequence([.group([.scale(to: 4, duration: 0.7), .fadeOut(withDuration: 0.7)]), .removeFromParent()]))
+                }
             case let .completed(b):
                 guard near(b.pos), b.team == controller.localTeam || spectator else { continue }
                 sparkle(b.pos, CGFloat(b.st.radius))
@@ -754,42 +845,90 @@ final class GameScene: SKScene, UIGestureRecognizerDelegate {
 
     private func explode(_ v: Vec2, size: CGFloat, big: Bool) {
         let p = CGPoint(x: v.x, y: v.y)
-        let fire = SKSpriteNode(texture: Art.glow())
-        fire.size = CGSize(width: size * 2, height: size * 2)
-        fire.position = p
-        fire.color = UIColor(red: 1, green: 0.6, blue: 0.2, alpha: 1)
-        fire.colorBlendFactor = 1
-        fire.blendMode = .add
-        fire.zPosition = 11
-        fire.setScale(0.4)
-        effects.addChild(fire)
-        fire.run(.sequence([.group([.scale(to: 1.3, duration: 0.18), .fadeOut(withDuration: big ? 0.5 : 0.3)]), .removeFromParent()]))
+        // white flash
         let core = SKSpriteNode(texture: Art.glow())
-        core.size = CGSize(width: size, height: size)
+        core.size = CGSize(width: size * 2.2, height: size * 2.2)
         core.position = p
-        core.color = UIColor(red: 1, green: 0.95, blue: 0.7, alpha: 1)
+        core.color = UIColor(red: 1, green: 0.97, blue: 0.85, alpha: 1)
         core.colorBlendFactor = 1
         core.blendMode = .add
         core.zPosition = 11.5
         effects.addChild(core)
-        core.run(.sequence([.fadeOut(withDuration: 0.15), .removeFromParent()]))
-        for _ in 0..<(big ? 6 : 2) {
-            puff(CGPoint(x: p.x + CGFloat.random(in: -size...size) * 0.5, y: p.y + CGFloat.random(in: -size...size) * 0.5), size * 0.9, big ? 1.4 : 0.7)
+        core.run(.sequence([.fadeOut(withDuration: 0.12), .removeFromParent()]))
+        // a cluster of fireballs that swell, redden and fade
+        for i in 0..<(big ? 5 : 2) {
+            let f = SKSpriteNode(texture: Art.glow())
+            let s = size * CGFloat.random(in: 1.1...1.8)
+            f.size = CGSize(width: s, height: s)
+            f.position = CGPoint(x: p.x + CGFloat.random(in: -size...size) * 0.45, y: p.y + CGFloat.random(in: -size...size) * 0.45)
+            f.color = UIColor(red: 1, green: 0.62, blue: 0.18, alpha: 1)
+            f.colorBlendFactor = 1
+            f.blendMode = .add
+            f.zPosition = 11
+            f.setScale(0.35)
+            f.alpha = 0.95
+            effects.addChild(f)
+            let life = big ? 0.55 : 0.32
+            f.run(.sequence([.wait(forDuration: Double(i) * 0.04),
+                             .group([.scale(to: 1.25, duration: life * 0.5),
+                                     .colorize(with: UIColor(red: 0.8, green: 0.2, blue: 0.05, alpha: 1), colorBlendFactor: 1, duration: life),
+                                     .sequence([.wait(forDuration: life * 0.4), .fadeOut(withDuration: life * 0.6)])]),
+                             .removeFromParent()]))
         }
+        // shockwave
         if big {
-            for _ in 0..<8 {
-                let d = SKSpriteNode(texture: Art.glow())
-                d.size = CGSize(width: 4, height: 4)
-                d.color = UIColor(red: 1, green: 0.7, blue: 0.3, alpha: 1)
+            let r = SKSpriteNode(texture: Art.ring())
+            r.size = CGSize(width: size, height: size)
+            r.position = p
+            r.color = UIColor(red: 1, green: 0.85, blue: 0.6, alpha: 1)
+            r.colorBlendFactor = 1
+            r.blendMode = .add
+            r.alpha = 0.7
+            r.zPosition = 10.5
+            effects.addChild(r)
+            r.run(.sequence([.group([.scale(to: 4, duration: 0.35), .fadeOut(withDuration: 0.35)]), .removeFromParent()]))
+        }
+        // smoke rising
+        for _ in 0..<(big ? 6 : 2) {
+            puff(CGPoint(x: p.x + CGFloat.random(in: -size...size) * 0.5, y: p.y + CGFloat.random(in: -size...size) * 0.5), size * 0.9, big ? 1.6 : 0.8, dark: big)
+        }
+        // debris: hot sparks and dark chunks thrown out
+        for i in 0..<(big ? 12 : 4) {
+            let chunk = i % 2 == 0
+            let d = SKSpriteNode(texture: chunk ? Art.debris() : Art.glow())
+            d.size = chunk ? CGSize(width: 5, height: 5) : CGSize(width: 4, height: 4)
+            if !chunk {
+                d.color = UIColor(red: 1, green: 0.75, blue: 0.3, alpha: 1)
                 d.colorBlendFactor = 1
                 d.blendMode = .add
-                d.position = p
-                d.zPosition = 11
-                effects.addChild(d)
-                let a = CGFloat.random(in: 0...(2 * .pi)), r = CGFloat.random(in: size...(size * 2.4))
-                d.run(.sequence([.group([.moveBy(x: cos(a) * r, y: sin(a) * r, duration: 0.5), .fadeOut(withDuration: 0.5)]), .removeFromParent()]))
             }
+            d.position = p
+            d.zPosition = 11
+            effects.addChild(d)
+            let a = CGFloat.random(in: 0...(2 * .pi)), r = CGFloat.random(in: size * 0.8...(size * (big ? 2.8 : 1.8)))
+            let t = Double.random(in: 0.35...0.65)
+            d.run(.sequence([.group([.moveBy(x: cos(a) * r, y: sin(a) * r, duration: t),
+                                     .rotate(byAngle: CGFloat.random(in: -8...8), duration: t),
+                                     .sequence([.wait(forDuration: t * 0.6), .fadeOut(withDuration: t * 0.4)])]),
+                             .removeFromParent()]))
         }
+    }
+
+    /// Infantry and drones: the body tips over, darkens and fades.
+    private func collapse(_ e: Entity) {
+        let colorOf: TeamColor = e.owner >= 0 ? world.players[e.owner].color : .blue
+        let s = SKSpriteNode(texture: Art.unit(e.type, colorOf))
+        let sz = Art.unitSize(e.type)
+        s.size = CGSize(width: sz, height: sz)
+        s.position = CGPoint(x: e.pos.x, y: e.pos.y)
+        s.zRotation = CGFloat(atan2(e.dir.y, e.dir.x))
+        s.zPosition = 4
+        effects.addChild(s)
+        s.run(.sequence([.group([.rotate(byAngle: CGFloat.random(in: -1.2...1.2), duration: 0.25),
+                                 .scale(to: 0.8, duration: 0.25),
+                                 .colorize(with: UIColor(white: 0.1, alpha: 1), colorBlendFactor: 0.7, duration: 0.4)]),
+                         .wait(forDuration: 6), .fadeOut(withDuration: 2), .removeFromParent()]))
+        if e.isWorker { explode(e.pos, size: 10, big: false) } else { puff(CGPoint(x: e.pos.x, y: e.pos.y), 14, 0.6) }
     }
 
     /// What's left behind: burnt hulls for vehicles, rubble for buildings.

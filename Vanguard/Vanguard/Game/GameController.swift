@@ -97,6 +97,20 @@ final class GameController: ObservableObject {
     private var lastTapTime: TimeInterval = 0
     private var toastWork: DispatchWorkItem?
     let minimapImage: UIImage
+    var missionId: Int?
+    /// The battle behind the menus: no sounds, no messages.
+    var isBackdrop = false
+    /// Army value and crystals mined per player over time, for the charts after the game.
+    struct Sample: Identifiable {
+        var id: String { "\(player)-\(minute)" }
+        var minute: Double
+        var player: String
+        var army: Int
+        var mined: Int
+    }
+    private(set) var samples: [Sample] = []
+    private var lastSampleTick = -1000
+
     /// Demo mode: a bot plays the local player's side (used for screenshots and as an attract mode).
     private var autopilot: Bot?
 
@@ -143,6 +157,15 @@ final class GameController: ObservableObject {
             }
         }
         handleEvents()
+        if world.tick - lastSampleTick >= 10 * Defs.tickRate && !isBackdrop {
+            lastSampleTick = world.tick
+            let minute = Double(world.tick) / Double(60 * Defs.tickRate)
+            for p in world.players {
+                let army = world.entities.filter { $0.owner == p.index && $0.isArmy }.reduce(0) { $0 + $1.st.cost }
+                samples.append(Sample(minute: minute, player: p.name, army: army, mined: p.gathered))
+            }
+        }
+        if isBackdrop { return }
         hudTimer += dt
         miniTimer += dt
         if hudTimer > 0.12 { hudTimer = 0; refreshHUD() }
@@ -155,18 +178,27 @@ final class GameController: ObservableObject {
         let evs = world.events
         world.events.removeAll(keepingCapacity: true)
         scene?.play(evs)
+        if isBackdrop { return }
         for e in evs {
             switch e {
             case let .underAttack(p, at) where p == localPlayer:
+                Sound.shared.play(.alert)
+                if UserDefaults.standard.object(forKey: "haptics") as? Bool ?? true { UINotificationFeedbackGenerator().notificationOccurred(.warning) }
                 showToast("We're under attack!")
                 scene?.ping(at)
             case let .notEnough(p, what) where p == localPlayer:
+                Sound.shared.play(.error)
                 showToast("Not enough \(what).")
             case let .researched(p, u) where p == localPlayer:
+                Sound.shared.play(.built)
                 showToast("\(u.info.name) complete.")
+            case let .trained(u) where u.owner == localPlayer:
+                Sound.shared.play(.ready, gain: 0.6)
             case let .completed(b) where b.owner == localPlayer:
+                Sound.shared.play(.built)
                 showToast("\(b.st.name) complete.")
             case let .captured(_, team) where localTeam >= 0:
+                Sound.shared.play(.capture)
                 showToast(team == localTeam ? "Beacon captured." : "We lost a beacon.")
             case let .defeated(p):
                 if p == localPlayer { showToast("You have been defeated.") } else { showToast("\(world.players[p].name) was eliminated.") }
@@ -197,7 +229,10 @@ final class GameController: ObservableObject {
             result = MatchResult(won: true, title: names.isEmpty ? "Draw" : "\(names) win", lines: lines)
         } else {
             let won = world.winningTeam == localTeam
-            result = MatchResult(won: won, title: won ? "Victory" : "Defeat", lines: lines)
+            if won, let m = missionId { CampaignProgress.record(m, seconds: world.tick / Defs.tickRate) }
+            var title = won ? "Victory" : "Defeat"
+            if won, let m = missionId { title = m == Mission.all.count - 1 ? "Campaign complete!" : "Mission complete" }
+            result = MatchResult(won: won, title: title, lines: lines)
         }
         transport?.close()
     }

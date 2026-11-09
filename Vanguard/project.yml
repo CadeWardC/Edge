@@ -48,4 +48,5 @@ targets:
         ENABLE_BITCODE: NO
     dependencies:
       - sdk: SpriteKit.framework
+      - sdk: AVFoundation.framework
     scheme: {}

@@ -14,7 +14,7 @@ struct VanguardApp: App {
 }
 
 enum Screen {
-    case menu, skirmish, multiplayer, howTo, game
+    case menu, campaign, skirmish, multiplayer, howTo, settings, game
 }
 
 final class AppModel: ObservableObject {
@@ -22,8 +22,13 @@ final class AppModel: ObservableObject {
     @Published var game: GameController?
     private(set) var scene: GameScene?
 
-    func start(_ setup: MatchSetup, localPlayer: Int, transport: NetTransport? = nil, autopilot: Bool = false) {
+    /// A bot battle playing behind the menus.
+    private(set) var backdrop: GameScene?
+
+    func start(_ setup: MatchSetup, localPlayer: Int, transport: NetTransport? = nil, autopilot: Bool = false, mission: Int? = nil) {
+        backdrop = nil
         let g = GameController(setup: setup, localPlayer: localPlayer, transport: transport, autopilot: autopilot)
+        g.missionId = mission
         scene = GameScene(controller: g)
         game = g
         screen = .game
@@ -35,6 +40,23 @@ final class AppModel: ObservableObject {
         scene = nil
         screen = .menu
     }
+
+    func makeBackdrop() -> GameScene {
+        if let b = backdrop, !(b.controller.world.isOver) { return b }
+        let maps: [MapID] = [.highlands, .caldera, .frontier]
+        let map = maps[Int.random(in: 0..<maps.count)]
+        let colors: [TeamColor] = [.blue, .red, .gold, .purple]
+        let styles: [Personality] = [.balanced, .rusher, .mechanic, .turtle]
+        let players = (0..<4).map { i in
+            PlayerSetup(name: "Bot \(i + 1)", team: map.defaultTeam(slot: i), color: colors[i], isBot: true, difficulty: .hard, personality: styles[i])
+        }
+        let g = GameController(setup: MatchSetup(map: map, seed: UInt64.random(in: 1...999_999), players: players), localPlayer: -1)
+        g.isBackdrop = true
+        g.speed = 1.5
+        let sc = GameScene(controller: g)
+        backdrop = sc
+        return sc
+    }
 }
 
 struct RootView: View {
@@ -43,8 +65,17 @@ struct RootView: View {
     var body: some View {
         ZStack {
             Theme.background.ignoresSafeArea()
+            if app.screen != .game {
+                SpriteViewRep(scene: app.makeBackdrop())
+                    .ignoresSafeArea()
+                    .allowsHitTesting(false)
+                    .overlay(LinearGradient(colors: [Color.black.opacity(0.75), Color.black.opacity(0.45), Color.black.opacity(0.75)],
+                                            startPoint: .leading, endPoint: .trailing).ignoresSafeArea())
+            }
             switch app.screen {
             case .menu: MenuView(app: app)
+            case .campaign: CampaignView(app: app)
+            case .settings: SettingsView { app.screen = .menu }
             case .skirmish: SkirmishView(app: app)
             case .multiplayer: MultiplayerView(app: app)
             case .howTo: HowToPlayView { app.screen = .menu }
@@ -55,6 +86,7 @@ struct RootView: View {
             }
         }
         .onAppear {
+            Sound.shared.start()
             // `-demo`: jump straight into a match the autopilot plays at 3x (screenshots on CI)
             let args = ProcessInfo.processInfo.arguments
             if args.contains("-demo"), app.game == nil {
@@ -129,7 +161,10 @@ struct MenuView: View {
                 Text("Real-time strategy. Mine crystals, build an army, hold the beacons, crush the enemy base.")
                     .font(.callout).foregroundStyle(.secondary).frame(maxWidth: 320, alignment: .leading)
             }
-            VStack(spacing: 12) {
+            VStack(spacing: 9) {
+                BigButton(title: "Campaign", subtitle: "Eight missions, from first contact to a Brutal commander", symbol: "map.fill") {
+                    app.screen = .campaign
+                }
                 BigButton(title: "Quick Battle", subtitle: "1v1 against a Normal bot on Crossroads", symbol: "bolt.fill") {
                     app.start(SkirmishView.quickSetup(), localPlayer: 0)
                 }
@@ -139,12 +174,28 @@ struct MenuView: View {
                 BigButton(title: "Multiplayer", subtitle: "Play friends through a relay server", symbol: "person.2.wave.2.fill") {
                     app.screen = .multiplayer
                 }
-                BigButton(title: "How to Play", subtitle: "Controls, units and counters", symbol: "book.fill") {
-                    app.screen = .howTo
+                HStack(spacing: 10) {
+                    SmallButton(title: "How to Play", symbol: "book.fill") { app.screen = .howTo }
+                    SmallButton(title: "Settings", symbol: "gearshape.fill") { app.screen = .settings }
                 }
+                .frame(maxWidth: 380)
             }
         }
         .padding(30)
+    }
+}
+
+struct SmallButton: View {
+    var title: String
+    var symbol: String
+    var action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Label(title, systemImage: symbol).font(.subheadline.weight(.semibold))
+                .frame(maxWidth: .infinity).padding(.vertical, 11).panel()
+        }
+        .buttonStyle(.plain)
     }
 }
 

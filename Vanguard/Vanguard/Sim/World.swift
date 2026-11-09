@@ -16,7 +16,7 @@ struct Weapon {
 
 enum Vanguard {
     /// Bump whenever the simulation changes: peers must run the exact same rules.
-    static let protocolVersion = 2
+    static let protocolVersion = 3
 }
 
 struct PlayerSetup: Codable, Equatable {
@@ -27,6 +27,7 @@ struct PlayerSetup: Codable, Equatable {
     var difficulty: Difficulty = .normal
     var personality: Personality? = nil   // nil = picked from the match seed
     var clientId: String? = nil           // multiplayer: the device playing this slot
+    var bonusCrystals: Int = 0            // campaign handicaps
 }
 
 struct MatchSetup: Codable, Equatable {
@@ -114,7 +115,7 @@ final class World {
         fog = Fog(width: map.width, height: map.height, teams: teamCount)
         for (i, p) in setup.players.enumerated() {
             let team = teamIds.firstIndex(of: p.team) ?? 0
-            players.append(Player(index: i, setup: p, team: team, crystals: setup.startCrystals))
+            players.append(Player(index: i, setup: p, team: team, crystals: setup.startCrystals + p.bonusCrystals))
         }
 
         for site in map.bases {

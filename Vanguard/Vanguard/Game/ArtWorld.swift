@@ -476,6 +476,15 @@ extension Art {
         }
     }
 
+    static func debris() -> SKTexture {
+        cachedTexture("debris") {
+            image(8, 8, scale: 2) { g in
+                fill(g, poly([(1, 3), (4, 0.5), (7.5, 2.5), (6, 7), (2, 6.5)]), rgb(0.18, 0.17, 0.16))
+                fill(g, poly([(2, 3), (4, 1.5), (6, 3)]), rgb(0.45, 0.43, 0.4))
+            }
+        }
+    }
+
     static func rubble() -> SKTexture {
         cachedTexture("rubble") {
             image(64, 64, scale: 1.5) { g in
