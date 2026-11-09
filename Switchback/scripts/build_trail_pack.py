@@ -88,6 +88,36 @@ def encode(pts):
         plat, plon = a, b
     return "".join(out)
 
+def encode_ints(values):
+    """Plain integers in the polyline alphabet (zig-zag, 5 bits a character)."""
+    out = []
+    for v in values:
+        v = ~(v << 1) if v < 0 else (v << 1)
+        while v >= 0x20:
+            out.append(chr((0x20 | (v & 0x1f)) + 63))
+            v >>= 5
+        out.append(chr(v + 63))
+    return "".join(out)
+
+def add_elevation(trails, cache_dir):
+    """Detailed, compact elevation for every trail's main line (see elevation.py)."""
+    import elevation
+    terrain = elevation.Terrain(cache_dir)
+    paths = []
+    for t, _ in trails:
+        lines = [decode(x) for x in t["segments"]]
+        paths.append(lines[t["pathIndex"]] if "pathIndex" in t else decode(t["path"]))
+    tiles = elevation.needed_tiles(paths, dist)
+    ok, todo = terrain.fetch_all(tiles)
+    print(f"  terrain: {len(tiles)} tiles ({todo} downloaded now, {ok} ok)")
+    done = 0
+    for (t, _), pts in zip(trails, paths):
+        e = elevation.profile(pts, terrain, dist, encode_ints)
+        if e:
+            t["elev"] = e
+            done += 1
+    print(f"  elevation for {done} of {len(trails)} trails")
+
 def decode(s):
     out, i, lat, lon = [], 0, 0, 0
     def nxt():
@@ -475,6 +505,8 @@ def main():
     display = sys.argv[5] if len(sys.argv) > 5 else region.replace("-", " ").title()
     os.makedirs(out, exist_ok=True)
     trails, pois = build(pbf)
+    if os.environ.get("ELEVATION", "1") != "0":
+        add_elevation(trails, os.environ.get("TERRAIN_CACHE", "terrain"))
     cells = defaultdict(list)
     coverage = set()   # 1° squares with trails: lets the app tell exactly which regions cover a place
     lats, lons = [], []

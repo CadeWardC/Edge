@@ -38,7 +38,10 @@ subscription and no API keys.
   highlights (viewpoints, peaks, waterfalls, water, shelters, campsites, toilets, parking within ~200 m of a trail),
   so trail pages need no live search; paths closed to people on foot are left out; and the build log has a quality
   report per area (routes, named paths, connectors, spurs, how many sit in a named area, suspiciously long trails,
-  duplicate names). Settings › Check for trail updates checks right away, and a downloaded
+  duplicate names). Each trail also carries detailed elevation (`scripts/elevation.py`): sampled every 10 m from AWS
+  Terrain Tiles (zoom 13, ~15 m), with gain, descent, lowest and highest worked out from those samples, and the chart
+  reduced to the points it can't redraw within 1.5 m (typically a tenth to a third), stored as small deltas — about
+  40–80 bytes a trail, so charts, gain and difficulty are instant and offline. Settings › Check for trail updates checks right away, and a downloaded
   offline map area can be updated with a swipe (only changed pieces are fetched for our own map).
   `scripts/build_trail_pack.py` uses the same rules (and trail ids) as the live search, and also: puts every trail in
   its area (the smallest named park, nature reserve or protected area it lies in); names unnamed paths from the map

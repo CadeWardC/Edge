@@ -26,6 +26,25 @@ enum Polyline {
         out.append(UInt8(x + 63))
     }
 
+    /// Plain integers written in the same alphabet (the elevation charts in trail packs).
+    static func decodeInts(_ s: String) -> [Int] {
+        let bytes = Array(s.utf8)
+        var i = 0
+        var out: [Int] = []
+        while i < bytes.count {
+            var result = 0, shift = 0
+            while i < bytes.count {
+                let b = Int(bytes[i]) - 63
+                i += 1
+                result |= (b & 0x1f) << shift
+                shift += 5
+                if b < 0x20 { break }
+            }
+            out.append((result & 1) != 0 ? ~(result >> 1) : (result >> 1))
+        }
+        return out
+    }
+
     static func decode(_ s: String) -> [Coord] {
         let bytes = Array(s.utf8)
         var i = 0
@@ -74,7 +93,39 @@ enum Compression {
 
 extension Trail {
     private enum CodingKeys: String, CodingKey {
-        case id, name, source, osmId, segments, path, pathIndex, length, tags, profile
+        case id, name, source, osmId, segments, path, pathIndex, length, tags, profile, elev
+    }
+
+    /// Elevation as trail packs store it: totals from the full 10 m samples, and only the chart points that
+    /// matter, as (steps, metres) deltas.
+    private struct PackedElevation: Decodable {
+        let s: Double
+        let p: String
+        let g: Double
+        let l: Double
+        let mn: Double
+        let mx: Double
+
+        var profile: ElevationProfile? {
+            let ints = Polyline.decodeInts(p)
+            guard ints.count >= 4 else { return nil }
+            var distances: [Double] = [], elevations: [Double] = []
+            var step = 0, height = 0
+            var i = 0
+            while i + 1 < ints.count {
+                step += ints[i]
+                height += ints[i + 1]
+                distances.append(Double(step) * s)
+                elevations.append(Double(height))
+                i += 2
+            }
+            var profile = ElevationProfile(distances: distances, elevations: elevations)
+            profile.gain = g
+            profile.loss = l
+            profile.minElevation = mn
+            profile.maxElevation = mx
+            return profile
+        }
     }
 
     init(from decoder: Decoder) throws {
@@ -100,7 +151,8 @@ extension Trail {
                   segments: segments, path: path,
                   length: try c.decode(Double.self, forKey: .length),
                   tags: try c.decodeIfPresent([String: String].self, forKey: .tags) ?? [:],
-                  profile: try c.decodeIfPresent(ElevationProfile.self, forKey: .profile))
+                  profile: try c.decodeIfPresent(ElevationProfile.self, forKey: .profile)
+                      ?? (try? c.decodeIfPresent(PackedElevation.self, forKey: .elev))?.profile)
     }
 
     func encode(to encoder: Encoder) throws {

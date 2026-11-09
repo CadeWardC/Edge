@@ -24,7 +24,7 @@ concurrency:
 jobs:
   pack:
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 150
     strategy:
       fail-fast: false
       max-parallel: 8
@@ -99,11 +99,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install osmium and shapely
+      - name: Install osmium, shapely, numpy and pillow
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq osmium-tool
-          pip install --quiet osmium shapely
+          pip install --quiet osmium shapely numpy pillow
 
       - name: Download the ${{ matrix.region.name }} extract
         run: |
@@ -124,6 +124,7 @@ jobs:
 
       - name: Build the packs
         run: |
+          export TERRAIN_CACHE="$RUNNER_TEMP/terrain"
           PACK_VERSION=$(date -u +%Y%m%d) python3 Switchback/scripts/build_trail_pack.py trails.osm.pbf "${{ matrix.region.id }}" out "${{ matrix.region.country }}" "${{ matrix.region.name }}"
           du -sh out
 
