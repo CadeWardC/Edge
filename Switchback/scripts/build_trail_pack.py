@@ -17,7 +17,7 @@ national forests, wildernesses…) its middle lies in, as the tag "switchback:ar
 map where it says something true ("Connector: A – B" between two named trails, "A spur" off one), and dropped when
 they're neither in an area nor joined to a trail nor tagged for hiking (city shortcuts, yard paths).
 """
-import json, math, os, sys, zlib
+import json, math, os, re, sys, zlib
 from collections import defaultdict
 
 import osmium
@@ -212,6 +212,7 @@ class Ways(osmium.SimpleHandler):
         self.member_ways = member_ways
         self.geom = {}            # way id -> [(node_id, (lat, lon))] for route members
         self.named = []           # (way id, name, tags, nodes)
+        self.tracks = []          # named dirt tracks: kept only where they're part of the trail network
         self.unnamed = []         # (way id, tags, nodes)
 
     def way(self, w):
@@ -231,7 +232,7 @@ class Ways(osmium.SimpleHandler):
         if name and hw in ("path", "footway", "bridleway") and t.get("footway") not in ("sidewalk", "crossing"):
             self.named.append((w.id, name, {k: v for k, v in t}, nodes))
         elif name and hw == "track" and t.get("tracktype") != "grade1":
-            self.named.append((w.id, name, {k: v for k, v in t}, nodes))
+            self.tracks.append((w.id, name, {k: v for k, v in t}, nodes))
         elif not name and hw == "path" and t.get("surface") not in PAVED and "segregated" not in t:
             self.unnamed.append((w.id, {k: v for k, v in t}, nodes))
 
@@ -258,6 +259,7 @@ def make_trail(tid, osm_id, source, name, lines, tags, min_len):
     return t, path[0]
 
 HIKING_HINTS = {"sac_scale", "trail_visibility", "mtb:scale"}
+TRAIL_WORDS = re.compile(r"\b(trail|trl|path|loop|trace|greenway)\b", re.I)
 NATURAL_SURFACE = {"ground", "dirt", "earth", "grass", "gravel", "fine_gravel", "rock", "pebblestone", "mud", "sand",
                    "unpaved", "wood", "woodchips"}
 
@@ -307,6 +309,26 @@ def build(pbf):
     for wid, name, tags, nodes in ways.named:
         for n, _ in nodes:
             node_names[n].add(name)
+    # Named dirt tracks: in farm country most are section-line roads ("66th Street Southeast"). Keep one only where
+    # it's in a park or forest, joins a trail, is tagged for hiking, or is called a trail.
+    track_groups = defaultdict(list)
+    for wid, name, tags, nodes in ways.tracks:
+        track_groups[name].append((wid, tags, nodes))
+    kept_tracks = dropped_tracks = 0
+    for name, group in track_groups.items():
+        trailish = bool(TRAIL_WORDS.search(name))
+        for line in chains([nodes for _, _, nodes in group], with_nodes=True):
+            pts = [c for _, c in line]
+            touches = line[0][0] in node_names or line[-1][0] in node_names
+            tags = group[0][1]
+            hiking = any(k in tags for k in HIKING_HINTS) or tags.get("foot") == "designated"
+            if trailish or touches or hiking or finder.find(*middle(pts)):
+                ways.named.append((group[0][0], name, tags, line))
+                kept_tracks += 1
+            else:
+                dropped_tracks += 1
+    print(f"  named tracks: kept {kept_tracks}, dropped {dropped_tracks} (roads outside parks)")
+
     by_name = defaultdict(list)
     for wid, name, tags, nodes in ways.named:
         if name.lower() not in relation_names:
