@@ -10,6 +10,10 @@ private final class EntityNode {
     var scaffold: SKSpriteNode?
     var core: SKSpriteNode?
     var captureRing: SKSpriteNode?
+    var extra: SKSpriteNode?        // radar dish, shield orb, tower lantern, HQ beacon light
+    var dome: SKSpriteNode?
+    var badge: SKSpriteNode?
+    var lastSmoke = 0
     let ring: SKSpriteNode
     let hpBack: SKSpriteNode
     let hpFront: SKSpriteNode
@@ -247,6 +251,7 @@ final class GameScene: SKScene, UIGestureRecognizerDelegate {
         let dt = lastTime == 0 ? 1.0 / 60 : min(0.1, currentTime - lastTime)
         lastTime = currentTime
         controller.frame(dt)
+        ambient(dt)
         if world.fog.version != fogVersion { updateFog() }
         sync()
     }
@@ -260,7 +265,7 @@ final class GameScene: SKScene, UIGestureRecognizerDelegate {
         var n: EntityNode
         switch e.type {
         case .crystal:
-            body = SKSpriteNode(texture: Art.crystal(e.id))
+            body = SKSpriteNode(texture: Art.crystal(e.id, rich: e.rich))
             body.size = CGSize(width: 40, height: 40)
             n = EntityNode(body: body, owner: -1, complete: true, radius: r)
             n.root.zPosition = 3
@@ -285,6 +290,21 @@ final class GameScene: SKScene, UIGestureRecognizerDelegate {
             body.addChild(ring)
             n.captureRing = ring
             n.root.zPosition = 1
+        case .tower:
+            body = SKSpriteNode(texture: Art.watchTower())
+            body.size = CGSize(width: 64, height: 64)
+            n = EntityNode(body: body, owner: -2, complete: true, radius: r)
+            let lamp = SKSpriteNode(texture: Art.glow())
+            lamp.size = CGSize(width: 22, height: 22)
+            lamp.position = CGPoint(x: 0, y: 14)
+            lamp.colorBlendFactor = 1
+            lamp.color = .lightGray
+            lamp.blendMode = .add
+            lamp.zPosition = 0.5
+            lamp.run(.repeatForever(.sequence([.fadeAlpha(to: 0.5, duration: 0.7), .fadeAlpha(to: 1, duration: 0.7)])))
+            body.addChild(lamp)
+            n.extra = lamp
+            n.root.zPosition = 3
         default:
             if e.isBuilding {
                 body = SKSpriteNode(texture: Art.building(e.type, colorOf))
@@ -295,9 +315,55 @@ final class GameScene: SKScene, UIGestureRecognizerDelegate {
                 if e.type == .turret {
                     let g = SKSpriteNode(texture: Art.turretGun(colorOf))
                     g.size = CGSize(width: 64, height: 64)
+                    g.position = CGPoint(x: 0, y: 2)
                     g.zPosition = 0.5
                     body.addChild(g)
                     n.gun = g
+                }
+                if e.type == .radar {
+                    let d = SKSpriteNode(texture: Art.radarDish())
+                    d.size = CGSize(width: 40, height: 40)
+                    d.position = CGPoint(x: 0, y: 20)
+                    d.zPosition = 0.6
+                    d.run(.repeatForever(.rotate(byAngle: -.pi * 2, duration: 4)))
+                    body.addChild(d)
+                    n.extra = d
+                }
+                if e.type == .shield {
+                    let o = SKSpriteNode(texture: Art.shieldOrb())
+                    o.size = CGSize(width: 30, height: 30)
+                    o.position = CGPoint(x: 0, y: 6)
+                    o.color = Art.color(colorOf)
+                    o.colorBlendFactor = 0.5
+                    o.blendMode = .add
+                    o.zPosition = 0.6
+                    o.run(.repeatForever(.sequence([.scale(to: 1.25, duration: 0.6), .scale(to: 0.9, duration: 0.6)])))
+                    body.addChild(o)
+                    n.extra = o
+                    let dome = SKSpriteNode(texture: Art.shieldDome())
+                    let dd = CGFloat(Defs.shieldRadius) * 2
+                    dome.size = CGSize(width: dd, height: dd)
+                    dome.color = Art.color(colorOf)
+                    dome.colorBlendFactor = 1
+                    dome.alpha = 0.35
+                    dome.zPosition = 9
+                    dome.isHidden = !e.isComplete
+                    dome.run(.repeatForever(.sequence([.fadeAlpha(to: 0.22, duration: 1.4), .fadeAlpha(to: 0.4, duration: 1.4)])))
+                    n.root.addChild(dome)
+                    n.dome = dome
+                }
+                if e.type == .hq {
+                    let l = SKSpriteNode(texture: Art.glow())
+                    l.size = CGSize(width: 10, height: 10)
+                    l.position = CGPoint(x: 20, y: 44)
+                    l.color = .red
+                    l.colorBlendFactor = 1
+                    l.blendMode = .add
+                    l.zPosition = 0.7
+                    l.run(.repeatForever(.sequence([.fadeAlpha(to: 1, duration: 0.1), .wait(forDuration: 0.3),
+                                                    .fadeAlpha(to: 0.1, duration: 0.3), .wait(forDuration: 0.9)])))
+                    body.addChild(l)
+                    n.extra = l
                 }
                 let sc = SKSpriteNode(texture: Art.scaffold(e.st.footprint))
                 sc.size = body.size
@@ -381,7 +447,36 @@ final class GameScene: SKScene, UIGestureRecognizerDelegate {
                 n.body.colorBlendFactor = world.tick - e.lastHitTick < 2 ? 0.5 : 0
                 n.body.color = .white
             } else if e.isBuilding {
+                if let sp = e.spec, n.badge == nil {
+                    let b = SKSpriteNode(texture: Art.specBadge(sp))
+                    let h = CGFloat(e.st.footprint) * CGFloat(Defs.tile) / 2
+                    b.size = CGSize(width: 18, height: 18)
+                    b.position = CGPoint(x: h - 8, y: -h + 8)
+                    b.zPosition = 1.5
+                    n.body.addChild(b)
+                    n.badge = b
+                    if sp == .fortress {
+                        let g = SKSpriteNode(texture: Art.fortressGun(world.players[max(0, e.owner)].color))
+                        g.size = CGSize(width: 70, height: 70)
+                        g.position = CGPoint(x: 0, y: 11)
+                        g.zPosition = 0.8
+                        n.body.addChild(g)
+                        n.gun = g
+                    }
+                }
                 if let g = n.gun { g.zRotation = CGFloat(atan2(e.aimDir.y, e.aimDir.x)) }
+                n.dome?.isHidden = !e.isComplete
+                // smoke from busy factories, a glow over busy buildings
+                if e.isComplete && !e.queue.isEmpty && world.tick - n.lastSmoke > 6 {
+                    n.lastSmoke = world.tick
+                    if e.type == .factory {
+                        for sp in Art.factoryStacks {
+                            puff(CGPoint(x: cp.x + sp.x, y: cp.y + sp.y), 10, 1.6, dark: true)
+                        }
+                    } else if world.tick % 24 < 6 {
+                        spark(CGPoint(x: cp.x + CGFloat.random(in: -10...10), y: cp.y - CGFloat(e.st.footprint) * 14), UIColor(red: 0.6, green: 1, blue: 1, alpha: 1), 8)
+                    }
+                }
                 if n.wasComplete != e.isComplete || n.scaffold?.isHidden == e.isComplete {
                     n.wasComplete = e.isComplete
                     n.scaffold?.isHidden = e.isComplete
@@ -390,8 +485,13 @@ final class GameScene: SKScene, UIGestureRecognizerDelegate {
                 if e.team != controller.localTeam && !spectator && !world.fog.visible(team: controller.localTeam, e.pos) {
                     n.body.alpha = 0.55
                 }
+            } else if e.type == .tower {
+                if n.lastOwner != e.owner {
+                    n.lastOwner = e.owner
+                    n.extra?.color = e.owner >= 0 ? Art.color(world.players[e.owner].color) : .lightGray
+                }
             } else if e.type == .crystal {
-                let f = CGFloat(Double(e.amount) / Double(Defs.crystalAmount))
+                let f = CGFloat(Double(e.amount) / Double(e.rich ? Defs.richAmount : Defs.crystalAmount))
                 n.body.setScale(0.65 + 0.35 * f)
             } else if e.type == .beacon {
                 if n.lastOwner != e.owner {
@@ -519,6 +619,8 @@ final class GameScene: SKScene, UIGestureRecognizerDelegate {
                 if e.type == .crystal { continue }
                 explode(e.pos, size: e.isBuilding ? CGFloat(e.st.radius) * 1.4 : CGFloat(e.st.radius) * 1.6, big: e.isBuilding || e.type == .tank || e.type == .gunship)
                 scorch(e.pos, size: e.isBuilding ? 110 : CGFloat(e.st.radius) * 3)
+                wreck(e)
+                if e.isBuilding || e.type == .tank || e.type == .gunship { shake(e.isBuilding ? 7 : 4) }
             case let .completed(b):
                 guard near(b.pos), b.team == controller.localTeam || spectator else { continue }
                 sparkle(b.pos, CGFloat(b.st.radius))
@@ -631,12 +733,17 @@ final class GameScene: SKScene, UIGestureRecognizerDelegate {
         s.run(.sequence([.group([.scale(to: 0.2, duration: 0.15), .fadeOut(withDuration: 0.15)]), .removeFromParent()]))
     }
 
-    private func puff(_ p: CGPoint, _ size: CGFloat, _ life: TimeInterval) {
+    private func puff(_ p: CGPoint, _ size: CGFloat, _ life: TimeInterval, dark: Bool = false) {
         let s = SKSpriteNode(texture: Art.smoke())
         s.size = CGSize(width: size, height: size)
         s.position = p
         s.alpha = 0.55
-        s.zPosition = 8
+        if dark {
+            s.color = UIColor(white: 0.25, alpha: 1)
+            s.colorBlendFactor = 1
+            s.zPosition = 15
+        }
+        s.zPosition = dark ? 15 : 8
         s.zRotation = CGFloat.random(in: 0...6.28)
         effects.addChild(s)
         s.run(.sequence([.group([.scale(to: 2.4, duration: life), .fadeOut(withDuration: life),
@@ -681,6 +788,115 @@ final class GameScene: SKScene, UIGestureRecognizerDelegate {
                 let a = CGFloat.random(in: 0...(2 * .pi)), r = CGFloat.random(in: size...(size * 2.4))
                 d.run(.sequence([.group([.moveBy(x: cos(a) * r, y: sin(a) * r, duration: 0.5), .fadeOut(withDuration: 0.5)]), .removeFromParent()]))
             }
+        }
+    }
+
+    /// What's left behind: burnt hulls for vehicles, rubble for buildings.
+    private func wreck(_ e: Entity) {
+        let w: SKSpriteNode
+        if e.isBuilding {
+            w = SKSpriteNode(texture: Art.rubble())
+            let s = CGFloat(e.st.footprint) * CGFloat(Defs.tile)
+            w.size = CGSize(width: s, height: s)
+        } else if e.type == .tank || e.type == .skimmer {
+            w = SKSpriteNode(texture: Art.unit(e.type, .blue))
+            let s = Art.unitSize(e.type)
+            w.size = CGSize(width: s, height: s)
+            w.color = UIColor(white: 0.08, alpha: 1)
+            w.colorBlendFactor = 0.85
+            w.zRotation = CGFloat(atan2(e.dir.y, e.dir.x))
+        } else {
+            return
+        }
+        w.position = CGPoint(x: e.pos.x, y: e.pos.y)
+        w.zPosition = -4
+        w.alpha = 0.85
+        effects.addChild(w)
+        w.run(.sequence([.wait(forDuration: 40), .fadeOut(withDuration: 5), .removeFromParent()]))
+    }
+
+    private var shaking = false
+    private func shake(_ amount: CGFloat) {
+        guard !shaking else { return }
+        shaking = true
+        var seq: [SKAction] = []
+        var a = amount
+        for _ in 0..<5 {
+            let dx = CGFloat.random(in: -a...a), dy = CGFloat.random(in: -a...a)
+            seq.append(.moveBy(x: dx, y: dy, duration: 0.03))
+            seq.append(.moveBy(x: -dx, y: -dy, duration: 0.03))
+            a *= 0.7
+        }
+        worldNode.run(.sequence(seq)) { [weak self] in
+            self?.worldNode.position = .zero
+            self?.shaking = false
+        }
+    }
+
+    // MARK: ambience: weather and shimmer
+
+    private var ambientTimer: Double = 0
+    private var liquidTiles: [TilePoint] = []
+
+    private func ambient(_ dt: Double) {
+        ambientTimer += dt
+        guard ambientTimer > 0.08, let r = visibleWorldRect else { return }
+        ambientTimer = 0
+        let biome = world.map.id.biome
+        // weather drifting across the view
+        let p = CGPoint(x: CGFloat.random(in: r.minX...r.maxX), y: CGFloat.random(in: r.minY...r.maxY))
+        let s = SKSpriteNode(texture: Art.glow())
+        s.blendMode = biome == .volcanic ? .add : .alpha
+        s.zPosition = 40
+        var drift = CGVector(dx: 0, dy: 0)
+        var show = true
+        switch biome {
+        case .snow:
+            s.size = CGSize(width: 5, height: 5); s.color = .white; drift = CGVector(dx: -30, dy: -60)
+        case .desert:
+            s.size = CGSize(width: 4, height: 4); s.color = UIColor(red: 0.95, green: 0.85, blue: 0.6, alpha: 1); drift = CGVector(dx: 80, dy: -10)
+        case .volcanic:
+            s.size = CGSize(width: 4, height: 4); s.color = UIColor(red: 1, green: 0.5, blue: 0.15, alpha: 1); drift = CGVector(dx: 10, dy: 50)
+        case .grass:
+            guard Int.random(in: 0..<3) == 0 else { show = false; break }
+            s.size = CGSize(width: 4, height: 3); s.color = UIColor(red: 0.85, green: 1, blue: 0.5, alpha: 1); drift = CGVector(dx: 20, dy: 12)
+        }
+        if show {
+            s.colorBlendFactor = 1
+            s.alpha = 0
+            s.position = p
+            effects.addChild(s)
+            let life = 2.6
+            s.run(.sequence([.group([.move(by: CGVector(dx: drift.dx * life, dy: drift.dy * life), duration: life),
+                                     .sequence([.fadeAlpha(to: biome == .grass ? 0.7 : 0.8, duration: 0.5), .wait(forDuration: life - 1.2), .fadeOut(withDuration: 0.7)])]),
+                             .removeFromParent()]))
+        }
+        // glints on water, bubbling lava
+        if liquidTiles.isEmpty {
+            for y in 0..<world.map.height {
+                for x in 0..<world.map.width where world.map.terrainAt(x, y) == .water { liquidTiles.append(TilePoint(x: x, y: y)) }
+            }
+            if liquidTiles.isEmpty { liquidTiles = [TilePoint(x: -1, y: -1)] }
+        }
+        for _ in 0..<2 {
+            let t = liquidTiles[Int.random(in: 0..<liquidTiles.count)]
+            guard t.x >= 0 else { break }
+            let c = world.map.center(t)
+            let cp = CGPoint(x: c.x + Double.random(in: -12...12), y: c.y + Double.random(in: -12...12))
+            guard r.contains(cp) else { continue }
+            let gl = SKSpriteNode(texture: Art.glow())
+            gl.blendMode = .add
+            gl.colorBlendFactor = 1
+            gl.zPosition = -3
+            gl.position = cp
+            gl.alpha = 0
+            if biome == .volcanic {
+                gl.size = CGSize(width: 26, height: 26); gl.color = UIColor(red: 1, green: 0.55, blue: 0.1, alpha: 1)
+            } else {
+                gl.size = CGSize(width: 10, height: 4); gl.color = UIColor(white: 1, alpha: 1)
+            }
+            effects.addChild(gl)
+            gl.run(.sequence([.fadeAlpha(to: biome == .volcanic ? 0.7 : 0.6, duration: 0.5), .fadeOut(withDuration: 0.9), .removeFromParent()]))
         }
     }
 

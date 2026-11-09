@@ -64,6 +64,32 @@ func describe(_ w: World) -> String {
 print("Maps")
 for id in MapID.allCases {
     let m = MapGen.build(id)
+    // ASCII picture of the map (top row = north), for eyeballing layouts in the CI log
+    var marks: [Int: Character] = [:]
+    for b in m.bases {
+        for c in b.crystals { marks[m.index(c.x, c.y)] = b.rich ? "v" : "c" }
+        marks[m.index(b.hqOrigin.x + 1, b.hqOrigin.y + 1)] = b.isStart ? "S" : "H"
+    }
+    for b in m.beacons { marks[m.index(b.x, b.y)] = "B" }
+    for t in m.towers { marks[m.index(t.x, t.y)] = "W" }
+    for y in stride(from: m.height - 1, through: 0, by: -1) {
+        var row = ""
+        for x in 0..<m.width {
+            let i = m.index(x, y)
+            if let mk = marks[i] { row.append(mk); continue }
+            let high = m.elevation[i] == 1
+            switch m.terrain[i] {
+            case .grass: row.append(high ? "^" : ".")
+            case .dirt: row.append(high ? ";" : ":")
+            case .rock: row.append("#")
+            case .water: row.append("~")
+            case .cliff: row.append("C")
+            case .forest: row.append("T")
+            case .ramp: row.append("/")
+            }
+        }
+        print("MAP \(id.name)|" + row)
+    }
     check(m.starts.count >= id.maxPlayers, "\(id.name): \(m.starts.count) starts, \(m.bases.count) bases, \(m.beacons.count) beacons")
     let w = World(setup: MatchSetup(map: id, seed: 1, players: bots(Array(repeating: .normal, count: id.maxPlayers), map: id)))
     let crystals = w.entities.filter { $0.type == .crystal }.count

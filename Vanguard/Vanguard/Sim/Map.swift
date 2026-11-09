@@ -1,9 +1,15 @@
 import Foundation
 
 enum Terrain: UInt8 {
-    case grass, dirt, rock, water
+    /// grass = the biome's open ground (grass, sand, snow or ash)
+    case grass, dirt, rock, water, cliff, forest, ramp
 
-    var passable: Bool { self == .grass || self == .dirt }
+    var passable: Bool { self == .grass || self == .dirt || self == .ramp }
+}
+
+/// The look of a map. Rules are the same everywhere; only the art changes (volcanic water is lava).
+enum Biome: Int, Codable {
+    case grass, desert, snow, volcanic
 }
 
 struct TilePoint: Equatable, Hashable, Codable {
@@ -16,6 +22,7 @@ struct BaseSite {
     var hqOrigin: TilePoint          // bottom-left tile of the 3x3 footprint
     var crystals: [TilePoint]
     var isStart: Bool
+    var rich = false
 
     var center: Vec2 { Vec2(Double(hqOrigin.x) * Defs.tile + 1.5 * Defs.tile, Double(hqOrigin.y) * Defs.tile + 1.5 * Defs.tile) }
 }
@@ -29,6 +36,9 @@ final class GameMap {
     var occupant: [Int]
     var bases: [BaseSite] = []
     var beacons: [TilePoint] = []
+    var towers: [TilePoint] = []
+    /// 0 = low ground, 1 = high ground. Ground units can't see up a cliff; shooting uphill does less damage.
+    var elevation: [UInt8]
     /// Decoration seed per tile for the renderer.
     let decoSeed: UInt64
 
@@ -42,6 +52,7 @@ final class GameMap {
         self.height = height
         terrain = Array(repeating: .grass, count: width * height)
         occupant = Array(repeating: 0, count: width * height)
+        elevation = Array(repeating: 0, count: width * height)
         decoSeed = seed
     }
 
@@ -49,6 +60,11 @@ final class GameMap {
     @inline(__always) func index(_ x: Int, _ y: Int) -> Int { y * width + x }
 
     func terrainAt(_ x: Int, _ y: Int) -> Terrain { inBounds(x, y) ? terrain[index(x, y)] : .rock }
+    func elevationAt(_ x: Int, _ y: Int) -> UInt8 { inBounds(x, y) ? elevation[index(x, y)] : 0 }
+    func elevation(at p: Vec2) -> UInt8 {
+        let x = Int(p.x / Defs.tile), y = Int(p.y / Defs.tile)
+        return elevationAt(x, y)
+    }
 
     /// Ground units can stand here.
     @inline(__always) func walkable(_ x: Int, _ y: Int) -> Bool {

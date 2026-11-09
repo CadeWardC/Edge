@@ -18,6 +18,7 @@ struct CommandButton: Identifiable {
     enum Icon {
         case entity(EntityType)
         case upgrade(Upgrade)
+        case spec(Spec)
         case symbol(String)
     }
     var id: String
@@ -79,6 +80,7 @@ final class GameController: ObservableObject {
     @Published var placing: EntityType?
     @Published var placeOrigin: TilePoint?
     @Published var attackArmed = false
+    @Published var repairArmed = false
     @Published var showMenu = false
     @Published var toast: String?
     @Published var result: MatchResult?
@@ -220,6 +222,7 @@ final class GameController: ObservableObject {
         buildMenu = false
         placing = nil
         attackArmed = false
+        repairArmed = false
         refreshHUD()
     }
 
@@ -288,6 +291,15 @@ final class GameController: ObservableObject {
         }
         let hit = entityAt(p)
         let mine = mySelected
+        if repairArmed {
+            repairArmed = false
+            if let h = hit, h.owner == localPlayer, h.type.isMechanical {
+                issue(.repair(h.id), units: mine.filter { $0.isWorker }.map { $0.id })
+                scene?.marker(at: h.pos, attack: false)
+            }
+            refreshHUD()
+            return
+        }
         if attackArmed {
             attackArmed = false
             if let h = hit, h.owner >= 0, world.enemies(localTeam, h.team) {
@@ -302,7 +314,8 @@ final class GameController: ObservableObject {
             if h.owner == localPlayer {
                 // tapping your own unit: select it; a second tap selects all of that type on screen
                 let now = Date().timeIntervalSince1970
-                if mine.contains(where: { $0.isWorker }) && h.isBuilding && !h.isComplete && !(selection == [h.id]) {
+                let workersSelected = mine.contains(where: { $0.isWorker }) && !(selection == [h.id])
+                if workersSelected && h.isBuilding && (!h.isComplete || h.hp < h.maxHp - 1) {
                     issue(.gather(h.id), units: mine.filter { $0.isWorker }.map { $0.id })
                     scene?.marker(at: h.pos, attack: false)
                 } else if h.id == lastTapId && now - lastTapTime < 0.4, let scene {
@@ -390,7 +403,7 @@ final class GameController: ObservableObject {
             let visible = localTeam < 0 || e.team == localTeam || world.fog.visible(team: localTeam, e.pos)
             if !visible && !(e.isBuilding && world.fog.explored(team: localTeam, e.pos)) { continue }
             let color: Color
-            if e.type == .beacon {
+            if e.type.isNeutral {
                 color = e.owner >= 0 ? Color(Art.color(world.players[e.owner].color)) : .white
             } else {
                 color = Color(Art.color(world.players[e.owner].color))
@@ -433,10 +446,15 @@ final class GameController: ObservableObject {
             }
             var info: [String] = []
             if e.isBuilding && !e.isComplete { info.append("Building \(Int(e.progress * 100))%") }
-            if e.st.damage > 0 && e.type != .crystal {
-                let dps = (e.sieged ? Defs.siegeDamage / Defs.siegeCooldown : e.st.damage / e.st.cooldown)
-                info.append(e.type == .mender ? String(format: "Heals %.0f/s", dps) : String(format: "%.0f dps, range %.0f", dps, world.effectiveRange(e)))
+            if e.type == .mender {
+                info.append(String(format: "Heals %.0f/s", e.st.damage / e.st.cooldown))
+            } else if let w = world.weapon(e) {
+                info.append(String(format: "%.0f dps, range %.0f", w.damage / w.cooldown, w.range))
             }
+            if let sp = e.spec { info.append(sp.info.name) }
+            if e.bonusArmor > 0 { info.append("+\(Int(e.bonusArmor)) armor") }
+            if e.type == .crystal && e.rich { info.append("Rich: 12 per trip") }
+            if e.type == .tower { info.append(e.team >= 0 ? "Held by \(world.players[max(0, e.owner)].name)" : "Unheld") }
             if let b = e.st.bonusVs, e.st.bonusDamage > 0 { info.append("+\(Int(e.st.bonusDamage)) vs \(b.name)") }
             if e.isUnit { info.append(e.st.armorClass.name + (e.isAir ? ", air" : "")) }
             if e.kills >= 4 { info.append(e.kills >= 10 ? "★★ Elite" : "★ Veteran") }
@@ -479,6 +497,14 @@ final class GameController: ObservableObject {
                 out.append(CommandButton(id: "build", title: "Build", icon: .symbol("hammer.fill"), enabled: true,
                                          hint: "Construct a building") { [weak self] in
                     self?.buildMenu = true
+                    self?.refreshHUD()
+                })
+            }
+            if !workers.isEmpty {
+                out.append(CommandButton(id: "repair", title: "Repair", icon: .symbol("wrench.and.screwdriver.fill"), enabled: true,
+                                         highlighted: repairArmed, hint: "Then tap a damaged building or vehicle of yours") { [weak self] in
+                    self?.repairArmed.toggle()
+                    self?.attackArmed = false
                     self?.refreshHUD()
                 })
             }
@@ -539,6 +565,17 @@ final class GameController: ObservableObject {
                                      enabled: ok && p.crystals >= u.info.cost, hint: hint) { [weak self] in
                 self?.issue(.research(u), units: ids)
             })
+        }
+        // one-time specialization: pick one of two
+        let specPending = first.queue.contains { item in if case .spec = item { return true } else { return false } }
+        if first.spec == nil && !specPending {
+            for sp in Spec.options(for: first.type) {
+                out.append(CommandButton(id: "s\(sp.rawValue)", title: sp.info.name, icon: .spec(sp), cost: sp.info.cost,
+                                         enabled: p.crystals >= sp.info.cost,
+                                         hint: sp.info.blurb + " (Choose one: the other option is lost for this building.)") { [weak self] in
+                    self?.issue(.specialize(sp), units: [first.id])
+                })
+            }
         }
         if !first.queue.isEmpty {
             out.append(CommandButton(id: "cancelq", title: "Cancel", icon: .symbol("xmark"), enabled: true, hint: "Cancel the last item") { [weak self] in

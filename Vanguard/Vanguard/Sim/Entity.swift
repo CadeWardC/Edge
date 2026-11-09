@@ -9,23 +9,27 @@ enum Order: Equatable {
     case returnCargo
     case build(EntityType, TilePoint)
     case construct(Int)
+    case repair(Int)
     case hold
 }
 
 enum ProdItem: Equatable, Codable {
     case unit(EntityType)
     case research(Upgrade)
+    case spec(Spec)
 
     var time: Double {
         switch self {
         case let .unit(t): return t.stats.buildTime
         case let .research(u): return u.info.time
+        case let .spec(s): return s.info.time
         }
     }
     var cost: Int {
         switch self {
         case let .unit(t): return t.stats.cost
         case let .research(u): return u.info.cost
+        case let .spec(s): return s.info.cost
         }
     }
 }
@@ -80,6 +84,12 @@ final class Entity {
     var captureTeam = -1            // beacon: team making progress
     var captureProgress: Double = 0
     var assigned = 0                // crystals: workers mining it (recomputed each tick)
+    var rich = false                // violet crystals: more per trip
+
+    // specialization and per-unit bonuses
+    var spec: Spec?
+    var bonusHp: Double = 0
+    var bonusArmor: Double = 0
 
     // abilities
     var sieged = false
@@ -103,7 +113,7 @@ final class Entity {
     var isBuilding: Bool { type.isBuilding }
     var isComplete: Bool { progress >= 1 }
     var isAir: Bool { st.isAir }
-    var maxHp: Double { st.hp }
+    var maxHp: Double { st.hp + bonusHp }
     var isWorker: Bool { type == .worker }
     var isArmy: Bool { type.isUnit && type != .worker }
 
@@ -118,6 +128,8 @@ enum Action: Codable, Equatable {
     case attackMove(Vec2)
     case attack(Int)
     case gather(Int)
+    case repair(Int)
+    case specialize(Spec)
     case stop
     case hold
     case build(EntityType, TilePoint)

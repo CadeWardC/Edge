@@ -1,8 +1,22 @@
 import Foundation
 
+/// What an entity shoots with right now (sieged tanks and Fortress command centers change weapons).
+struct Weapon {
+    var range: Double
+    var damage: Double
+    var cooldown: Double
+    var splash: Double
+    var bonusVs: ArmorClass?
+    var bonusDamage: Double
+    var hitsAir: Bool
+    var hitsGround: Bool
+    var style: WeaponStyle
+    var minRange: Double = 0
+}
+
 enum Vanguard {
     /// Bump whenever the simulation changes: peers must run the exact same rules.
-    static let protocolVersion = 1
+    static let protocolVersion = 2
 }
 
 struct PlayerSetup: Codable, Equatable {
@@ -83,6 +97,8 @@ final class World {
     var winningTeam: Int?
     var isOver: Bool { winningTeam != nil }
     let dt = Defs.dt
+    /// Shield Generators standing this tick.
+    private var shields: [Entity] = []
 
     init(setup: MatchSetup) {
         self.setup = setup
@@ -104,12 +120,14 @@ final class World {
         for site in map.bases {
             for t in site.crystals where map.walkable(t.x, t.y) {
                 let c = spawn(.crystal, owner: -1, at: map.center(t))
-                c.amount = Defs.crystalAmount
+                c.rich = site.rich
+                c.amount = site.rich ? Defs.richAmount : Defs.crystalAmount
                 c.origin = t
                 map.setOccupant(origin: t, size: 1, id: c.id)
             }
         }
         for b in map.beacons { _ = spawn(.beacon, owner: -1, at: map.center(b)) }
+        for t in map.towers { _ = spawn(.tower, owner: -1, at: map.center(t)) }
 
         let starts = map.starts
         for p in players {
@@ -285,6 +303,8 @@ final class World {
                         u.order = .returnCargo
                     } else if t.isBuilding && t.owner == u.owner && !t.isComplete {
                         u.order = .construct(t.id)
+                    } else if t.owner == u.owner && t.type.isMechanical && t.hp < t.maxHp && t !== u {
+                        u.order = .repair(t.id)
                     } else {
                         u.order = .move(t.pos)
                     }
@@ -297,6 +317,21 @@ final class World {
                 b.rally = t.pos
                 b.rallyTarget = t.type == .crystal ? t.id : 0
             }
+        case let .repair(tid):
+            guard let t = entity(tid), t.owner == c.player, t.type.isMechanical else { return }
+            for u in units where u.isWorker && u !== t {
+                u.order = t.isComplete ? .repair(t.id) : .construct(t.id)
+                resetMove(u)
+            }
+        case let .specialize(sp):
+            guard let b = units.first(where: { b in
+                b.type == sp.info.building && b.isComplete && b.spec == nil &&
+                    !b.queue.contains { item in if case .spec = item { return true } else { return false } }
+            }),
+                  b.queue.count < Defs.queueLimit else { return }
+            if p.crystals < sp.info.cost { events.append(.notEnough(player: p.index, what: "crystals")); return }
+            p.crystals -= sp.info.cost
+            b.queue.append(.spec(sp))
         case .stop:
             for u in units where u.isUnit { u.order = .idle; resetMove(u); u.target = 0 }
         case .hold:
@@ -402,6 +437,7 @@ final class World {
         for b in bots where (tick + b.phase) % b.interval == 0 { b.think() }
 
         grid.rebuild(entities)
+        shields = entities.filter { $0.type == .shield && $0.isComplete && $0.alive }
         for e in entities where e.type == .crystal { e.assigned = 0 }
         for e in entities where e.isWorker && e.alive {
             if case let .gather(cid) = e.order, let c = byId[cid] { c.assigned += 1 }
@@ -414,6 +450,8 @@ final class World {
                 updateBuilding(e)
             } else if e.type == .beacon {
                 updateBeacon(e)
+            } else if e.type == .tower {
+                updateTower(e)
             }
         }
         moveUnits()
@@ -476,24 +514,43 @@ final class World {
             updateBuild(e, type, origin)
         case let .construct(bid):
             updateConstruct(e, bid)
+        case let .repair(tid):
+            updateRepair(e, tid)
         }
     }
 
     private func currentTarget(_ e: Entity, maxGap: Double) -> Entity? {
         guard let t = entity(e.target), enemies(e.team, t.team), canHit(e, t), canSee(team: e.team, t),
               e.gap(to: t) <= maxGap else { return nil }
-        if e.sieged && e.gap(to: t) < Defs.siegeMinRange { return nil }
+        if let w = weapon(e), e.gap(to: t) < w.minRange { return nil }
         return t
+    }
+
+    func weapon(_ e: Entity) -> Weapon? {
+        if e.type == .mender { return nil }
+        if e.sieged {
+            return Weapon(range: Defs.siegeRange, damage: Defs.siegeDamage, cooldown: Defs.siegeCooldown, splash: Defs.siegeSplash,
+                          bonusVs: .structure, bonusDamage: e.st.bonusDamage, hitsAir: false, hitsGround: true, style: .cannon,
+                          minRange: Defs.siegeMinRange)
+        }
+        if e.isBuilding && !e.isComplete { return nil }
+        if e.type == .hq {
+            guard e.spec == .fortress else { return nil }
+            return Weapon(range: Defs.fortressRange, damage: Defs.fortressDamage, cooldown: Defs.fortressCooldown, splash: 0,
+                          bonusVs: nil, bonusDamage: 0, hitsAir: true, hitsGround: true, style: .cannon)
+        }
+        guard e.st.damage > 0 else { return nil }
+        return Weapon(range: e.st.range, damage: e.st.damage, cooldown: e.st.cooldown, splash: e.st.splash, bonusVs: e.st.bonusVs,
+                      bonusDamage: e.st.bonusDamage, hitsAir: e.st.hitsAir, hitsGround: e.st.hitsGround, style: e.st.weapon)
     }
 
     func canHit(_ e: Entity, _ t: Entity) -> Bool {
         if t.type.isNeutral || !enemies(e.team, t.team) { return false }
-        if e.st.damage <= 0 || e.type == .mender { return false }
-        if t.isAir { return e.st.hitsAir && !e.sieged }
-        return e.st.hitsGround
+        guard let w = weapon(e) else { return false }
+        return t.isAir ? w.hitsAir : w.hitsGround
     }
 
-    func effectiveRange(_ e: Entity) -> Double { e.sieged ? Defs.siegeRange : e.st.range }
+    func effectiveRange(_ e: Entity) -> Double { weapon(e)?.range ?? 0 }
 
     /// Best enemy to shoot within `radius` (gap distance). Prefers things that shoot back, then units, then buildings.
     func acquire(_ e: Entity, radius: Double) -> Entity? {
@@ -535,30 +592,37 @@ final class World {
     }
 
     private func fire(_ e: Entity, _ t: Entity) {
+        guard let w = weapon(e) else { return }
         let owner = players[e.owner]
-        var dmg = e.sieged ? Defs.siegeDamage : e.st.damage
-        if let b = e.st.bonusVs, b == t.st.armorClass { dmg += e.st.bonusDamage }
+        var dmg = w.damage
+        if let b = w.bonusVs, b == t.st.armorClass { dmg += w.bonusDamage }
         dmg *= 1 + 0.15 * Double(owner.weaponsLevel)
         if e.kills >= 10 { dmg *= 1.2 } else if e.kills >= 4 { dmg *= 1.1 }
-        let armor = t.st.armor + (t.isUnit && t.owner >= 0 ? Double(players[t.owner].platingLevel) : 0)
+        // shooting up a cliff is harder
+        if !e.isAir && !t.isAir && map.elevation(at: t.pos) > map.elevation(at: e.pos) { dmg *= Defs.uphillPenalty }
+        let armor = t.st.armor + t.bonusArmor + (t.isUnit && t.owner >= 0 ? Double(players[t.owner].platingLevel) : 0)
         let final = max(0.5, dmg - armor)
         damage(t, final, by: e)
-        let splash = e.sieged ? Defs.siegeSplash : e.st.splash
+        let splash = w.splash
         if splash > 0 {
             grid.query(t.pos, splash) { o in
                 guard o !== t, o.alive, o.owner >= 0, !o.type.isNeutral, enemies(e.team, o.team), o.isAir == t.isAir else { return }
                 damage(o, final * 0.5, by: e)
             }
         }
-        var cd = e.sieged ? Defs.siegeCooldown : e.st.cooldown
+        var cd = w.cooldown
         if e.sprintTime > 0 { cd /= 1.3 }
         e.cooldown = cd
         e.lastShotTick = tick
-        events.append(.shot(from: e.id, to: t.pos, style: e.st.weapon, fromPos: e.pos))
+        events.append(.shot(from: e.id, to: t.pos, style: w.style, fromPos: e.pos))
     }
 
     private func damage(_ t: Entity, _ amount: Double, by e: Entity) {
         guard t.alive else { return }
+        var amount = amount
+        if t.owner >= 0, shields.contains(where: { $0.team == t.team && $0.pos.distSq(t.pos) <= Defs.shieldRadius * Defs.shieldRadius }) {
+            amount *= 1 - Defs.shieldReduction
+        }
         t.hp -= amount
         t.lastHitTick = tick
         t.lastAttackerTeam = e.team
@@ -658,7 +722,7 @@ final class World {
         e.gatherTimer += dt
         e.lastShotTick = tick
         if e.gatherTimer >= Defs.gatherTime {
-            let take = min(Defs.carry, c.amount)
+            let take = min(c.rich ? Defs.richCarry : Defs.carry, c.amount)
             c.amount -= take
             e.cargo = take
             e.gatherTimer = 0
@@ -673,7 +737,8 @@ final class World {
         guard let hq = nearestDropoff(for: e) else { e.order = .idle; return }
         if reach(e, hq) <= 12 {
             let p = players[e.owner]
-            let amount = Double(e.cargo) * p.gatherMultiplier + p.crystalFrac
+            let refinery = hq.spec == .refinery ? 1.25 : 1
+            let amount = Double(e.cargo) * p.gatherMultiplier * refinery + p.crystalFrac
             let whole = Int(amount)
             p.crystalFrac = amount - Double(whole)
             p.crystals += whole
@@ -872,8 +937,8 @@ final class World {
     private func updateBuilding(_ b: Entity) {
         guard b.isComplete else { return }
         b.cooldown -= dt
-        if b.type == .turret {
-            if let t = currentTarget(b, maxGap: b.st.range) ?? acquire(b, radius: b.st.range) {
+        if let w = weapon(b) {
+            if let t = currentTarget(b, maxGap: w.range) ?? acquire(b, radius: w.range) {
                 b.target = t.id
                 let toT = (t.pos - b.pos).normalized()
                 if toT != .zero { b.aimDir = toT }
@@ -881,10 +946,14 @@ final class World {
             } else {
                 b.target = 0
             }
-            return
         }
         guard let item = b.queue.first else { return }
-        b.queueProgress += dt
+        var rate = 1.0
+        if case .unit = item {
+            if b.spec == .drillYard { rate = 1.6 }
+            if b.spec == .assemblyLine { rate = 1.5 }
+        }
+        b.queueProgress += dt * rate
         guard b.queueProgress >= item.time else { return }
         let p = players[b.owner]
         switch item {
@@ -893,6 +962,8 @@ final class World {
             b.queueProgress = 0
             p.pending[t.rawValue] = max(0, p.pending[t.rawValue] - 1)
             let u = spawn(t, owner: b.owner, at: exitPoint(of: b, size: t.stats.radius))
+            if b.spec == .armory { u.bonusHp = (u.st.hp * 0.25).rounded(); u.hp = u.maxHp }
+            if b.spec == .reactor { u.bonusArmor = 2 }
             p.unitsMade += 1
             if let rt = entity(b.rallyTarget), rt.type == .crystal, u.isWorker {
                 u.order = .gather(rt.id)
@@ -908,7 +979,42 @@ final class World {
             p.upgrades[up.rawValue] = true
             p.researching[up.rawValue] = false
             events.append(.researched(player: p.index, up))
+        case let .spec(sp):
+            b.queue.removeFirst()
+            b.queueProgress = 0
+            b.spec = sp
+            if sp == .fortress {
+                b.bonusHp = 600
+                b.hp += 600
+                b.bonusArmor = 1
+            }
+            events.append(.completed(b))
         }
+    }
+
+    /// Watch tower: whoever alone has ground units next to it gets its vision.
+    private func updateTower(_ b: Entity) {
+        var team = -2
+        var owner = -1
+        grid.query(b.pos, Defs.towerRadius) { u in
+            guard u.isUnit, !u.isAir, u.alive, u.owner >= 0 else { return }
+            if team == -2 { team = u.team; owner = u.owner } else if team != u.team { team = -1 }
+        }
+        if team < 0 { b.team = -1; b.owner = -1 } else { b.team = team; b.owner = owner }
+    }
+
+    private func updateRepair(_ e: Entity, _ tid: Int) {
+        guard let t = entity(tid), t.owner == e.owner, t.hp < t.maxHp else {
+            if let c = nearestCrystal(to: e.pos, within: 400, preferFree: true) { e.order = .gather(c.id) } else { e.order = .idle }
+            return
+        }
+        if reach(e, t) > 14 {
+            _ = moveTo(e, t.isBuilding ? approach(e, t) : t.pos, arrive: t.isBuilding ? 3 : t.st.radius + e.st.radius + 4)
+            return
+        }
+        e.dir = (t.pos - e.pos).normalized() == .zero ? e.dir : (t.pos - e.pos).normalized()
+        e.lastShotTick = tick
+        t.hp = min(t.maxHp, t.hp + t.maxHp * Defs.repairRate * dt)
     }
 
     private func exitPoint(of b: Entity, size: Double) -> Vec2 {
@@ -1062,6 +1168,7 @@ final class World {
             h.add(e.progress)
             h.add(e.queue.count)
             h.add(e.amount)
+            h.add(e.spec?.rawValue ?? -1)
         }
         for p in players {
             h.add(p.crystals)

@@ -88,6 +88,8 @@ final class Bot {
             }
         }
         research(mine)
+        specialize(mine)
+        repair(mine, workers: workers, enemies: visibleEnemies)
         produceArmy(mine, armyCount: army.count)
         controlArmy(army, main: main, mine: mine, enemies: visibleEnemies)
         scout(workers: workers, army: army, main: main)
@@ -181,6 +183,7 @@ final class Bot {
                     Goal(type: .lab, count: 1, workers: 16 + w, minute: 4 + delay),
                     Goal(type: .barracks, count: 2, workers: 18 + w, minute: 5 + delay),
                     Goal(type: .turret, count: sharp ? 1 : 0, workers: 18, minute: 6),
+                    Goal(type: .radar, count: sharp ? 1 : 0, workers: 20, minute: 6.5),
                     Goal(type: .factory, count: sharp ? 2 : 1, workers: 26, minute: 8)]
         case .rusher:
             return [Goal(type: .barracks, count: 1, workers: 7 + w, minute: delay),
@@ -194,6 +197,7 @@ final class Bot {
                     Goal(type: .factory, count: 1, workers: 14 + w, minute: 2.5 + delay),
                     Goal(type: .turret, count: difficulty == .easy ? 1 : 3, workers: 15, minute: 3.5 + delay),
                     Goal(type: .lab, count: 1, workers: 16 + w, minute: 4 + delay),
+                    Goal(type: .shield, count: difficulty == .easy ? 0 : 1, workers: 20, minute: 6 + delay),
                     Goal(type: .factory, count: 2, workers: 24, minute: 7 + delay),
                     Goal(type: .turret, count: difficulty == .easy ? 2 : 5, workers: 24, minute: 8)]
         case .mechanic:
@@ -201,6 +205,7 @@ final class Bot {
                     Goal(type: .factory, count: 1, workers: 12 + w, minute: 2 + delay),
                     Goal(type: .lab, count: 1, workers: 15 + w, minute: 3.5 + delay),
                     Goal(type: .factory, count: 2, workers: 18 + w, minute: 5 + delay),
+                    Goal(type: .radar, count: smart ? 1 : 0, workers: 22, minute: 7),
                     Goal(type: .factory, count: sharp ? 3 : 2, workers: 28, minute: 9)]
         }
     }
@@ -215,7 +220,7 @@ final class Bot {
             guard world.requirementsMet(g.type, player: me) else { break planLoop }
             // let one building finish before the next tier on easy
             if difficulty == .easy && (me.pending[EntityType.barracks.rawValue] + me.pending[EntityType.factory.rawValue]) > 0 { return false }
-            let anchor = g.type == .turret ? turretSpot(hqs: hqs, main: main) : main.pos
+            let anchor = g.type == .turret || g.type == .shield || g.type == .radar ? turretSpot(hqs: hqs, main: main) : main.pos
             return place(g.type, workers: workers, near: main, anchor: anchor)
         }
         // more production when money piles up (what the bank can feed, scaled by bases)
@@ -370,6 +375,43 @@ final class Bot {
             if u == .sprint && infantry < 4 { continue }
             if me.crystals >= u.info.cost + reserve { issue([lab.id], .research(u)) }
             return
+        }
+    }
+
+    /// Normal and up pick a specialization for each Command Center, Barracks and Factory once they can afford it.
+    private func specialize(_ mine: [Entity]) {
+        guard smart else { return }
+        for b in mine where b.isComplete && b.spec == nil && b.queue.isEmpty {
+            let opts = Spec.options(for: b.type)
+            guard opts.count == 2 else { continue }
+            let pick: Spec
+            switch (b.type, personality) {
+            case (.hq, .turtle): pick = .fortress
+            case (.hq, _): pick = (b.pos.distSq(world.map.starts[player % world.map.starts.count].center) < 100 * 100 || !sharp) ? .refinery : .fortress
+            case (.barracks, .turtle): pick = .armory
+            case (.barracks, .balanced): pick = b.id % 2 == 0 ? .drillYard : .armory
+            case (.barracks, _): pick = .drillYard
+            case (.factory, .turtle), (.factory, .mechanic): pick = b.id % 2 == 0 ? .reactor : .assemblyLine
+            default: pick = .assemblyLine
+            }
+            let reserve = b.type == .hq ? 250 : 150
+            if me.crystals >= pick.info.cost + reserve {
+                issue([b.id], .specialize(pick))
+                return
+            }
+        }
+    }
+
+    /// Send a drone to fix damaged buildings when no enemies are around them.
+    private func repair(_ mine: [Entity], workers: [Entity], enemies: [Entity]) {
+        guard smart, world.tick % (interval * 4) < interval else { return }
+        let fixing = Set(workers.compactMap { w -> Int? in if case let .repair(t) = w.order { return t } else { return nil } })
+        for b in mine where b.isBuilding && b.isComplete && b.hp < b.maxHp * 0.7 && !fixing.contains(b.id) {
+            if enemies.contains(where: { !$0.isBuilding && $0.pos.distSq(b.pos) < 400 * 400 }) { continue }
+            if let w = builder(workers, near: b.pos) {
+                issue([w.id], .repair(b.id))
+                return
+            }
         }
     }
 
@@ -564,7 +606,7 @@ final class Bot {
 
     private func sendBeaconSquad(_ army: [Entity]) {
         guard smart, beaconSquad.isEmpty, army.count >= 6 else { return }
-        let beacons = world.entities.filter { $0.type == .beacon && $0.alive && $0.team != team }
+        let beacons = world.entities.filter { ($0.type == .beacon || $0.type == .tower) && $0.alive && $0.team != team }
         guard let a = armyCenter(army), let goal = beacons.min(by: { $0.pos.distSq(a) < $1.pos.distSq(a) }) else { return }
         let squad = army.sorted { $0.pos.distSq(goal.pos) < $1.pos.distSq(goal.pos) }.prefix(sharp ? 4 : 3)
         beaconSquad = squad.map { $0.id }

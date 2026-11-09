@@ -62,14 +62,17 @@ final class Fog {
         for t in 0..<cells.count {
             for i in 0..<cells[t].count where cells[t][i] == 2 { cells[t][i] = 1 }
         }
+        let map = world.map
         for e in world.entities where e.alive && e.team >= 0 && e.team < cells.count {
             if e.isBuilding && e.progress < 0.05 && e.type != .hq { continue }
-            reveal(team: e.team, at: e.pos, radius: e.st.sight)
+            // ground units see their own level and below; flyers, radar and watch towers see everything
+            let seesUp = e.isAir || e.type == .radar || e.type == .tower
+            reveal(team: e.team, at: e.pos, radius: e.st.sight, level: seesUp ? 255 : map.elevation(at: e.pos), map: map)
         }
         version += 1
     }
 
-    private func reveal(team: Int, at p: Vec2, radius: Double) {
+    private func reveal(team: Int, at p: Vec2, radius: Double, level: UInt8, map: GameMap) {
         let rt = radius / Defs.tile
         let cx = p.x / Defs.tile, cy = p.y / Defs.tile
         let x0 = max(0, Int(cx - rt)), x1 = min(width - 1, Int(cx + rt))
@@ -80,7 +83,7 @@ final class Fog {
             let dy = Double(y) + 0.5 - cy
             for x in x0...x1 {
                 let dx = Double(x) + 0.5 - cx
-                if dx * dx + dy * dy <= r2 { cells[team][y * width + x] = 2 }
+                if dx * dx + dy * dy <= r2 && map.elevation[y * width + x] <= level { cells[team][y * width + x] = 2 }
             }
         }
     }

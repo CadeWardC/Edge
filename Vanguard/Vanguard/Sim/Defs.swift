@@ -5,17 +5,19 @@ enum EntityType: Int, Codable, CaseIterable {
     // units
     case worker, trooper, lancer, mender, skimmer, tank, gunship
     // buildings
-    case hq, depot, barracks, factory, lab, turret
+    case hq, depot, barracks, factory, lab, turret, radar, shield
     // neutral
-    case crystal, beacon
+    case crystal, beacon, tower
 
     var isUnit: Bool { rawValue <= EntityType.gunship.rawValue }
-    var isBuilding: Bool { rawValue >= EntityType.hq.rawValue && rawValue <= EntityType.turret.rawValue }
-    var isNeutral: Bool { self == .crystal || self == .beacon }
+    var isBuilding: Bool { rawValue >= EntityType.hq.rawValue && rawValue <= EntityType.shield.rawValue }
+    var isNeutral: Bool { self == .crystal || self == .beacon || self == .tower }
+    /// Vehicles and buildings: drones can repair them.
+    var isMechanical: Bool { isBuilding || self == .skimmer || self == .tank || self == .gunship }
     var stats: Stats { Defs.table[rawValue] }
 
     static let units: [EntityType] = [.worker, .trooper, .lancer, .mender, .skimmer, .tank, .gunship]
-    static let buildings: [EntityType] = [.hq, .depot, .barracks, .factory, .lab, .turret]
+    static let buildings: [EntityType] = [.hq, .depot, .barracks, .factory, .lab, .turret, .radar, .shield]
     static let army: [EntityType] = [.trooper, .lancer, .mender, .skimmer, .tank, .gunship]
 }
 
@@ -39,6 +41,44 @@ enum Upgrade: Int, Codable, CaseIterable {
     case weapons1, weapons2, plating1, plating2, siegeMode, sprint
 
     var info: UpgradeInfo { Defs.upgrades[rawValue] }
+}
+
+/// One-time specialization of a production building: pick one of two, they exclude each other.
+enum Spec: Int, Codable, CaseIterable {
+    case fortress, refinery, drillYard, armory, assemblyLine, reactor
+
+    var info: SpecInfo {
+        switch self {
+        case .fortress:
+            return SpecInfo(name: "Fortress", building: .hq, cost: 150, time: 35,
+                            blurb: "Arms this Command Center with a heavy gun (range 250, hits air), +600 HP and +1 armor.")
+        case .refinery:
+            return SpecInfo(name: "Refinery", building: .hq, cost: 150, time: 35,
+                            blurb: "Crystals delivered to this Command Center are worth 25% more.")
+        case .drillYard:
+            return SpecInfo(name: "Drill Yard", building: .barracks, cost: 100, time: 30,
+                            blurb: "This Barracks trains 60% faster.")
+        case .armory:
+            return SpecInfo(name: "Armory", building: .barracks, cost: 100, time: 30,
+                            blurb: "Infantry from this Barracks have +25% HP.")
+        case .assemblyLine:
+            return SpecInfo(name: "Assembly Line", building: .factory, cost: 125, time: 35,
+                            blurb: "This Factory builds 50% faster.")
+        case .reactor:
+            return SpecInfo(name: "Reactive Armor", building: .factory, cost: 125, time: 35,
+                            blurb: "Vehicles from this Factory have +2 armor.")
+        }
+    }
+
+    static func options(for t: EntityType) -> [Spec] { allCases.filter { $0.info.building == t } }
+}
+
+struct SpecInfo {
+    var name: String
+    var building: EntityType
+    var cost: Int
+    var time: Double
+    var blurb: String
 }
 
 struct UpgradeInfo {
@@ -89,6 +129,14 @@ enum Defs {
     static let carry = 8
     static let gatherTime = 1.9
     static let crystalAmount = 1500
+    static let richCarry = 12                // rich (violet) crystals give more per trip
+    static let richAmount = 1100
+    static let shieldRadius = 230.0          // Shield Generator: friendly things inside take less damage
+    static let shieldReduction = 0.3
+    static let towerRadius = 100.0           // stand this close to a watch tower to use it
+    static let uphillPenalty = 0.75          // damage from low ground to high ground
+    static let fortressRange = 250.0, fortressDamage = 16.0, fortressCooldown = 0.9
+    static let repairRate = 0.05             // fraction of max HP per second, per drone
     static let startCrystals = 300
     static let beaconIncome = 1.5            // crystals per second per beacon
     static let beaconCaptureTime = 8.0
@@ -173,12 +221,23 @@ enum Defs {
                          damage: 12, cooldown: 0.8, armorClass: .structure, sight: 300, hitsAir: true, footprint: 2,
                          requires: .barracks, weapon: .rifle, hotkeyRole: "Static defense",
                          blurb: "Defensive gun. Hits ground and air. Needs a Barracks.")
+        case .radar:
+            return Stats(name: "Radar Tower", cost: 75, buildTime: 22, hp: 320, radius: 26, armorClass: .structure,
+                         sight: 640, footprint: 2, requires: .barracks, hotkeyRole: "Vision",
+                         blurb: "Sees 640 around it, up cliffs too. Spot attacks coming and give your army vision of high ground.")
+        case .shield:
+            return Stats(name: "Shield Generator", cost: 150, buildTime: 32, hp: 520, armor: 1, radius: 28,
+                         armorClass: .structure, sight: 240, footprint: 2, requires: .lab, hotkeyRole: "Damage shield",
+                         blurb: "Friendly units and buildings within 230 take 30% less damage. Needs a Tech Lab.")
         case .crystal:
             return Stats(name: "Crystal", hp: 1, radius: 13, armorClass: .structure, sight: 0, footprint: 1,
-                         blurb: "Mine with Drones.")
+                         blurb: "Mine with Drones. Violet crystals are rich: 12 per trip instead of 8.")
         case .beacon:
             return Stats(name: "Beacon", hp: 1, radius: 26, armorClass: .structure, sight: 300,
                          blurb: "Stand near it to capture. Gives crystals over time and vision.")
+        case .tower:
+            return Stats(name: "Watch Tower", hp: 1, radius: 18, armorClass: .structure, sight: 560,
+                         blurb: "Keep a unit next to it to see far around it, including up cliffs.")
         }
     }
 

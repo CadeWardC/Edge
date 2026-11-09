@@ -170,6 +170,7 @@ struct GameView: View {
         switch q.item {
         case let .unit(t): img = Art.icon(t, game.me?.color ?? .blue)
         case let .research(u): img = Art.upgradeIcon(u)
+        case let .spec(sp): img = Art.specIcon(sp)
         }
         return ZStack(alignment: .bottom) {
             Image(uiImage: img).resizable().frame(width: 28, height: 28).opacity(q.id == 0 ? 1 : 0.6)
@@ -315,6 +316,7 @@ struct CommandTile: View {
         switch button.icon {
         case let .entity(t): Image(uiImage: Art.icon(t, me?.color ?? .blue)).resizable().scaledToFit()
         case let .upgrade(u): Image(uiImage: Art.upgradeIcon(u)).resizable().scaledToFit()
+        case let .spec(sp): Image(uiImage: Art.specIcon(sp)).resizable().scaledToFit()
         case let .symbol(s): Image(systemName: s).font(.title3)
         }
     }
