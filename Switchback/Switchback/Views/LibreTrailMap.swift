@@ -17,12 +17,14 @@ struct AppMap: View {
     var photos: [PhotoPin] = []
     var onSelect: ((String?) -> Void)? = nil
     var onRegionChange: ((MKCoordinateRegion) -> Void)? = nil
+    /// Trails read from the map's own data when it settles (our own map only).
+    var onVisibleTrails: (([Trail]) -> Void)? = nil
 
     var body: some View {
         if baseMap == .switchback {
             LibreTrailMap(trails: trails, selectedId: selectedId, track: track, camera: camera, initialBox: initialBox,
                           showsUserButton: showsUserButton, followUser: followUser, pois: pois, photos: photos,
-                          onSelect: onSelect, onRegionChange: onRegionChange)
+                          onSelect: onSelect, onRegionChange: onRegionChange, onVisibleTrails: onVisibleTrails)
         } else {
             TrailMapView(baseMap: baseMap, trails: trails, selectedId: selectedId, track: track, camera: camera,
                          initialBox: initialBox, showsUserButton: showsUserButton, followUser: followUser,
@@ -46,6 +48,7 @@ struct LibreTrailMap: UIViewRepresentable {
     var photos: [PhotoPin] = []
     var onSelect: ((String?) -> Void)? = nil
     var onRegionChange: ((MKCoordinateRegion) -> Void)? = nil
+    var onVisibleTrails: (([Trail]) -> Void)? = nil
 
     static func styleURL(dark: Bool) -> URL? {
         Bundle.main.url(forResource: dark ? "switchback-style-dark" : "switchback-style", withExtension: "json")
@@ -375,6 +378,35 @@ struct LibreTrailMap: UIViewRepresentable {
                 span: MKCoordinateSpan(latitudeDelta: abs(b.ne.latitude - b.sw.latitude),
                                        longitudeDelta: abs(b.ne.longitude - b.sw.longitude)))
             Task { @MainActor [weak self] in self?.parent?.onRegionChange?(region) }
+        }
+
+        /// When the map settles, read the named paths it just drew and hand them over as trails.
+        func mapViewDidBecomeIdle(_ mapView: MLNMapView) {
+            guard let callback = parent?.onVisibleTrails, styleReady, mapView.zoomLevel >= 11 else { return }
+            let features = mapView.visibleFeatures(in: mapView.bounds, styleLayerIdentifiers: ["trail-source"])
+            var pieces: [String: [[Coord]]] = [:]
+            for f in features {
+                let name = (f.attribute(forKey: "name:en") as? String) ?? (f.attribute(forKey: "name") as? String) ?? ""
+                guard !name.isEmpty else { continue }
+                if let line = f as? MLNPolylineFeature {
+                    pieces[name, default: []].append(Self.coords(line))
+                } else if let multi = f as? MLNMultiPolylineFeature {
+                    for line in multi.polylines { pieces[name, default: []].append(Self.coords(line)) }
+                }
+            }
+            guard !pieces.isEmpty else { return }
+            Task.detached(priority: .userInitiated) {
+                let trails = TileTrails.build(pieces)
+                await MainActor.run { callback(trails) }
+            }
+        }
+
+        private static func coords(_ line: MLNPolyline) -> [Coord] {
+            let n = Int(line.pointCount)
+            guard n > 0 else { return [] }
+            var buffer = [CLLocationCoordinate2D](repeating: CLLocationCoordinate2D(), count: n)
+            line.getCoordinates(&buffer, range: NSRange(location: 0, length: n))
+            return buffer.map(Coord.init)
         }
 
         func mapView(_ mapView: MLNMapView, didChange mode: MLNUserTrackingMode, animated: Bool) {

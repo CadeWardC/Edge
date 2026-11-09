@@ -108,14 +108,31 @@ final class ExploreModel: ObservableObject {
     }
 
     var selectedTrail: Trail? {
-        guard let id = selectedId, let t = known[id] else { return nil }
+        guard let id = selectedId, let t = known[id] ?? previews[id] else { return nil }
         return Profiles.shared.withProfile(t)
     }
 
     /// Whether to jump to the user's location on launch (not if the last-viewed map already shows it).
-    func shouldCenter(on location: CLLocation) -> Bool {
-        guard let box = initialBox else { return true }
-        return !box.contains(Coord(location.coordinate))
+    /// The map starts on your last view (instantly), then moves to where you are once the GPS answers.
+    func shouldCenter(on location: CLLocation) -> Bool { true }
+
+    /// Trails read from the map's own data: shown at once, until the full search brings the exact version.
+    private var previews: [String: Trail] = [:]
+
+    func tilePreviews(_ trails: [Trail]) {
+        var changed = false
+        for t in trails where previews[t.id] == nil || previews[t.id]!.length < t.length {
+            previews[t.id] = t
+            changed = true
+        }
+        if previews.count > 1500, let r = visibleRegion {
+            let keep = BBox(region: r).expanded(byDegrees: 0.3)
+            previews = previews.filter { $0.value.bbox.intersects(keep) }
+        }
+        if changed {
+            refreshResults()
+            loadedOnce = true
+        }
     }
 
     // MARK: Loading
@@ -259,6 +276,17 @@ final class ExploreModel: ObservableObject {
         let view = BBox(region: r).expanded(byDegrees: 0.005)
         let c = view.center
         var list = known.values.filter { knownBoxes[$0.id]?.intersects(view) ?? false }
+        // add the quick versions read from the map, unless the exact version of that trail is already here
+        if !previews.isEmpty {
+            var exact: [String: [BBox]] = [:]
+            for t in list { exact[USFS.normalized(t.name), default: []].append(t.bbox.expanded(byDegrees: 0.003)) }
+            for p in previews.values {
+                let box = p.bbox
+                guard box.intersects(view) else { continue }
+                if exact[USFS.normalized(p.name)]?.contains(where: { $0.intersects(box) }) == true { continue }
+                list.append(p)
+            }
+        }
         list.sort { Geo.distance(c, $0.start) < Geo.distance(c, $1.start) }
         let top = Array(list.prefix(250))
         if top.map(\.id) != results.map(\.id) || top != results { results = top }
@@ -272,7 +300,12 @@ final class ExploreModel: ObservableObject {
         let req = MKLocalSearch.Request()
         req.naturalLanguageQuery = q
         req.resultTypes = [.address, .pointOfInterest]
-        if let r = visibleRegion { req.region = r }
+        // results near you first (or near the map when your location isn't known)
+        if let loc = Recorder.shared.lastLocation {
+            req.region = MKCoordinateRegion(center: loc.coordinate, latitudinalMeters: 120_000, longitudinalMeters: 120_000)
+        } else if let r = visibleRegion {
+            req.region = r
+        }
         do {
             let response = try await MKLocalSearch(request: req).start()
             guard let item = response.mapItems.first else {
@@ -280,7 +313,7 @@ final class ExploreModel: ObservableObject {
                 return
             }
             let c = item.placemark.coordinate
-            cameraRequest = CameraRequest(region: MKCoordinateRegion(center: c, latitudinalMeters: 16_000, longitudinalMeters: 16_000))
+            cameraRequest = CameraRequest(region: MKCoordinateRegion(center: c, latitudinalMeters: 8_000, longitudinalMeters: 8_000))
         } catch {
             errorText = "Couldn't find \(q)."
         }
@@ -288,6 +321,6 @@ final class ExploreModel: ObservableObject {
 
     func center(on location: CLLocation) {
         cameraRequest = CameraRequest(region: MKCoordinateRegion(center: location.coordinate,
-                                                                 latitudinalMeters: 16_000, longitudinalMeters: 16_000))
+                                                                 latitudinalMeters: 8_000, longitudinalMeters: 8_000))
     }
 }

@@ -74,7 +74,8 @@ struct ExploreView: View {
                    initialBox: model.initialBox,
                    showsRoutes: showRoutes,
                    onSelect: { id in withAnimation(.snappy) { model.selectedId = id } },
-                   onRegionChange: { model.regionChanged($0) })
+                   onRegionChange: { model.regionChanged($0) },
+                   onVisibleTrails: { model.tilePreviews($0) })
 
             VStack(spacing: 8) {
                 statusBar

@@ -173,6 +173,11 @@ def build(C):
     add(id="boundary-country", type="line", src="boundary", filter=["all", ["==", ["get", "admin_level"], 2], ["!=", ["get", "maritime"], 1]],
         paint={"line-color": C["boundary2"], "line-width": z((2, 0.8), (10, 2.4))})
 
+    # ---- named paths, invisible: the app reads trails straight from here (no download, instant)
+    add(id="trail-source", type="line", src="transportation_name", minzoom=11,
+        filter=["all", cls("path", "track"), ["has", "name"]],
+        paint={"line-color": C["path"], "line-width": 8, "line-opacity": 0.01})
+
     # ---- labels (lowest priority first)
     add(id="housenumber", type="symbol", src="housenumber", minzoom=17,
         layout={"text-field": ["get", "housenumber"], "text-font": REG, "text-size": 10},
