@@ -773,11 +773,6 @@ extension Art {
                         g.move(to: CGPoint(x: l.x - 6, y: l.y + 1)); g.addLine(to: CGPoint(x: l.x, y: l.y - 3)); g.addLine(to: CGPoint(x: l.x + 5, y: l.y + 2))
                         g.strokePath()
                     }
-                    if biome == .snow {
-                        // snow settles on the lit side
-                        fill(g, CGPath(ellipseIn: CGRect(x: l.x + l.lx * l.r * 0.45 - 8, y: l.y + l.ly * l.r * 0.45 - 4.5, width: 16, height: 9), transform: nil),
-                             rgb(1, 1, 1, 0.8))
-                    }
                 }
                 g.restoreGState()
             }

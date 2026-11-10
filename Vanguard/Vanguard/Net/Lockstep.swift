@@ -109,7 +109,9 @@ final class LockstepSession {
     func stepTick() -> Bool {
         if world.isOver { return false }
         if tickInTurn == 0 {
-            guard let packets = inbox[turn], humans.allSatisfy({ packets[$0] != nil }) else {
+            // (a match with no human players, such as watch-only, has nothing to wait for)
+            let packets = inbox[turn] ?? [:]
+            guard humans.allSatisfy({ packets[$0] != nil }) else {
                 waiting = true
                 return false
             }

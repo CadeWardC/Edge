@@ -140,6 +140,15 @@ do {
     check(w.strikes.isEmpty && w.players[1].crystals == before, "Orbital Strike is refused without a Tech Lab")
 }
 
+// MARK: watch-only
+do {
+    let w = World(setup: MatchSetup(map: .crossroads, seed: 9, players: bots([.normal, .normal], map: .crossroads)))
+    let s = LockstepSession(world: w, humans: [], local: [], transport: nil)
+    var ran = 0
+    for _ in 0..<200 where s.stepTick() { ran += 1 }
+    check(ran == 200, "a match with only bots (watch-only, menu battle) advances (\(ran) of 200 ticks)")
+}
+
 // MARK: determinism
 print("Determinism")
 do {
