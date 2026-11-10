@@ -114,6 +114,32 @@ for id in MapID.allCases {
     }
 }
 
+// MARK: new orders
+print("Auto-train, retreat, powers")
+do {
+    let setup = MatchSetup(map: .crossroads, seed: 3, players: [
+        PlayerSetup(name: "A", team: 0, color: .blue, isBot: false),
+        PlayerSetup(name: "B", team: 1, color: .red, isBot: false, bonusCrystals: 2000),
+    ])
+    let w = World(setup: setup)
+    let hq = w.entities.first { $0.owner == 0 && $0.type == .hq }!
+    w.step([Command(player: 0, units: [hq.id], action: .autoTrain(.worker))])
+    for _ in 0..<(70 * Defs.tickRate) { w.step([]) }
+    let drones = w.entities.filter { $0.owner == 0 && $0.isWorker }
+    check(drones.count >= 9, "auto-train keeps a Command Center making Drones (\(drones.count) after 70 s)")
+    let runner = drones[0]
+    w.step([Command(player: 0, units: [runner.id], action: .move(Vec2(w.map.worldWidth / 2, w.map.worldHeight / 2)))])
+    for _ in 0..<(12 * Defs.tickRate) { w.step([]) }
+    let far = runner.pos.dist(hq.pos)
+    w.step([Command(player: 0, units: [runner.id], action: .retreat)])
+    for _ in 0..<(25 * Defs.tickRate) { w.step([]) }
+    check(far > 300 && runner.pos.dist(hq.pos) < 220, "retreat brings a unit home (from \(Int(far)) to \(Int(runner.pos.dist(hq.pos))))")
+    // powers need their building: refused without one, and never charged
+    let before = w.players[1].crystals
+    w.step([Command(player: 1, units: [], action: .power(.strike, hq.pos))])
+    check(w.strikes.isEmpty && w.players[1].crystals == before, "Orbital Strike is refused without a Tech Lab")
+}
+
 // MARK: determinism
 print("Determinism")
 do {

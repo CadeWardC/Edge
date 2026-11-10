@@ -626,9 +626,33 @@ extension Art {
                 g.strokePath()
             }
             // dirt and ramps
-            each({ $0 == .dirt || $0 == .ramp }) { x, y, wx, wy in
-                fill(g, circle(x, y, T * 0.85), pal.dirt.withAlphaComponent(0.55))
-                fill(g, circle(x + CGFloat(hash(wx, wy, seed) - 0.5) * 10, y, T * 0.6), pal.dirt)
+            // (each band is one flat layer, so overlapping tiles don't show as darker lobes)
+            for (radius, alpha, dark) in [(0.92, 0.28, true), (0.8, 0.6, false), (0.62, 1.0, false)] as [(CGFloat, CGFloat, Bool)] {
+                g.saveGState()
+                g.setAlpha(alpha)
+                g.beginTransparencyLayer(auxiliaryInfo: nil)
+                g.setFillColor((dark ? shade(pal.dirt, 0.55) : pal.dirt).cgColor)
+                each({ $0 == .dirt || $0 == .ramp }) { x, y, wx, wy in
+                    let jx = CGFloat(hash(wx, wy, seed) - 0.5) * 8, jy = CGFloat(hash(wx, wy, seed + 5) - 0.5) * 8
+                    g.fillEllipse(in: CGRect(x: x + jx - T * radius, y: y + jy - T * radius, width: T * radius * 2, height: T * radius * 2))
+                }
+                g.endTransparencyLayer()
+                g.restoreGState()
+            }
+            // fine grain everywhere on open ground
+            for ty in 0..<n {
+                for tx in 0..<n {
+                    let wx = ox + tx, wy = oy + ty
+                    let t = map.terrainAt(wx, wy)
+                    guard t == .grass || t == .dirt || t == .ramp else { continue }
+                    for k in 0..<5 {
+                        let px = (CGFloat(tx) + CGFloat(hash(wx * 5 + k, wy, seed + 111))) * T
+                        let py = (CGFloat(ty) + CGFloat(hash(wx, wy * 5 + k, seed + 112))) * T
+                        let light = hash(wx + k, wy - k, seed + 113) > 0.5
+                        g.setFillColor((light ? UIColor(white: 1, alpha: 0.07) : UIColor(white: 0, alpha: 0.09)).cgColor)
+                        g.fill(CGRect(x: px, y: py, width: 1.6, height: 1.6))
+                    }
+                }
             }
             each({ $0 == .dirt || $0 == .ramp }) { x, y, wx, wy in
                 for k in 0..<3 {
