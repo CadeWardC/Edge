@@ -90,6 +90,10 @@ final class Entity {
     var spec: Spec?
     var bonusHp: Double = 0
     var bonusArmor: Double = 0
+    /// Production buildings: keep training this unit whenever the queue is empty and it is affordable.
+    var autoTrain: EntityType?
+    /// Running home (faster) after a Retreat order.
+    var retreating = false
 
     // abilities
     var sieged = false
@@ -140,6 +144,9 @@ enum Action: Codable, Equatable {
     case siege
     case unsiege
     case sprint
+    case retreat
+    case autoTrain(EntityType?)
+    case power(Power, Vec2)
     case surrender
 }
 
@@ -160,4 +167,6 @@ enum GameEvent {
     case underAttack(player: Int, at: Vec2)
     case defeated(player: Int)
     case notEnough(player: Int, what: String)
+    case powerCalled(player: Int, Power, at: Vec2)
+    case strikeHit(at: Vec2)
 }

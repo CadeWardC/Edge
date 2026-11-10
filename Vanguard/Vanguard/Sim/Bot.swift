@@ -60,7 +60,12 @@ final class Bot {
         let c = Command(player: player, units: units, action: a)
         if let sink { sink(c) } else { world.apply(c) }
     }
-    private func isGlobal(_ a: Action) -> Bool { if case .surrender = a { return true }; return false }
+    private func isGlobal(_ a: Action) -> Bool {
+        switch a {
+        case .surrender, .power: return true
+        default: return false
+        }
+    }
     private var smart: Bool { difficulty.rawValue >= Difficulty.normal.rawValue }
     private var sharp: Bool { difficulty.rawValue >= Difficulty.hard.rawValue }
 
@@ -96,6 +101,22 @@ final class Bot {
         produceArmy(mine, armyCount: army.count)
         controlArmy(army, main: main, mine: mine, enemies: visibleEnemies)
         scout(workers: workers, army: army, main: main)
+        if sharp { usePowers(visibleEnemies) }
+    }
+
+    /// Hard and Brutal call an Orbital Strike on a clump of enemies when they can spare the crystals.
+    private func usePowers(_ enemies: [Entity]) {
+        guard me.count(.lab) > 0, world.tick >= me.powerReady[Power.strike.rawValue],
+              me.crystals >= Defs.strikeCost + 150, enemies.count >= 5 else { return }
+        var best: Entity?
+        var bestValue = 0
+        let r2 = Defs.strikeRadius * Defs.strikeRadius * 0.6
+        for e in enemies where !e.isBuilding || e.type == .turret {
+            var value = 0
+            for o in enemies where o.pos.distSq(e.pos) <= r2 && (!o.isBuilding || o.type == .turret) { value += o.st.cost }
+            if value > bestValue || (value == bestValue && e.id < (best?.id ?? Int.max)) { bestValue = value; best = e }
+        }
+        if let t = best, bestValue >= 500 { issue([], .power(.strike, t.pos)) }
     }
 
     // MARK: knowledge

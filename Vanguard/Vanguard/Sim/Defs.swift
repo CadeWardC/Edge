@@ -43,6 +43,22 @@ enum Upgrade: Int, Codable, CaseIterable {
     var info: UpgradeInfo { Defs.upgrades[rawValue] }
 }
 
+/// Commander powers: called from anywhere on the map, on a cooldown.
+enum Power: Int, Codable, CaseIterable {
+    case strike, scan
+
+    var name: String { self == .strike ? "Orbital Strike" : "Scan" }
+    var cost: Int { self == .strike ? Defs.strikeCost : Defs.scanCost }
+    var cooldown: Double { self == .strike ? Defs.strikeCooldown : Defs.scanCooldown }
+    var requires: EntityType { self == .strike ? .lab : .radar }
+    var blurb: String {
+        switch self {
+        case .strike: return "After 2.5 s, hits enemies in a wide circle for up to 170 damage (60% to buildings). Needs a Tech Lab."
+        case .scan: return "Reveals an area for 12 s, cliffs included. Needs a Radar Tower."
+        }
+    }
+}
+
 /// One-time specialization of a production building: pick one of two, they exclude each other.
 enum Spec: Int, Codable, CaseIterable {
     case fortress, refinery, drillYard, armory, assemblyLine, reactor
@@ -136,7 +152,11 @@ enum Defs {
     static let towerRadius = 100.0           // stand this close to a watch tower to use it
     static let uphillPenalty = 0.75          // damage from low ground to high ground
     static let fortressRange = 250.0, fortressDamage = 16.0, fortressCooldown = 0.9
-    static let repairRate = 0.05             // fraction of max HP per second, per drone
+    static let repairRate = 0.05
+    static let retreatSpeed = 1.3            // retreating units run home this much faster
+    // commander powers
+    static let strikeCost = 125, strikeCooldown = 75.0, strikeDelay = 2.5, strikeRadius = 85.0, strikeDamage = 170.0
+    static let scanCost = 50, scanCooldown = 40.0, scanRadius = 330.0, scanDuration = 12.0             // fraction of max HP per second, per drone
     static let startCrystals = 300
     static let beaconIncome = 1.5            // crystals per second per beacon
     static let beaconCaptureTime = 8.0

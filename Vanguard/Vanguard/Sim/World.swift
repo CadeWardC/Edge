@@ -16,7 +16,7 @@ struct Weapon {
 
 enum Vanguard {
     /// Bump whenever the simulation changes: peers must run the exact same rules.
-    static let protocolVersion = 3
+    static let protocolVersion = 4
 }
 
 struct PlayerSetup: Codable, Equatable {
@@ -57,6 +57,8 @@ final class Player {
     var defeated = false
     var gatherMultiplier: Double = 1
     var lastAlertTick = -10_000
+    /// Tick from which each commander power can be used again.
+    var powerReady: [Int] = Array(repeating: 0, count: Power.allCases.count)
     // stats
     var gathered = 0
     var unitsMade = 0
@@ -100,6 +102,9 @@ final class World {
     let dt = Defs.dt
     /// Shield Generators standing this tick.
     private var shields: [Entity] = []
+    /// Orbital strikes on their way down, and areas being scanned.
+    private(set) var strikes: [(tick: Int, pos: Vec2, player: Int)] = []
+    private(set) var scans: [(until: Int, pos: Vec2, team: Int)] = []
 
     init(setup: MatchSetup) {
         self.setup = setup
@@ -265,6 +270,36 @@ final class World {
         switch c.action {
         case .surrender:
             defeat(p)
+        case let .power(k, pt):
+            guard p.count(k.requires) > 0, tick >= p.powerReady[k.rawValue] else { return }
+            if p.crystals < k.cost { events.append(.notEnough(player: p.index, what: "crystals")); return }
+            p.crystals -= k.cost
+            p.powerReady[k.rawValue] = tick + Int(k.cooldown * Double(Defs.tickRate))
+            let at = clampToMap(pt)
+            switch k {
+            case .strike: strikes.append((tick + Int(Defs.strikeDelay * Double(Defs.tickRate)), at, p.index))
+            case .scan: scans.append((tick + Int(Defs.scanDuration * Double(Defs.tickRate)), at, p.team))
+            }
+            events.append(.powerCalled(player: p.index, k, at: at))
+        case .retreat:
+            let homes = entities.filter { $0.owner == p.index && $0.isBuilding && $0.isComplete && $0.alive }
+            for u in units where u.isUnit && !u.sieged {
+                // nearest Command Center, or any building when none is left
+                let hqs = homes.filter { $0.type == .hq }
+                guard let home = (hqs.isEmpty ? homes : hqs).min(by: { a, b in
+                    let da = a.pos.distSq(u.pos), db = b.pos.distSq(u.pos)
+                    return da < db || (da == db && a.id < b.id)
+                }) else { continue }
+                var out = (u.pos - home.pos).normalized()
+                if out == .zero { out = Vec2(0, -1) }
+                u.order = .move(home.pos + out * (home.st.radius + 50))
+                resetMove(u)
+                u.retreating = true
+            }
+        case let .autoTrain(t):
+            for b in units where b.isBuilding && !b.st.produces.isEmpty {
+                if let t { if b.st.produces.contains(t) { b.autoTrain = t } } else { b.autoTrain = nil }
+            }
         case let .move(pt), let .attackMove(pt):
             let attack: Bool
             if case .attackMove = c.action { attack = true } else { attack = false }
@@ -410,6 +445,7 @@ final class World {
         u.arrived = false
         u.progressCheckTick = tick
         u.progressCheckPos = u.pos
+        u.retreating = false
         if case .attack = u.order {} else { u.target = 0 }
     }
 
@@ -419,7 +455,10 @@ final class World {
         var c = Vec2.zero
         for u in units { c += u.pos }
         c = c / Double(units.count)
-        let maxR = 13 * Double(units.count).squareRoot() + 10
+        // room for everyone: the circle's area is about twice the units' own
+        var area = 0.0
+        for u in units { area += u.st.radius * u.st.radius }
+        let maxR = (area * 2.2).squareRoot() + 12
         var spread: Double = 1
         for u in units { spread = max(spread, u.pos.dist(c)) }
         let k = min(1, maxR / spread)
@@ -456,12 +495,41 @@ final class World {
             }
         }
         moveUnits()
+        landStrikes()
+        if !scans.isEmpty { scans.removeAll { $0.until <= tick } }
         removeDead()
         recomputePlayers()
         if tick % 4 == 0 { fog.update(self) }
         if tick % 10 == 0 { checkDefeat() }
         if events.count > 4000 { events.removeFirst(2000) }
         tick += 1
+    }
+
+    private func landStrikes() {
+        guard strikes.contains(where: { $0.tick <= tick }) else { return }
+        for s in strikes where s.tick <= tick {
+            let team = players[s.player].team
+            grid.query(s.pos, Defs.strikeRadius) { o in
+                guard o.alive, o.owner >= 0, !o.type.isNeutral, enemies(team, o.team) else { return }
+                // full damage near the middle, down to 40% at the edge
+                let d = o.pos.dist(s.pos) / Defs.strikeRadius
+                var amount = Defs.strikeDamage * (d < 0.4 ? 1 : max(0.4, 1 - (d - 0.4)))
+                if o.isBuilding { amount *= 0.6 }
+                if shields.contains(where: { $0.team == o.team && $0.pos.distSq(o.pos) <= Defs.shieldRadius * Defs.shieldRadius }) {
+                    amount *= 1 - Defs.shieldReduction
+                }
+                o.hp -= amount
+                o.lastHitTick = tick
+                let p = players[o.owner]
+                if tick - p.lastAlertTick > 200 {
+                    p.lastAlertTick = tick
+                    events.append(.underAttack(player: p.index, at: o.pos))
+                }
+                if o.hp <= 0 { players[s.player].kills += 1 }
+            }
+            events.append(.strikeHit(at: s.pos))
+        }
+        strikes.removeAll { $0.tick <= tick }
     }
 
     // MARK: units
@@ -493,7 +561,7 @@ final class World {
             }
         case let .move(p):
             if e.sieged { e.order = .idle; break }
-            if moveTo(e, p) { e.order = .idle }
+            if moveTo(e, p) { e.order = .idle; e.retreating = false }
         case let .attackMove(p):
             if let t = currentTarget(e, maxGap: e.st.sight * 1.1) ?? acquire(e, radius: e.sieged ? effectiveRange(e) : e.st.sight * 0.9) {
                 e.target = t.id
@@ -818,6 +886,7 @@ final class World {
         }
         var speed = e.st.speed
         if e.sprintTime > 0 { speed *= 1.5 }
+        if e.retreating { speed *= Defs.retreatSpeed }
         if e.isAir {
             e.vel = (goal - e.pos) / d * min(speed, d / dt)
             e.dir = (e.dir * 0.7 + (goal - e.pos) / d * 0.3).normalized()
@@ -946,6 +1015,15 @@ final class World {
                 if b.cooldown <= 0 { fire(b, t) }
             } else {
                 b.target = 0
+            }
+        }
+        if b.queue.isEmpty, let t = b.autoTrain, (tick + b.id) % 10 == 0 {
+            let p = players[b.owner]
+            if requirementsMet(t, player: p), p.crystals >= t.stats.cost, p.supplyUsed + t.stats.supply <= p.supplyCap {
+                p.crystals -= t.stats.cost
+                b.queue.append(.unit(t))
+                p.supplyUsed += t.stats.supply
+                p.pending[t.rawValue] += 1
             }
         }
         guard let item = b.queue.first else { return }
@@ -1175,7 +1253,10 @@ final class World {
             h.add(p.crystals)
             h.add(p.supplyUsed)
             h.add(p.defeated)
+            for r in p.powerReady { h.add(r) }
         }
+        h.add(strikes.count)
+        h.add(scans.count)
         return h.value
     }
 }
