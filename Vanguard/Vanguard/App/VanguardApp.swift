@@ -7,6 +7,7 @@ struct VanguardApp: App {
         WindowGroup {
             RootView()
                 .preferredColorScheme(.dark)
+                .tint(Theme.accent)
                 .statusBarHidden()
                 .persistentSystemOverlays(.hidden)
         }
@@ -72,7 +73,8 @@ struct RootView: View {
                 SpriteViewRep(scene: app.makeBackdrop())
                     .ignoresSafeArea()
                     .allowsHitTesting(false)
-                    .overlay(LinearGradient(colors: [Color.black.opacity(0.75), Color.black.opacity(0.45), Color.black.opacity(0.75)],
+                    .overlay(LinearGradient(colors: [Color.black.opacity(0.72), Color.black.opacity(app.screen == .menu ? 0.25 : 0.6),
+                                                     Color.black.opacity(app.screen == .menu ? 0.5 : 0.7)],
                                             startPoint: .leading, endPoint: .trailing).ignoresSafeArea())
             }
             switch app.screen {
@@ -88,6 +90,7 @@ struct RootView: View {
                 }
             }
         }
+        .animation(.easeInOut(duration: 0.22), value: app.screen)
         .onAppear {
             Sound.shared.start()
             // `-demo`: jump straight into a match the autopilot plays at 3x (screenshots on CI)
@@ -115,24 +118,86 @@ struct RootView: View {
 }
 
 enum Theme {
-    static let background = LinearGradient(colors: [Color(red: 0.05, green: 0.07, blue: 0.11), Color(red: 0.09, green: 0.12, blue: 0.18)],
+    static let background = LinearGradient(colors: [Color(red: 0.04, green: 0.06, blue: 0.10), Color(red: 0.08, green: 0.11, blue: 0.17)],
                                            startPoint: .top, endPoint: .bottom)
-    static let panel = Color(red: 0.08, green: 0.1, blue: 0.14).opacity(0.88)
-    static let accent = Color(red: 0.35, green: 0.75, blue: 1)
+    static let panel = Color(red: 0.07, green: 0.09, blue: 0.13).opacity(0.9)
+    static let panelTop = Color(red: 0.13, green: 0.16, blue: 0.22).opacity(0.92)
+    static let accent = Color(red: 0.36, green: 0.78, blue: 1)
+    static let accentDeep = Color(red: 0.13, green: 0.47, blue: 0.86)
     static let gold = Color(red: 1, green: 0.8, blue: 0.3)
     static let crystal = Color(red: 0.4, green: 0.9, blue: 1)
+    static let edge = LinearGradient(colors: [Color.white.opacity(0.28), Color.white.opacity(0.05)], startPoint: .top, endPoint: .bottom)
 }
 
+/// The one panel look used everywhere: dark glass, lit top edge, soft shadow.
 struct PanelStyle: ViewModifier {
+    var radius: CGFloat = 12
     func body(content: Content) -> some View {
+        let shape = RoundedRectangle(cornerRadius: radius, style: .continuous)
         content
-            .background(Theme.panel, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(Color.white.opacity(0.12), lineWidth: 1))
+            .background(LinearGradient(colors: [Theme.panelTop, Theme.panel], startPoint: .top, endPoint: .bottom), in: shape)
+            .overlay(shape.strokeBorder(Theme.edge, lineWidth: 1))
+            .shadow(color: .black.opacity(0.35), radius: 6, y: 3)
     }
 }
 
 extension View {
-    func panel() -> some View { modifier(PanelStyle()) }
+    func panel(radius: CGFloat = 12) -> some View { modifier(PanelStyle(radius: radius)) }
+}
+
+/// Main call-to-action buttons (Start, Resume, Host).
+struct PrimaryButtonStyle: ButtonStyle {
+    @Environment(\.isEnabled) private var enabled
+    func makeBody(configuration: Configuration) -> some View {
+        let shape = RoundedRectangle(cornerRadius: 11, style: .continuous)
+        configuration.label
+            .font(.headline)
+            .foregroundStyle(Color(red: 0.03, green: 0.08, blue: 0.16))
+            .padding(.horizontal, 16).padding(.vertical, 9)
+            .background(LinearGradient(colors: [Theme.accent, Theme.accentDeep], startPoint: .top, endPoint: .bottom), in: shape)
+            .overlay(shape.strokeBorder(Color.white.opacity(0.45), lineWidth: 1))
+            .shadow(color: Theme.accent.opacity(enabled ? 0.45 : 0), radius: 8)
+            .saturation(enabled ? 1 : 0.1)
+            .opacity(enabled ? 1 : 0.45)
+            .scaleEffect(configuration.isPressed ? 0.96 : 1)
+            .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
+    }
+}
+
+/// Everything else (Back, Cancel, Join).
+struct SecondaryButtonStyle: ButtonStyle {
+    @Environment(\.isEnabled) private var enabled
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.subheadline.weight(.semibold))
+            .foregroundStyle(configuration.role == .destructive ? Color(red: 1, green: 0.45, blue: 0.4) : Color.white)
+            .padding(.horizontal, 14).padding(.vertical, 8)
+            .panel(radius: 10)
+            .opacity(enabled ? 1 : 0.4)
+            .scaleEffect(configuration.isPressed ? 0.96 : 1)
+            .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
+    }
+}
+
+/// Rows and tiles that are themselves the button: they dip and dim when pressed.
+struct PressStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed ? 0.97 : 1)
+            .brightness(configuration.isPressed ? 0.08 : 0)
+            .animation(.easeOut(duration: 0.1), value: configuration.isPressed)
+    }
+}
+
+struct ScreenTitle: View {
+    var text: String
+    init(_ text: String) { self.text = text }
+    var body: some View {
+        Text(text.uppercased())
+            .font(.system(size: 26, weight: .heavy, design: .rounded)).tracking(3)
+            .foregroundStyle(LinearGradient(colors: [.white, Theme.accent], startPoint: .top, endPoint: .bottom))
+            .shadow(color: .black.opacity(0.6), radius: 4, y: 2)
+    }
 }
 
 struct BigButton: View {
@@ -142,22 +207,29 @@ struct BigButton: View {
     var action: () -> Void
 
     var body: some View {
-        Button(action: action) {
-            HStack(spacing: 14) {
-                Image(systemName: symbol).font(.title2).frame(width: 34)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(title).font(.headline)
-                    if !subtitle.isEmpty { Text(subtitle).font(.caption).foregroundStyle(.secondary) }
+        Button {
+            Sound.shared.play(.click)
+            action()
+        } label: {
+            HStack(spacing: 12) {
+                Image(systemName: symbol).font(.body.weight(.bold)).foregroundStyle(Theme.accent)
+                    .frame(width: 36, height: 36)
+                    .background(Theme.accent.opacity(0.14), in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(title).font(.system(.headline, design: .rounded))
+                    if !subtitle.isEmpty {
+                        Text(subtitle).font(.caption).foregroundStyle(.secondary).lineLimit(1).minimumScaleFactor(0.8)
+                    }
                 }
                 Spacer()
-                Image(systemName: "chevron.right").foregroundStyle(.secondary)
+                Image(systemName: "chevron.right").font(.caption.weight(.bold)).foregroundStyle(.secondary)
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 12)
-            .frame(maxWidth: 380)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .frame(maxWidth: 360)
             .panel()
         }
-        .buttonStyle(.plain)
+        .buttonStyle(PressStyle())
     }
 }
 
@@ -165,34 +237,40 @@ struct MenuView: View {
     @ObservedObject var app: AppModel
 
     var body: some View {
-        HStack(spacing: 40) {
-            VStack(alignment: .leading, spacing: 10) {
-                Image(uiImage: Art.icon(.tank, .blue)).resizable().frame(width: 90, height: 90)
-                Text("VANGUARD").font(.system(size: 48, weight: .black, design: .rounded)).tracking(4)
-                Text("Real-time strategy. Mine crystals, build an army, hold the beacons, crush the enemy base.")
-                    .font(.callout).foregroundStyle(.secondary).frame(maxWidth: 320, alignment: .leading)
+        HStack(spacing: 36) {
+            VStack(alignment: .leading, spacing: 8) {
+                Image(uiImage: Art.icon(.tank, .blue)).resizable().frame(width: 76, height: 76)
+                    .shadow(color: Theme.accent.opacity(0.5), radius: 14)
+                Text("VANGUARD")
+                    .font(.system(size: 46, weight: .black, design: .rounded)).tracking(5)
+                    .foregroundStyle(LinearGradient(colors: [.white, Theme.accent], startPoint: .top, endPoint: .bottom))
+                    .shadow(color: .black.opacity(0.7), radius: 6, y: 3)
+                Rectangle().fill(LinearGradient(colors: [Theme.accent, .clear], startPoint: .leading, endPoint: .trailing))
+                    .frame(width: 260, height: 2)
+                Text("Mine. Build. Hold the high ground.")
+                    .font(.system(.callout, design: .rounded).weight(.medium)).foregroundStyle(.white.opacity(0.75))
             }
-            VStack(spacing: 9) {
-                BigButton(title: "Campaign", subtitle: "Eight missions, from first contact to a Brutal commander", symbol: "map.fill") {
+            VStack(spacing: 8) {
+                BigButton(title: "Campaign", subtitle: "Eight missions against rising odds", symbol: "map.fill") {
                     app.screen = .campaign
                 }
-                BigButton(title: "Quick Battle", subtitle: "1v1 against a Normal bot on Crossroads", symbol: "bolt.fill") {
+                BigButton(title: "Quick Battle", subtitle: "1v1 against a Normal bot", symbol: "bolt.fill") {
                     app.start(SkirmishView.quickSetup(), localPlayer: 0)
                 }
-                BigButton(title: "Skirmish", subtitle: "Pick a map, bots, difficulty and teams", symbol: "flag.2.crossed.fill") {
+                BigButton(title: "Skirmish", subtitle: "Choose the map, bots and teams", symbol: "flag.2.crossed.fill") {
                     app.screen = .skirmish
                 }
-                BigButton(title: "Multiplayer", subtitle: "Play friends through a relay server", symbol: "person.2.wave.2.fill") {
+                BigButton(title: "Multiplayer", subtitle: "Play friends through a relay", symbol: "person.2.wave.2.fill") {
                     app.screen = .multiplayer
                 }
-                HStack(spacing: 10) {
+                HStack(spacing: 8) {
                     SmallButton(title: "How to Play", symbol: "book.fill") { app.screen = .howTo }
                     SmallButton(title: "Settings", symbol: "gearshape.fill") { app.screen = .settings }
                 }
-                .frame(maxWidth: 380)
+                .frame(maxWidth: 360)
             }
         }
-        .padding(30)
+        .padding(24)
     }
 }
 
@@ -204,9 +282,9 @@ struct SmallButton: View {
     var body: some View {
         Button(action: action) {
             Label(title, systemImage: symbol).font(.subheadline.weight(.semibold))
-                .frame(maxWidth: .infinity).padding(.vertical, 11).panel()
+                .frame(maxWidth: .infinity).padding(.vertical, 9).panel()
         }
-        .buttonStyle(.plain)
+        .buttonStyle(PressStyle())
     }
 }
 

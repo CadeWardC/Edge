@@ -684,79 +684,98 @@ extension Art {
                     }
                 }
             }
-            // cliffs: a ridge of boulders, lit on the high side, in shadow on the low side
-            each({ $0 == .cliff }) { x, y, wx, wy in
-                var hx: CGFloat = 0, hy: CGFloat = 0
-                for dy in -1...1 {
-                    for dx in -1...1 where dx != 0 || dy != 0 {
-                        if map.elevationAt(wx + dx, wy + dy) == 1 && map.terrainAt(wx + dx, wy + dy) != .cliff { hx += CGFloat(dx); hy += CGFloat(dy) }
-                    }
-                }
-                let l = max(0.001, (hx * hx + hy * hy).squareRoot())
-                hx /= l; hy /= l
-                fill(g, circle(x - hx * 10 + 3, y - hy * 10 - 3, T * 0.75), rgb(0, 0, 0, 0.32))
-            }
-            each({ $0 == .cliff }) { x, y, wx, wy in
-                var hx: CGFloat = 0, hy: CGFloat = 0
-                for dy in -1...1 {
-                    for dx in -1...1 where dx != 0 || dy != 0 {
-                        if map.elevationAt(wx + dx, wy + dy) == 1 && map.terrainAt(wx + dx, wy + dy) != .cliff { hx += CGFloat(dx); hy += CGFloat(dy) }
-                    }
-                }
-                let l = max(0.001, (hx * hx + hy * hy).squareRoot())
-                hx /= l; hy /= l
-                let r = T * (0.62 + CGFloat(hash(wx, wy, seed + 71)) * 0.12)
-                let p = CGMutablePath()
-                for k in 0..<8 {
-                    let a = CGFloat(k) / 8 * 2 * .pi
-                    let rr = r * (0.85 + CGFloat(hash(wx * 13 + k, wy, seed + 72)) * 0.25)
-                    let pt = CGPoint(x: x + cos(a) * rr, y: y + sin(a) * rr)
-                    if k == 0 { p.move(to: pt) } else { p.addLine(to: pt) }
-                }
-                p.closeSubpath()
+            // cliffs and rocks: each mass is drawn as one continuous body (shared shadow, one outline, soft lighting),
+            // cliffs lit on the high side and dark at the foot, rocks lit from the top-left
+            struct Lump { var x: CGFloat; var y: CGFloat; var r: CGFloat; var lx: CGFloat; var ly: CGFloat; var wx: Int; var wy: Int }
+            func mass(_ lumps: [Lump], _ col: (UIColor, UIColor, UIColor), shadow: CGFloat, cliff: Bool) {
+                guard !lumps.isEmpty else { return }
+                // one even shadow under the whole mass
                 g.saveGState()
-                g.addPath(p)
-                g.clip()
-                let colors = [pal.cliff.0.cgColor, pal.cliff.1.cgColor, pal.cliff.2.cgColor] as CFArray
-                let grad = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(), colors: colors, locations: [0, 0.45, 1])!
-                g.drawLinearGradient(grad, start: CGPoint(x: x + hx * r, y: y + hy * r), end: CGPoint(x: x - hx * r, y: y - hy * r),
-                                     options: [.drawsBeforeStartLocation, .drawsAfterEndLocation])
+                g.setAlpha(0.34)
+                g.beginTransparencyLayer(auxiliaryInfo: nil)
+                g.setFillColor(UIColor.black.cgColor)
+                for l in lumps {
+                    let ox = cliff ? -l.lx * shadow : shadow * 0.6, oy = cliff ? -l.ly * shadow : -shadow
+                    g.fillEllipse(in: CGRect(x: l.x + ox - l.r - 2, y: l.y + oy - l.r - 2, width: l.r * 2 + 4, height: l.r * 2 + 4))
+                }
+                g.endTransparencyLayer()
                 g.restoreGState()
-                stroke(g, p, pal.cliff.2.withAlphaComponent(0.7), 1)
-                if biome == .volcanic && hash(wx, wy, seed + 73) > 0.7 {
-                    g.setStrokeColor(rgb(1, 0.4, 0.1, 0.7).cgColor)
-                    g.setLineWidth(1.2)
-                    g.move(to: CGPoint(x: x - 5, y: y)); g.addLine(to: CGPoint(x: x + 1, y: y - 3)); g.addLine(to: CGPoint(x: x + 5, y: y + 2))
+                // outline, then the body on top of it: the outline only shows around the outside
+                g.setFillColor(shade(col.2, 0.55).cgColor)
+                for l in lumps { g.fillEllipse(in: CGRect(x: l.x - l.r - 1.6, y: l.y - l.r - 1.6, width: l.r * 2 + 3.2, height: l.r * 2 + 3.2)) }
+                g.setFillColor(col.1.cgColor)
+                for l in lumps { g.fillEllipse(in: CGRect(x: l.x - l.r, y: l.y - l.r, width: l.r * 2, height: l.r * 2)) }
+                // lighting and texture, clipped to the body
+                g.saveGState()
+                let union = CGMutablePath()
+                for l in lumps { union.addEllipse(in: CGRect(x: l.x - l.r, y: l.y - l.r, width: l.r * 2, height: l.r * 2)) }
+                g.addPath(union)
+                g.clip()
+                let space = CGColorSpaceCreateDeviceRGB()
+                let darkG = CGGradient(colorsSpace: space, colors: [col.2.withAlphaComponent(0.95).cgColor, col.2.withAlphaComponent(0).cgColor] as CFArray, locations: [0, 1])!
+                let lightG = CGGradient(colorsSpace: space, colors: [col.0.withAlphaComponent(0.95).cgColor, col.0.withAlphaComponent(0).cgColor] as CFArray, locations: [0, 1])!
+                for l in lumps {
+                    let c = CGPoint(x: l.x - l.lx * l.r * 0.7, y: l.y - l.ly * l.r * 0.7)
+                    g.drawRadialGradient(darkG, startCenter: c, startRadius: 0, endCenter: c, endRadius: l.r * 1.15, options: [])
+                }
+                for l in lumps {
+                    let c = CGPoint(x: l.x + l.lx * l.r * 0.6, y: l.y + l.ly * l.r * 0.6)
+                    g.drawRadialGradient(lightG, startCenter: c, startRadius: 0, endCenter: c, endRadius: l.r * 0.95, options: [])
+                }
+                // facets, cracks and speckles
+                for l in lumps {
+                    let h1 = CGFloat(hash(l.wx, l.wy, seed + 91)), h2 = CGFloat(hash(l.wx, l.wy, seed + 92)), h3 = CGFloat(hash(l.wx, l.wy, seed + 93))
+                    // a lit facet
+                    let fx = l.x + (h1 - 0.5) * l.r, fy = l.y + (h2 - 0.5) * l.r
+                    fill(g, poly([(fx - 5 - h3 * 3, fy - 1), (fx - 1, fy + 4 + h1 * 2), (fx + 5 + h2 * 3, fy + 1), (fx + 1, fy - 3)]),
+                         col.0.withAlphaComponent(0.22))
+                    // a crack running across the slope
+                    g.setStrokeColor(col.2.withAlphaComponent(0.55).cgColor)
+                    g.setLineWidth(0.9)
+                    let px = -l.ly, py = l.lx
+                    let cx = l.x + (h2 - 0.5) * l.r * 0.8, cy = l.y + (h3 - 0.5) * l.r * 0.8
+                    g.move(to: CGPoint(x: cx - px * 7, y: cy - py * 7))
+                    g.addLine(to: CGPoint(x: cx + l.lx * 2, y: cy + l.ly * 2))
+                    g.addLine(to: CGPoint(x: cx + px * 6, y: cy + py * 6))
                     g.strokePath()
+                    for k in 0..<3 {
+                        let sx = l.x + CGFloat(hash(l.wx * 3 + k, l.wy, seed + 94) - 0.5) * l.r * 1.6
+                        let sy = l.y + CGFloat(hash(l.wx, l.wy * 3 + k, seed + 95) - 0.5) * l.r * 1.6
+                        fill(g, circle(sx, sy, 0.9), (k == 0 ? col.0 : col.2).withAlphaComponent(0.5))
+                    }
+                    if biome == .volcanic && cliff && h1 > 0.72 {
+                        g.setStrokeColor(rgb(1, 0.45, 0.1, 0.8).cgColor)
+                        g.setLineWidth(1.3)
+                        g.move(to: CGPoint(x: l.x - 6, y: l.y + 1)); g.addLine(to: CGPoint(x: l.x, y: l.y - 3)); g.addLine(to: CGPoint(x: l.x + 5, y: l.y + 2))
+                        g.strokePath()
+                    }
+                    if biome == .snow {
+                        // snow settles on the lit side
+                        fill(g, CGPath(ellipseIn: CGRect(x: l.x + l.lx * l.r * 0.45 - 8, y: l.y + l.ly * l.r * 0.45 - 4.5, width: 16, height: 9), transform: nil),
+                             rgb(1, 1, 1, 0.8))
+                    }
                 }
-                if biome == .snow {
-                    fill(g, CGPath(ellipseIn: CGRect(x: x + hx * r * 0.3 - 6, y: y + hy * r * 0.3 - 3, width: 12, height: 6), transform: nil), rgb(1, 1, 1, 0.7))
-                }
-            }
-            // rocks
-            each({ $0 == .rock }) { x, y, _, _ in fill(g, circle(x + 5, y - 6, T * 0.82), rgb(0, 0, 0, 0.28)) }
-            each({ $0 == .rock }) { x, y, wx, wy in
-                let r = T * (0.68 + CGFloat(hash(wx, wy, seed + 41)) * 0.18)
-                let ox2 = CGFloat(hash(wx, wy, seed + 42) - 0.5) * 6
-                let p = CGMutablePath()
-                for k in 0..<7 {
-                    let a = CGFloat(k) / 7 * 2 * .pi
-                    let rr = r * (0.82 + CGFloat(hash(wx * 13 + k, wy, seed + 43)) * 0.3)
-                    let pt = CGPoint(x: x + ox2 + cos(a) * rr, y: y + sin(a) * rr)
-                    if k == 0 { p.move(to: pt) } else { p.addLine(to: pt) }
-                }
-                p.closeSubpath()
-                g.saveGState()
-                g.addPath(p)
-                g.clip()
-                let colors = [pal.rock.0.cgColor, pal.rock.1.cgColor, pal.rock.2.cgColor] as CFArray
-                let grad = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(), colors: colors, locations: [0, 0.5, 1])!
-                g.drawRadialGradient(grad, startCenter: CGPoint(x: x - r * 0.4, y: y + r * 0.45), startRadius: 0,
-                                     endCenter: CGPoint(x: x, y: y), endRadius: r * 1.5, options: [.drawsAfterEndLocation])
                 g.restoreGState()
-                stroke(g, p, pal.rock.2.withAlphaComponent(0.7), 1)
-                if biome == .snow { fill(g, CGPath(ellipseIn: CGRect(x: x - 7, y: y + 2, width: 13, height: 6), transform: nil), rgb(1, 1, 1, 0.75)) }
             }
+            var cliffs: [Lump] = []
+            each({ $0 == .cliff }) { x, y, wx, wy in
+                var hx: CGFloat = 0, hy: CGFloat = 0
+                for dy in -1...1 {
+                    for dx in -1...1 where dx != 0 || dy != 0 {
+                        if map.elevationAt(wx + dx, wy + dy) == 1 && map.terrainAt(wx + dx, wy + dy) != .cliff { hx += CGFloat(dx); hy += CGFloat(dy) }
+                    }
+                }
+                let l = max(0.001, (hx * hx + hy * hy).squareRoot())
+                let jx = CGFloat(hash(wx, wy, seed + 74) - 0.5) * 5, jy = CGFloat(hash(wx, wy, seed + 75) - 0.5) * 5
+                cliffs.append(Lump(x: x + jx, y: y + jy, r: T * (0.66 + CGFloat(hash(wx, wy, seed + 71)) * 0.1), lx: hx / l, ly: hy / l, wx: wx, wy: wy))
+            }
+            mass(cliffs, pal.cliff, shadow: 9, cliff: true)
+            var rocks: [Lump] = []
+            each({ $0 == .rock }) { x, y, wx, wy in
+                let jx = CGFloat(hash(wx, wy, seed + 42) - 0.5) * 7, jy = CGFloat(hash(wx, wy, seed + 44) - 0.5) * 7
+                rocks.append(Lump(x: x + jx, y: y + jy, r: T * (0.62 + CGFloat(hash(wx, wy, seed + 41)) * 0.2), lx: -0.6, ly: 0.8, wx: wx, wy: wy))
+            }
+            mass(rocks, pal.rock, shadow: 7, cliff: false)
             // forests
             each({ $0 == .forest }) { x, y, wx, wy in
                 for k in 0..<2 {

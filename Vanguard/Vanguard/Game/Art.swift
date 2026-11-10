@@ -259,6 +259,48 @@ enum Art {
         }
     }
 
+    /// Thin ring under selected units.
+    static func selectRing() -> SKTexture {
+        texture("selring") {
+            image(64, 64, scale: 2) { g in
+                fill(g, circle(32, 32, 29), rgb(1, 1, 1, 0.10))
+                stroke(g, circle(32, 32, 29), .white, 2)
+            }
+        }
+    }
+
+    /// Soft dark corners over the whole view.
+    static func vignette() -> SKTexture {
+        texture("vignette") {
+            image(128, 128, scale: 1) { g in
+                let grad = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(),
+                                      colors: [rgb(0, 0, 0, 0).cgColor, rgb(0, 0, 0, 0).cgColor, rgb(0, 0, 0.03, 0.55).cgColor] as CFArray,
+                                      locations: [0, 0.62, 1])!
+                g.drawRadialGradient(grad, startCenter: CGPoint(x: 64, y: 64), startRadius: 0, endCenter: CGPoint(x: 64, y: 64), endRadius: 92,
+                                     options: [.drawsAfterEndLocation])
+            }
+        }
+    }
+
+    /// Target marker for an incoming Orbital Strike.
+    static func reticle() -> SKTexture {
+        texture("reticle") {
+            image(96, 96, scale: 2) { g in
+                g.setLineDash(phase: 0, lengths: [14, 8])
+                stroke(g, circle(48, 48, 44), .white, 3)
+                g.setLineDash(phase: 0, lengths: [])
+                stroke(g, circle(48, 48, 26), .white, 1.5)
+                g.setStrokeColor(UIColor.white.cgColor)
+                g.setLineWidth(2)
+                for (x, y) in [(48, 4), (48, 92), (4, 48), (92, 48)] as [(CGFloat, CGFloat)] {
+                    g.move(to: CGPoint(x: x, y: y))
+                    g.addLine(to: CGPoint(x: 48 + (x - 48) * 0.6, y: 48 + (y - 48) * 0.6))
+                }
+                g.strokePath()
+            }
+        }
+    }
+
     static func bar() -> SKTexture {
         texture("bar") { image(4, 4, scale: 2) { g in fill(g, rect(0, 0, 4, 4), .white) } }
     }

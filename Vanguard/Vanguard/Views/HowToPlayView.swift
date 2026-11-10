@@ -6,9 +6,9 @@ struct HowToPlayView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
-                Text("How to Play").font(.largeTitle.bold())
+                ScreenTitle("How to Play")
                 Spacer()
-                Button("Back", action: onBack).buttonStyle(.bordered)
+                Button("Back", action: onBack).buttonStyle(SecondaryButtonStyle())
             }
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
@@ -26,6 +26,15 @@ struct HowToPlayView: View {
                     • With a building selected: tap the ground to set its rally point.
                     • Army and Idle buttons on the left; 1–3 are control groups (press and hold to save the selection).
                     • Press and hold a command button to read what it does.
+                    """)
+                    section("Command", """
+                    • Auto-train: select a Barracks, Factory or Command Center, tap Auto, then a unit. It keeps training that \
+                    unit whenever you can afford it (marked ↻). Tap Auto off to stop.
+                    • Retreat: selected units run to your nearest Command Center 30% faster, without stopping to fight.
+                    • Orbital Strike (bolt button, needs a Tech Lab, 125 crystals): tap it, then the map. After 2.5 s it hits \
+                    enemies in a wide circle. Everyone who can see the spot gets a warning marker, so move out of it.
+                    • Scan (eye button, needs a Radar Tower, 50 crystals): reveals an area for 12 s, cliffs included.
+                    • Tap an "under attack" message to jump there. Select a turret or sieged tank to see its range.
                     """)
                     section("Terrain", """
                     • High ground: main bases sit on plateaus ringed by cliffs, reached by a ramp. Units below can't see \

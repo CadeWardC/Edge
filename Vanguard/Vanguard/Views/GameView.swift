@@ -31,6 +31,13 @@ struct GameView: View {
                 if let t = game.toast {
                     Text(t).font(.callout.weight(.semibold)).padding(.horizontal, 12).padding(.vertical, 6).panel()
                         .transition(.opacity)
+                        .onTapGesture { game.jumpToAlert() }
+                }
+                if let c = game.coachText, game.toast == nil {
+                    Label(c, systemImage: "lightbulb.fill")
+                        .font(.caption.weight(.medium)).foregroundStyle(Theme.gold)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(8).frame(maxWidth: 360).panel()
                 }
                 if let h = hint {
                     Text(h).font(.caption).padding(8).frame(maxWidth: 320).panel()
@@ -40,10 +47,13 @@ struct GameView: View {
             VStack {
                 HStack {
                     Spacer()
-                    Button { game.showMenu = true } label: {
-                        Image(systemName: "pause.fill").font(.title3).frame(width: 44, height: 40).panel()
+                    VStack(spacing: 6) {
+                        Button { game.showMenu = true } label: {
+                            Image(systemName: "pause.fill").font(.title3).frame(width: 44, height: 40).panel()
+                        }
+                        .buttonStyle(.plain)
+                        ForEach(game.hud.powers) { p in powerButton(p) }
                     }
-                    .buttonStyle(.plain)
                 }
                 Spacer()
             }
@@ -69,6 +79,37 @@ struct GameView: View {
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
         .animation(.easeOut(duration: 0.15), value: game.toast)
+    }
+
+    private func powerButton(_ p: PowerState) -> some View {
+        let armed = game.powerArmed == p.kind
+        return Button {
+            if p.ready {
+                Sound.shared.play(.click)
+                game.armPower(p.kind)
+            } else {
+                Sound.shared.play(.error)
+                hint = "\(p.kind.name) (\(p.kind.cost) crystals): \(p.kind.blurb)"
+                DispatchQueue.main.asyncAfter(deadline: .now() + 3.5) { hint = nil }
+            }
+        } label: {
+            ZStack {
+                Image(systemName: p.kind == .strike ? "bolt.fill" : "eye.fill")
+                    .font(.body.weight(.bold))
+                    .foregroundStyle(p.kind == .strike ? Color.orange : Theme.accent)
+                    .opacity(p.ready ? 1 : 0.3)
+                if p.unlocked && p.wait > 0 {
+                    Text("\(p.wait)").font(.caption.bold().monospacedDigit())
+                } else if !p.unlocked {
+                    Image(systemName: "lock.fill").font(.caption2).offset(x: 12, y: 10).opacity(0.7)
+                }
+            }
+            .frame(width: 44, height: 40)
+            .background(armed ? Theme.accent.opacity(0.4) : Theme.panel, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(armed ? Theme.accent : Color.white.opacity(0.12), lineWidth: armed ? 2 : 1))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(p.kind.name)
     }
 
     private var topBar: some View {
@@ -203,11 +244,11 @@ struct GameView: View {
                 Button { game.confirmPlacement() } label: {
                     Label("Build", systemImage: "checkmark").padding(.horizontal, 6)
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(PrimaryButtonStyle())
                 .tint(.green)
                 .disabled(!game.placementValid)
                 Button(role: .cancel) { game.cancelPlacement() } label: { Label("Cancel", systemImage: "xmark") }
-                    .buttonStyle(.bordered)
+                    .buttonStyle(SecondaryButtonStyle())
             }
             .padding(10)
             .panel()
@@ -231,11 +272,11 @@ struct GameView: View {
                     .frame(width: 320)
                 }
                 Button { game.showMenu = false } label: { Text("Resume").frame(width: 220) }
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(PrimaryButtonStyle())
                 Button(role: .destructive) { onExit() } label: {
                     Text(game.localPlayer >= 0 && game.result == nil ? "Surrender and quit" : "Quit").frame(width: 220)
                 }
-                .buttonStyle(.bordered)
+                .buttonStyle(SecondaryButtonStyle())
                 Text("Drag to scroll · pinch to zoom · press and hold, then drag, to box-select · tap a unit twice to select all of that type on screen")
                     .font(.caption).foregroundStyle(.secondary).multilineTextAlignment(.center).frame(width: 380)
             }
@@ -254,7 +295,7 @@ struct GameView: View {
                     ForEach(r.lines, id: \.self) { Text($0).font(.caption) }
                     Spacer(minLength: 4)
                     Button { onExit() } label: { Text("Back to menu").frame(width: 200) }
-                        .buttonStyle(.borderedProminent)
+                        .buttonStyle(PrimaryButtonStyle())
                 }
                 .frame(maxWidth: 320, alignment: .leading)
                 ResultCharts(game: game)

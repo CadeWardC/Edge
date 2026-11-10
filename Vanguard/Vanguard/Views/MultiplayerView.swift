@@ -163,7 +163,7 @@ struct MultiplayerView: View {
     var body: some View {
         HStack(alignment: .top, spacing: 20) {
             VStack(alignment: .leading, spacing: 10) {
-                Text("Multiplayer").font(.largeTitle.bold())
+                ScreenTitle("Multiplayer")
                 TextField("Your name", text: $playerName).textFieldStyle(.roundedBorder)
                 TextField("Relay server, e.g. 192.168.1.20:8765", text: $server)
                     .textFieldStyle(.roundedBorder).textInputAutocapitalization(.never).autocorrectionDisabled()
@@ -171,9 +171,9 @@ struct MultiplayerView: View {
                     TextField("Room", text: $room).textFieldStyle(.roundedBorder).textInputAutocapitalization(.characters)
                         .frame(width: 110)
                     Button("Host") { lobby.connect(server: server, room: room, name: playerName, host: true) }
-                        .buttonStyle(.borderedProminent).disabled(server.isEmpty || room.isEmpty)
+                        .buttonStyle(PrimaryButtonStyle()).disabled(server.isEmpty || room.isEmpty)
                     Button("Join") { lobby.connect(server: server, room: room, name: playerName, host: false) }
-                        .buttonStyle(.bordered).disabled(server.isEmpty || room.isEmpty)
+                        .buttonStyle(SecondaryButtonStyle()).disabled(server.isEmpty || room.isEmpty)
                 }
                 Text(lobby.status).font(.callout).foregroundStyle(.secondary)
                 Text("Run Vanguard/Server/relay.py on any computer (python3 relay.py), enter its address here on every device, and use the same room code. Games run in lockstep: only commands go over the network.")
@@ -183,7 +183,7 @@ struct MultiplayerView: View {
                     lobby.disconnect()
                     app.screen = .menu
                 }
-                .buttonStyle(.bordered)
+                .buttonStyle(SecondaryButtonStyle())
             }
             .frame(width: 330)
             lobbyPanel
@@ -217,7 +217,7 @@ struct MultiplayerView: View {
                         Image(systemName: p.isBot ? "cpu" : "person.fill")
                         Text(p.name + (p.clientId == lobby.clientId ? " (you)" : ""))
                         Spacer()
-                        Button("Team \(p.team + 1)") { lobby.cycleTeam(i) }.disabled(!lobby.isHost).buttonStyle(.bordered)
+                        Button("Team \(p.team + 1)") { lobby.cycleTeam(i) }.disabled(!lobby.isHost).buttonStyle(SecondaryButtonStyle())
                         if lobby.isHost && i > 0 {
                             Button { lobby.remove(i) } label: { Image(systemName: "xmark.circle.fill") }.buttonStyle(.plain)
                         }
@@ -233,7 +233,7 @@ struct MultiplayerView: View {
                         .disabled(l.players.count >= l.map.maxPlayers)
                         Spacer()
                         Button { lobby.start() } label: { Label("Start", systemImage: "play.fill") }
-                            .buttonStyle(.borderedProminent).disabled(!lobby.canStart)
+                            .buttonStyle(PrimaryButtonStyle()).disabled(!lobby.canStart)
                     }
                 }
             }

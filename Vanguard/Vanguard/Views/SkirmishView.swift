@@ -64,14 +64,14 @@ struct SkirmishView: View {
                 }
                 Toggle("Watch only (all players are bots)", isOn: $watchOnly).font(.callout)
                 HStack {
-                    Button("Back") { app.screen = .menu }.buttonStyle(.bordered)
+                    Button("Back") { app.screen = .menu }.buttonStyle(SecondaryButtonStyle())
                     Spacer()
                     Button {
                         start()
                     } label: {
                         Label("Start Battle", systemImage: "play.fill").font(.headline).padding(.horizontal, 20).padding(.vertical, 6)
                     }
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(PrimaryButtonStyle())
                     .disabled(slots.count < 2 || Set(slots.map { $0.team }).count < 2)
                 }
             }
@@ -83,7 +83,7 @@ struct SkirmishView: View {
 
     private var header: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("Skirmish").font(.largeTitle.bold())
+            ScreenTitle("Skirmish")
             TextField("Your name", text: $playerName).textFieldStyle(.roundedBorder)
         }
     }

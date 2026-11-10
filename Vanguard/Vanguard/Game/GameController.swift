@@ -57,6 +57,16 @@ struct HUDState {
     var armyCount = 0
     var waiting = false
     var players: [PlayerLine] = []
+    var powers: [PowerState] = []
+}
+
+struct PowerState: Identifiable {
+    var kind: Power
+    var unlocked: Bool
+    var wait: Int               // seconds until ready
+    var affordable: Bool
+    var id: Int { kind.rawValue }
+    var ready: Bool { unlocked && wait <= 0 && affordable }
 }
 
 struct MatchResult {
@@ -81,6 +91,12 @@ final class GameController: ObservableObject {
     @Published var placeOrigin: TilePoint?
     @Published var attackArmed = false
     @Published var repairArmed = false
+    @Published var powerArmed: Power?
+    @Published var autoArmed = false
+    /// Tutorial text for the first campaign mission.
+    @Published var coachText: String?
+    private var coachStep = 0
+    private var lastAlertPos: Vec2?
     @Published var showMenu = false
     @Published var toast: String?
     @Published var result: MatchResult?
@@ -182,6 +198,7 @@ final class GameController: ObservableObject {
         for e in evs {
             switch e {
             case let .underAttack(p, at) where p == localPlayer:
+                lastAlertPos = at
                 Sound.shared.play(.alert)
                 if UserDefaults.standard.object(forKey: "haptics") as? Bool ?? true { UINotificationFeedbackGenerator().notificationOccurred(.warning) }
                 showToast("We're under attack!")
@@ -207,6 +224,60 @@ final class GameController: ObservableObject {
             }
         }
         selection.removeAll { world.entity($0) == nil }
+    }
+
+    /// Tapping the alert message jumps the camera to where it happened.
+    func jumpToAlert() {
+        if let p = lastAlertPos { scene?.focus(p) }
+    }
+
+    func armPower(_ k: Power) {
+        if powerArmed == k { powerArmed = nil; return }
+        attackArmed = false
+        repairArmed = false
+        placing = nil
+        powerArmed = k
+        showToast("Tap the map to target \(k.name).")
+    }
+
+    private struct CoachStep {
+        var text: String
+        var done: (GameController) -> Bool
+    }
+
+    private static let coach: [CoachStep] = [
+        CoachStep(text: "Tap your Command Center (the big building), then tap Drone a few times. More Drones mine more crystals.") { g in
+            guard let p = g.me else { return true }
+            return p.count(.worker) + p.pending[EntityType.worker.rawValue] >= 8
+        },
+        CoachStep(text: "Tap a Drone, tap Build, pick Power Depot, tap a clear spot near your base and confirm. Depots raise your supply so you can train more.") { g in
+            guard let p = g.me else { return true }
+            return p.count(.depot) + p.pending[EntityType.depot.rawValue] >= 1
+        },
+        CoachStep(text: "Now build a Barracks the same way: Drone, Build, Barracks.") { g in
+            guard let p = g.me else { return true }
+            return p.count(.barracks) + p.pending[EntityType.barracks.rawValue] >= 1
+        },
+        CoachStep(text: "When the Barracks is done, tap it and train Troopers. Tip: tap Auto, then Trooper, and it keeps training them for you.") { g in
+            (g.me?.count(.trooper) ?? 9) >= 5
+        },
+        CoachStep(text: "Tap the Army button (top left) to select every soldier. Or press and hold on the map, then drag a box around them.") { g in
+            g.selection.compactMap { g.world.entity($0) }.filter { $0.isArmy }.count >= 4
+        },
+        CoachStep(text: "Tap Attack, then tap the far corner of the minimap and the ground there. Your army fights everything on the way.") { g in
+            let start = g.world.map.starts[max(0, g.localPlayer) % g.world.map.starts.count].center
+            return g.world.entities.contains { $0.owner == g.localPlayer && $0.isArmy && $0.pos.dist(start) > 900 }
+        },
+        CoachStep(text: "Keep training Drones and Troopers, and add a Factory for Tanks. If a fight goes badly, tap Retreat. Destroy every enemy building to win.") { g in
+            (g.me?.count(.factory) ?? 1) >= 1
+        },
+    ]
+
+    private func updateCoach() {
+        guard missionId == 0 else { return }
+        while coachStep < Self.coach.count, Self.coach[coachStep].done(self) { coachStep += 1 }
+        let text = coachStep < Self.coach.count ? Self.coach[coachStep].text : nil
+        if text != coachText { coachText = text }
     }
 
     func showToast(_ s: String) {
@@ -258,6 +329,8 @@ final class GameController: ObservableObject {
         placing = nil
         attackArmed = false
         repairArmed = false
+        powerArmed = nil
+        autoArmed = false
         refreshHUD()
     }
 
@@ -322,6 +395,13 @@ final class GameController: ObservableObject {
         if let t = placing {
             let n = t.stats.footprint
             placeOrigin = TilePoint(x: Int((p.x / Defs.tile - Double(n) / 2).rounded()), y: Int((p.y / Defs.tile - Double(n) / 2).rounded()))
+            return
+        }
+        if let k = powerArmed {
+            powerArmed = nil
+            issue(.power(k, p), units: [])
+            scene?.marker(at: p, attack: k == .strike)
+            refreshHUD()
             return
         }
         let hit = entityAt(p)
@@ -467,6 +547,11 @@ final class GameController: ObservableObject {
             s.beacons = world.entities.filter { $0.type == .beacon && $0.owner >= 0 && world.players[$0.owner].team == p.team }.count
             s.idleWorkers = world.entities.filter { $0.owner == p.index && $0.isWorker && $0.order == .idle }.count
             s.armyCount = world.entities.filter { $0.owner == p.index && $0.isArmy }.count
+            s.powers = Power.allCases.map { k in
+                PowerState(kind: k, unlocked: p.count(k.requires) > 0,
+                           wait: max(0, (p.powerReady[k.rawValue] - world.tick + Defs.tickRate - 1) / Defs.tickRate),
+                           affordable: p.crystals >= k.cost)
+            }
         }
         let sel = selection.compactMap { world.entity($0) }
         var groupsByType: [EntityType: [Int]] = [:]
@@ -504,6 +589,7 @@ final class GameController: ObservableObject {
         }
         s.buttons = buttons(for: sel.filter { $0.owner == localPlayer })
         hud = s
+        updateCoach()
     }
 
     private func buttons(for sel: [Entity]) -> [CommandButton] {
@@ -557,6 +643,10 @@ final class GameController: ObservableObject {
                                      hint: "Hold position: shoot, but don't chase") { [weak self] in
                 self?.issue(.hold, units: ids)
             })
+            out.append(CommandButton(id: "retreat", title: "Retreat", icon: .symbol("arrow.uturn.backward"), enabled: true,
+                                     hint: "Run back to your nearest Command Center, 30% faster, without stopping to fight") { [weak self] in
+                self?.issue(.retreat, units: ids)
+            })
             let tanks = units.filter { $0.type == .tank }
             if !tanks.isEmpty {
                 let anyMobile = tanks.contains { !$0.sieged }
@@ -586,11 +676,34 @@ final class GameController: ObservableObject {
         for t in first.st.produces {
             let ok = world.requirementsMet(t, player: p)
             let need = t.stats.requires.map { "Needs \($0.stats.name)" } ?? ""
-            out.append(CommandButton(id: "t\(t.rawValue)", title: t.stats.name, icon: .entity(t), cost: t.stats.cost,
-                                     enabled: ok && p.crystals >= t.stats.cost && p.supplyUsed + t.stats.supply <= p.supplyCap,
+            let isAuto = sel.contains { $0.autoTrain == t }
+            out.append(CommandButton(id: "t\(t.rawValue)", title: isAuto ? "\(t.stats.name) ↻" : t.stats.name, icon: .entity(t), cost: t.stats.cost,
+                                     enabled: ok && (autoArmed || (p.crystals >= t.stats.cost && p.supplyUsed + t.stats.supply <= p.supplyCap)),
+                                     highlighted: isAuto,
                                      hint: ok ? "\(t.stats.blurb) Supply \(t.stats.supply)." : need) { [weak self] in
-                self?.issue(.train(t), units: ids)
+                guard let self else { return }
+                if self.autoArmed {
+                    self.autoArmed = false
+                    self.issue(.autoTrain(t), units: ids)
+                    self.showToast("Auto-training \(t.stats.name).")
+                } else {
+                    self.issue(.train(t), units: ids)
+                }
             })
+        }
+        if !first.st.produces.isEmpty {
+            if sel.contains(where: { $0.autoTrain != nil }) {
+                out.append(CommandButton(id: "autooff", title: "Auto off", icon: .symbol("repeat.circle.fill"), enabled: true,
+                                         hint: "Stop auto-training here") { [weak self] in
+                    self?.issue(.autoTrain(nil), units: ids)
+                })
+            } else {
+                out.append(CommandButton(id: "auto", title: "Auto", icon: .symbol("repeat"), enabled: true, highlighted: autoArmed,
+                                         hint: "Then tap a unit: this building keeps training it whenever you can afford it") { [weak self] in
+                    self?.autoArmed.toggle()
+                    self?.refreshHUD()
+                })
+            }
         }
         for u in first.st.researches where !p.has(u) {
             let ok = world.canResearch(u, player: p)

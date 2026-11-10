@@ -90,13 +90,13 @@ struct CampaignView: View {
     var body: some View {
         HStack(alignment: .top, spacing: 16) {
             VStack(alignment: .leading, spacing: 8) {
-                Text("Campaign").font(.largeTitle.bold())
+                ScreenTitle("Campaign")
                 ScrollView {
                     VStack(spacing: 6) {
                         ForEach(Mission.all) { m in row(m) }
                     }
                 }
-                Button("Back") { app.screen = .menu }.buttonStyle(.bordered)
+                Button("Back") { app.screen = .menu }.buttonStyle(SecondaryButtonStyle())
             }
             .frame(width: 300)
             briefing(Mission.all[selected])
@@ -136,41 +136,46 @@ struct CampaignView: View {
     }
 
     private func briefing(_ m: Mission) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .top, spacing: 14) {
-                Image(uiImage: MapPreview.image(m.map)).interpolation(.none).resizable().frame(width: 120, height: 120)
-                    .clipShape(RoundedRectangle(cornerRadius: 10))
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("Mission \(m.id + 1)").font(.caption.bold()).foregroundStyle(Theme.accent)
-                    Text(m.title).font(.title.bold())
-                    Text(m.map.name + " · " + m.map.blurb).font(.caption).foregroundStyle(.secondary)
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .center, spacing: 12) {
+                Image(uiImage: MapPreview.image(m.map)).interpolation(.none).resizable().frame(width: 76, height: 76)
+                    .clipShape(RoundedRectangle(cornerRadius: 9))
+                    .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(Theme.edge, lineWidth: 1))
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("MISSION \(m.id + 1) · \(m.map.name.uppercased())").font(.caption2.bold()).tracking(1.5).foregroundStyle(Theme.accent)
+                    Text(m.title).font(.system(.title2, design: .rounded).weight(.heavy))
                 }
-            }
-            Text(m.briefing).font(.body)
-            VStack(alignment: .leading, spacing: 4) {
-                Label("Opposition", systemImage: "scope").font(.headline)
-                ForEach(Array(m.enemies.enumerated()), id: \.offset) { _, e in
-                    Text("• \(e.0.name) bot, \(e.1.name) style" + (e.2 > 0 ? ", starts with +\(e.2) crystals" : ""))
-                        .font(.callout).foregroundStyle(.secondary)
-                }
-                ForEach(Array(m.allies.enumerated()), id: \.offset) { _, a in
-                    Text("• Ally: \(a.0.name) bot, \(a.1.name) style").font(.callout).foregroundStyle(.green)
-                }
-            }
-            Label(m.tip, systemImage: "lightbulb.fill").font(.callout).foregroundStyle(Theme.gold)
-            Spacer()
-            HStack {
                 Spacer()
                 Button {
+                    Sound.shared.play(.click)
                     app.start(m.setup(playerName: playerName.isEmpty ? "Commander" : playerName), localPlayer: 0, mission: m.id)
                 } label: {
-                    Label("Start Mission", systemImage: "play.fill").font(.headline).padding(.horizontal, 20).padding(.vertical, 6)
+                    Label("Start", systemImage: "play.fill")
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(PrimaryButtonStyle())
                 .disabled(!CampaignProgress.unlocked(m.id))
             }
+            ScrollView {
+                VStack(alignment: .leading, spacing: 10) {
+                    Text(m.briefing).font(.callout).fixedSize(horizontal: false, vertical: true)
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("OPPOSITION").font(.caption2.bold()).tracking(1.5).foregroundStyle(.secondary)
+                        ForEach(Array(m.enemies.enumerated()), id: \.offset) { _, e in
+                            Label("\(e.0.name) bot, \(e.1.name) style" + (e.2 > 0 ? ", +\(e.2) crystals" : ""), systemImage: "scope")
+                                .font(.callout)
+                        }
+                        ForEach(Array(m.allies.enumerated()), id: \.offset) { _, a in
+                            Label("Ally: \(a.0.name) bot, \(a.1.name) style", systemImage: "person.2.fill").font(.callout).foregroundStyle(.green)
+                        }
+                    }
+                    Label(m.tip, systemImage: "lightbulb.fill").font(.callout).foregroundStyle(Theme.gold)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Text(m.map.blurb).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
         }
-        .padding(16)
+        .padding(14)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .panel()
     }
@@ -188,9 +193,9 @@ struct SettingsView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack {
-                Text("Settings").font(.largeTitle.bold())
+                ScreenTitle("Settings")
                 Spacer()
-                Button("Back", action: onBack).buttonStyle(.bordered)
+                Button("Back", action: onBack).buttonStyle(SecondaryButtonStyle())
             }
             Form {
                 Section("Player") {

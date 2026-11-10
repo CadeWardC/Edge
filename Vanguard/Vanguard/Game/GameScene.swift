@@ -14,6 +14,7 @@ private final class EntityNode {
     var dome: SKSpriteNode?
     var badge: SKSpriteNode?
     var lastSmoke = 0
+    var lastFire = 0
     var frame = 0
     var type: EntityType = .worker
     var team: TeamColor = .blue
@@ -29,8 +30,8 @@ private final class EntityNode {
         lastOwner = owner
         wasComplete = complete
         barWidth = max(18, radius * 1.8)
-        ring = SKSpriteNode(texture: Art.ring())
-        ring.size = CGSize(width: radius * 2 + 10, height: radius * 2 + 10)
+        ring = SKSpriteNode(texture: Art.selectRing())
+        ring.size = CGSize(width: radius * 2 + 7, height: radius * 2 + 7)
         ring.zPosition = 20
         ring.isHidden = true
         hpBack = SKSpriteNode(texture: Art.bar())
@@ -124,6 +125,37 @@ final class GameScene: SKScene, UIGestureRecognizerDelegate {
         box.zPosition = 31
         box.isHidden = true
         worldNode.addChild(box)
+        rangeRing.strokeColor = UIColor(white: 1, alpha: 0.55)
+        rangeRing.fillColor = UIColor(white: 1, alpha: 0.04)
+        rangeRing.lineWidth = 1.5
+        rangeRing.zPosition = 19
+        rangeRing.isHidden = true
+        worldNode.addChild(rangeRing)
+        rallyLine.strokeColor = UIColor(red: 0.5, green: 1, blue: 0.6, alpha: 0.7)
+        rallyLine.lineWidth = 1.5
+        rallyLine.zPosition = 19
+        rallyLine.isHidden = true
+        worldNode.addChild(rallyLine)
+        rallyFlag.size = CGSize(width: 22, height: 22)
+        rallyFlag.color = UIColor(red: 0.5, green: 1, blue: 0.6, alpha: 1)
+        rallyFlag.colorBlendFactor = 1
+        rallyFlag.zPosition = 19
+        rallyFlag.isHidden = true
+        worldNode.addChild(rallyFlag)
+        // soft dark corners and a light colour grade per biome, fixed to the screen
+        vignette.zPosition = 90
+        vignette.alpha = 0.9
+        cam.addChild(vignette)
+        grade.zPosition = 89
+        grade.blendMode = .multiply
+        switch map.id.biome {
+        case .grass: grade.color = UIColor(red: 1, green: 0.97, blue: 0.9, alpha: 1)
+        case .desert: grade.color = UIColor(red: 1, green: 0.93, blue: 0.84, alpha: 1)
+        case .snow: grade.color = UIColor(red: 0.9, green: 0.95, blue: 1, alpha: 1)
+        case .volcanic: grade.color = UIColor(red: 1, green: 0.9, blue: 0.86, alpha: 1)
+        }
+        cam.addChild(grade)
+        layoutOverlays()
 
         if controller.localPlayer >= 0 {
             let start = map.starts[controller.localPlayer % map.starts.count].center
@@ -156,6 +188,36 @@ final class GameScene: SKScene, UIGestureRecognizerDelegate {
 
     func gestureRecognizer(_ g: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool {
         (g is UIPinchGestureRecognizer && other is UIPanGestureRecognizer) || (g is UIPanGestureRecognizer && other is UIPinchGestureRecognizer)
+    }
+
+    private let rangeRing = SKShapeNode()
+    private var rangeRadius: Double = -1
+    private let rallyLine = SKShapeNode()
+    private let rallyFlag = SKSpriteNode(texture: Art.moveMarker())
+    private let vignette = SKSpriteNode(texture: Art.vignette())
+    private let grade = SKSpriteNode(color: .white, size: CGSize(width: 10, height: 10))
+    /// Where the latest fighting is (the menu backdrop's camera follows it).
+    private var actionPos: CGPoint?
+
+    private func layoutOverlays() {
+        let sz = view?.bounds.size ?? size
+        vignette.size = CGSize(width: sz.width + 4, height: sz.height + 4)
+        grade.size = vignette.size
+    }
+
+    override func didChangeSize(_ oldSize: CGSize) {
+        super.didChangeSize(oldSize)
+        layoutOverlays()
+    }
+
+    private func setRange(_ radius: Double?, at p: Vec2) {
+        guard let radius, radius > 0 else { rangeRing.isHidden = true; return }
+        if radius != rangeRadius {
+            rangeRadius = radius
+            rangeRing.path = CGPath(ellipseIn: CGRect(x: -radius, y: -radius, width: radius * 2, height: radius * 2), transform: nil)
+        }
+        rangeRing.position = CGPoint(x: p.x, y: p.y)
+        rangeRing.isHidden = false
     }
 
     private func worldPoint(_ p: CGPoint) -> Vec2 {
@@ -270,8 +332,12 @@ final class GameScene: SKScene, UIGestureRecognizerDelegate {
             // drift slowly over the battle
             backdropTime += dt
             let W = CGFloat(world.map.worldWidth), H = CGFloat(world.map.worldHeight)
-            cam.setScale(1.15)
-            cam.position = CGPoint(x: W / 2 + CGFloat(cos(backdropTime * 0.045)) * W * 0.28, y: H / 2 + CGFloat(sin(backdropTime * 0.06)) * H * 0.28)
+            cam.setScale(1.0)
+            // drift toward wherever the fighting is; wander when it is quiet
+            let wander = CGPoint(x: W / 2 + CGFloat(cos(backdropTime * 0.045)) * W * 0.28, y: H / 2 + CGFloat(sin(backdropTime * 0.06)) * H * 0.28)
+            let goal = actionPos ?? wander
+            let k = CGFloat(min(1, dt * 0.6))
+            cam.position = CGPoint(x: cam.position.x + (goal.x - cam.position.x) * k, y: cam.position.y + (goal.y - cam.position.y) * k)
         } else if abs(camVel.dx) + abs(camVel.dy) > 5 {
             cam.position = CGPoint(x: cam.position.x + camVel.dx * CGFloat(dt), y: cam.position.y + camVel.dy * CGFloat(dt))
             let k = CGFloat(pow(0.04, dt))
@@ -481,7 +547,20 @@ final class GameScene: SKScene, UIGestureRecognizerDelegate {
                     if case .repair = e.order { building = true }
                     spark(tip, building ? UIColor(red: 1, green: 0.85, blue: 0.4, alpha: 1) : UIColor(red: 0.5, green: 1, blue: 1, alpha: 1), building ? 7 : 6)
                 }
-                if let g = n.gun { g.zRotation = CGFloat(atan2(e.aimDir.y, e.aimDir.x) - atan2(e.dir.y, e.dir.x)) }
+                if let g = n.gun {
+                    let rel = CGFloat(atan2(e.aimDir.y, e.aimDir.x) - atan2(e.dir.y, e.dir.x))
+                    g.zRotation = rel
+                    // the gun kicks back when it fires
+                    let kick: CGFloat = world.tick - e.lastShotTick < 3 ? (e.sieged ? 4.5 : 2.5) : 0
+                    g.position = CGPoint(x: -cos(rel) * kick, y: -sin(rel) * kick)
+                }
+                // dust behind moving vehicles
+                if (e.type == .tank || e.type == .skimmer) && world.tick - n.lastSmoke > (e.type == .tank ? 5 : 3),
+                   e.pos.distSq(e.prevPos) > 0.01, rect.contains(cp) {
+                    n.lastSmoke = world.tick
+                    let back = CGPoint(x: cp.x - CGFloat(e.dir.x) * 14, y: cp.y - CGFloat(e.dir.y) * 14)
+                    puff(back, e.type == .tank ? 9 : 7, 0.7, tint: dustColor)
+                }
                 // worker at work: a little bob
                 if e.isWorker && world.tick - e.lastShotTick < 2 {
                     n.body.position = CGPoint(x: 0, y: CGFloat(sin(Double(world.tick) * 0.9)) * 1.2)
@@ -511,8 +590,22 @@ final class GameScene: SKScene, UIGestureRecognizerDelegate {
                         n.gun = g
                     }
                 }
-                if let g = n.gun { g.zRotation = CGFloat(atan2(e.aimDir.y, e.aimDir.x)) }
+                if let g = n.gun {
+                    let a = CGFloat(atan2(e.aimDir.y, e.aimDir.x))
+                    g.zRotation = a
+                    let kick: CGFloat = world.tick - e.lastShotTick < 3 ? 3 : 0
+                    let baseY: CGFloat = e.type == .hq ? 11 : 2
+                    g.position = CGPoint(x: -cos(a) * kick, y: baseY - sin(a) * kick)
+                }
                 n.dome?.isHidden = !e.isComplete
+                // badly damaged buildings burn
+                if e.isComplete && e.hp < e.maxHp * 0.5 && world.tick - n.lastFire > (e.hp < e.maxHp * 0.25 ? 5 : 10) && rect.contains(cp) {
+                    n.lastFire = world.tick
+                    let h = CGFloat(e.st.footprint) * CGFloat(Defs.tile) * 0.3
+                    let fp = CGPoint(x: cp.x + CGFloat.random(in: -h...h), y: cp.y + CGFloat.random(in: -h...h))
+                    flame(fp)
+                    puff(CGPoint(x: fp.x, y: fp.y + 6), 11, 1.5, dark: true)
+                }
                 // smoke from busy factories, a glow over busy buildings
                 if e.isComplete && !e.queue.isEmpty && world.tick - n.lastSmoke > 16 {
                     n.lastSmoke = world.tick
@@ -586,8 +679,139 @@ final class GameScene: SKScene, UIGestureRecognizerDelegate {
             ghost.position = CGPoint(x: Double(o.x) * Defs.tile + half, y: Double(o.y) * Defs.tile + half)
             ghost.color = controller.placementValid ? .green : .red
             ghost.isHidden = false
+            let c = Vec2(Double(o.x) * Defs.tile + half, Double(o.y) * Defs.tile + half)
+            switch t {
+            case .turret: setRange(t.stats.range + t.stats.radius, at: c)
+            case .radar: setRange(t.stats.sight, at: c)
+            case .shield: setRange(Defs.shieldRadius, at: c)
+            default: setRange(nil, at: c)
+            }
+            rallyLine.isHidden = true
+            rallyFlag.isHidden = true
         } else {
             ghost.isHidden = true
+            // one of your own things selected: show how far it shoots, and where its units gather
+            var shown = false
+            var rally: Vec2?
+            if controller.selection.count == 1, let e = world.entity(controller.selection[0]), e.owner == controller.localPlayer {
+                if (e.isBuilding || e.sieged), let w = world.weapon(e) {
+                    setRange(w.range + e.st.radius, at: e.pos)
+                    shown = true
+                } else if e.type == .shield && e.isComplete {
+                    setRange(Defs.shieldRadius, at: e.pos)
+                    shown = true
+                }
+                if e.isBuilding, !e.st.produces.isEmpty { rally = e.rally }
+                if let r = rally {
+                    let path = CGMutablePath()
+                    path.move(to: CGPoint(x: e.pos.x, y: e.pos.y))
+                    path.addLine(to: CGPoint(x: r.x, y: r.y))
+                    rallyLine.path = path.copy(dashingWithPhase: 0, lengths: [8, 6])
+                    rallyFlag.position = CGPoint(x: r.x, y: r.y)
+                }
+            }
+            if !shown { rangeRing.isHidden = true }
+            rallyLine.isHidden = rally == nil
+            rallyFlag.isHidden = rally == nil
+        }
+    }
+
+    private var dustColor: UIColor {
+        switch world.map.id.biome {
+        case .grass: return UIColor(red: 0.62, green: 0.56, blue: 0.42, alpha: 1)
+        case .desert: return UIColor(red: 0.88, green: 0.76, blue: 0.55, alpha: 1)
+        case .snow: return UIColor(white: 0.97, alpha: 1)
+        case .volcanic: return UIColor(red: 0.4, green: 0.34, blue: 0.32, alpha: 1)
+        }
+    }
+
+    private func flame(_ p: CGPoint) {
+        let f = SKSpriteNode(texture: Art.glow())
+        f.size = CGSize(width: 16, height: 20)
+        f.position = p
+        f.color = UIColor(red: 1, green: 0.6, blue: 0.15, alpha: 1)
+        f.colorBlendFactor = 1
+        f.blendMode = .add
+        f.zPosition = 14
+        effects.addChild(f)
+        f.run(.sequence([.group([.moveBy(x: 0, y: 9, duration: 0.5), .scale(to: 0.4, duration: 0.5),
+                                 .colorize(with: UIColor(red: 0.9, green: 0.2, blue: 0.05, alpha: 1), colorBlendFactor: 1, duration: 0.5),
+                                 .sequence([.wait(forDuration: 0.25), .fadeOut(withDuration: 0.25)])]),
+                         .removeFromParent()]))
+    }
+
+    /// Orbital Strike: a marker while it falls, then a beam, a blast and a ring of fire.
+    private func strikeIncoming(_ v: Vec2) {
+        let r = SKSpriteNode(texture: Art.reticle())
+        let d = CGFloat(Defs.strikeRadius) * 2
+        r.size = CGSize(width: d, height: d)
+        r.position = CGPoint(x: v.x, y: v.y)
+        r.color = UIColor(red: 1, green: 0.35, blue: 0.2, alpha: 1)
+        r.colorBlendFactor = 1
+        r.zPosition = 17
+        r.alpha = 0
+        r.setScale(1.5)
+        effects.addChild(r)
+        r.run(.sequence([.group([.fadeAlpha(to: 0.9, duration: 0.2), .scale(to: 1, duration: Defs.strikeDelay), .rotate(byAngle: 2.2, duration: Defs.strikeDelay)]),
+                         .removeFromParent()]))
+    }
+
+    private func strikeLands(_ v: Vec2) {
+        let p = CGPoint(x: v.x, y: v.y)
+        let R = CGFloat(Defs.strikeRadius)
+        // the beam: a tall bright column that thins out
+        let beam = SKSpriteNode(texture: Art.glow())
+        beam.size = CGSize(width: 46, height: 900)
+        beam.anchorPoint = CGPoint(x: 0.5, y: 0.04)
+        beam.position = p
+        beam.color = UIColor(red: 1, green: 0.85, blue: 0.6, alpha: 1)
+        beam.colorBlendFactor = 1
+        beam.blendMode = .add
+        beam.zPosition = 16
+        effects.addChild(beam)
+        beam.run(.sequence([.group([.scaleX(to: 0.1, duration: 0.45), .fadeOut(withDuration: 0.45)]), .removeFromParent()]))
+        let flashNode = SKSpriteNode(texture: Art.glow())
+        flashNode.size = CGSize(width: R * 4, height: R * 4)
+        flashNode.position = p
+        flashNode.blendMode = .add
+        flashNode.zPosition = 16
+        effects.addChild(flashNode)
+        flashNode.run(.sequence([.fadeOut(withDuration: 0.3), .removeFromParent()]))
+        for k in 0..<2 {
+            let ring = SKSpriteNode(texture: Art.ring())
+            ring.size = CGSize(width: R * 0.6, height: R * 0.6)
+            ring.position = p
+            ring.color = UIColor(red: 1, green: 0.75, blue: 0.4, alpha: 1)
+            ring.colorBlendFactor = 1
+            ring.blendMode = .add
+            ring.zPosition = 15
+            effects.addChild(ring)
+            ring.run(.sequence([.wait(forDuration: Double(k) * 0.12),
+                                .group([.scale(to: 4.2, duration: 0.5), .fadeOut(withDuration: 0.5)]), .removeFromParent()]))
+        }
+        explode(v, size: R * 0.55, big: true)
+        for k in 0..<6 {
+            let a = Double(k) / 6 * 2 * Double.pi
+            let off = Vec2(cos(a), sin(a)) * (Defs.strikeRadius * 0.55)
+            run(.wait(forDuration: 0.06 * Double(k + 1))) { [weak self] in self?.explode(v + off, size: 20, big: false) }
+        }
+        scorch(v, size: R * 2.3)
+        shake(11)
+    }
+
+    private func scanSweep(_ v: Vec2, color: UIColor) {
+        for k in 0..<2 {
+            let ring = SKSpriteNode(texture: Art.ring())
+            ring.size = CGSize(width: 60, height: 60)
+            ring.position = CGPoint(x: v.x, y: v.y)
+            ring.color = color
+            ring.colorBlendFactor = 1
+            ring.blendMode = .add
+            ring.alpha = 0.8
+            ring.zPosition = 19
+            effects.addChild(ring)
+            ring.run(.sequence([.wait(forDuration: Double(k) * 0.35),
+                                .group([.scale(to: CGFloat(Defs.scanRadius) / 28, duration: 1.1), .fadeOut(withDuration: 1.1)]), .removeFromParent()]))
         }
     }
 
@@ -666,6 +890,7 @@ final class GameScene: SKScene, UIGestureRecognizerDelegate {
         for ev in events {
             switch ev {
             case let .shot(from, to, style, fromPos):
+                if controller.isBackdrop, Int.random(in: 0..<12) == 0 || actionPos == nil { actionPos = CGPoint(x: to.x, y: to.y) }
                 guard budget > 0, near(fromPos) || near(to), visibleToMe(fromPos) || visibleToMe(to) else { continue }
                 budget -= 1
                 shot(from: from, fromPos: fromPos, to: to, style: style)
@@ -712,6 +937,20 @@ final class GameScene: SKScene, UIGestureRecognizerDelegate {
                     effects.addChild(r)
                     r.run(.sequence([.group([.scale(to: 4, duration: 0.7), .fadeOut(withDuration: 0.7)]), .removeFromParent()]))
                 }
+            case let .powerCalled(player, kind, at):
+                let mine = world.players[player].team == controller.localTeam || spectator
+                if kind == .strike {
+                    guard mine || visibleToMe(at) else { continue }
+                    strikeIncoming(at)
+                    Sound.shared.play(.alert, gain: soundGain(at))
+                } else if mine {
+                    scanSweep(at, color: Art.color(world.players[player].color))
+                    Sound.shared.play(.capture, gain: 0.7)
+                }
+            case let .strikeHit(at):
+                guard near(at), visibleToMe(at) || spectator else { continue }
+                strikeLands(at)
+                Sound.shared.play(.boomBig, gain: max(0.5, soundGain(at)))
             case let .completed(b):
                 guard near(b.pos), b.team == controller.localTeam || spectator else { continue }
                 sparkle(b.pos, CGFloat(b.st.radius))
@@ -824,11 +1063,16 @@ final class GameScene: SKScene, UIGestureRecognizerDelegate {
         s.run(.sequence([.group([.scale(to: 0.2, duration: 0.15), .fadeOut(withDuration: 0.15)]), .removeFromParent()]))
     }
 
-    private func puff(_ p: CGPoint, _ size: CGFloat, _ life: TimeInterval, dark: Bool = false) {
+    private func puff(_ p: CGPoint, _ size: CGFloat, _ life: TimeInterval, dark: Bool = false, tint: UIColor? = nil) {
         let s = SKSpriteNode(texture: Art.smoke())
         s.size = CGSize(width: size, height: size)
         s.position = p
         s.alpha = 0.55
+        if let tint {
+            s.color = tint
+            s.colorBlendFactor = 1
+            s.alpha = 0.4
+        }
         if dark {
             s.alpha = 0.35
             s.color = UIColor(white: 0.3, alpha: 1)
