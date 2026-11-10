@@ -627,13 +627,13 @@ extension Art {
             }
             // dirt and ramps
             // (each band is one flat layer, so overlapping tiles don't show as darker lobes)
-            for (radius, alpha, dark) in [(0.92, 0.28, true), (0.8, 0.6, false), (0.62, 1.0, false)] as [(CGFloat, CGFloat, Bool)] {
+            for (radius, alpha, dark) in [(0.9, 0.3, false), (0.76, 0.65, false), (0.6, 1.0, false)] as [(CGFloat, CGFloat, Bool)] {
                 g.saveGState()
                 g.setAlpha(alpha)
                 g.beginTransparencyLayer(auxiliaryInfo: nil)
                 g.setFillColor((dark ? shade(pal.dirt, 0.55) : pal.dirt).cgColor)
                 each({ $0 == .dirt || $0 == .ramp }) { x, y, wx, wy in
-                    let jx = CGFloat(hash(wx, wy, seed) - 0.5) * 8, jy = CGFloat(hash(wx, wy, seed + 5) - 0.5) * 8
+                    let jx = CGFloat(hash(wx, wy, seed) - 0.5) * 14, jy = CGFloat(hash(wx, wy, seed + 5) - 0.5) * 14
                     g.fillEllipse(in: CGRect(x: x + jx - T * radius, y: y + jy - T * radius, width: T * radius * 2, height: T * radius * 2))
                 }
                 g.endTransparencyLayer()

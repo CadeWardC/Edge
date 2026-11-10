@@ -36,6 +36,15 @@ SideStore, Sideloadly or TrollStore, like Edge). CI first runs the headless simu
 - **Art:** buildings drawn in 2.5D (roof, south wall, cast shadow) with animated parts: a spinning radar dish, shield
   dome, factory smoke, blinking lights. Biome terrain with lit cliffs, ramps, forests, lava and ice, weather
   (snow, sand, embers), shimmering water, burnt wrecks and rubble that stay on the field, and screen shake.
+- **Less busywork, more decisions:** **auto-train** (a building keeps making a unit whenever you can afford it),
+  **Retreat** (units run home 30% faster without stopping to fight), and two **commander powers** on cooldowns:
+  **Orbital Strike** (Tech Lab; a wide blast after a 2.5 s warning everyone can see) and **Scan** (Radar Tower; reveals
+  an area for 12 s). Formations give every unit room, so armies don't pile into a blob.
+- **Campaign and onboarding:** eight missions with briefings, and step-by-step tips in the first one. Sound effects and
+  music are synthesized at launch (`Game/Sound.swift`), so there are no audio files.
+- **Polish:** one panel and button style everywhere, a loading card while the terrain draws in the background, a live
+  bot battle behind the menus, vignette and colour grade, gun recoil, dust trails, burning damaged buildings, range
+  rings, rally lines, wrecks, post-game charts.
 - **Touch controls:** drag to scroll, pinch to zoom, tap to select or command, press-and-hold then drag for a box,
   double-tap a unit for all of its type on screen, Attack button for attack-move, Army / Idle drone buttons,
   three control groups, minimap, rally points, a ghost for placing buildings, hints on long press.
@@ -70,6 +79,12 @@ SideStore, Sideloadly or TrollStore, like Edge). CI first runs the headless simu
   they see only their fog of war and act only through commands. CI checks that each level beats the one below it.
 - **Lockstep multiplayer from day one.** The simulation is deterministic and command-driven, as in classic RTS
   networking. Checksums catch desyncs, and the same code runs single player, bots and network games.
+
+Sources consulted (round 3: control feel, mobile RTS, retreat and positioning): [Game Developer: on Company of Heroes](https://gamedeveloper.com/design/on-company-of-heroes),
+[TeamLiquid: Brood War and StarCraft 2 pathing](https://tl.net/blogs/429573-broodwar-and-starcraft-2-pathing),
+[Hypemasters: mobile RTS interface](https://medium.com/hypemasters/mobile-rts-interface-the-story-of-how-hypemasters-rediscovered-the-genre-dc7fbaa5b05c),
+[Game Developer: feedback is the most useful advice](https://gamedeveloper.com/design/the-single-most-useful-advice-i-can-give-for-making-any-game-better-feedback),
+[Pocket Gamer: Lou Castle on mobile RTS](https://www.pocketgamer.com/war-commander-rogue-assault/command-conquer-designer-lou-castle-on-how-hes-returning-to-rts-with-war-command).
 
 Sources consulted (round 2: map design, tech depth, readable art): [Liquipedia: Twilight Fortress](https://liquipedia.net/starcraft2/Twilight_Fortress),
 [Frost Giant community on competitive map design](https://lr.in.psf.lt/r/FrostGiant/comments/ryl1hv/our_thoughts_on_competitive_map_design),

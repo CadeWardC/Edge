@@ -1220,9 +1220,9 @@ final class GameScene: SKScene, UIGestureRecognizerDelegate {
         }
         w.position = CGPoint(x: e.pos.x, y: e.pos.y)
         w.zPosition = -4
-        w.alpha = 0.85
+        w.alpha = 0.6
         effects.addChild(w)
-        w.run(.sequence([.wait(forDuration: 40), .fadeOut(withDuration: 5), .removeFromParent()]))
+        w.run(.sequence([.wait(forDuration: 22), .fadeOut(withDuration: 6), .removeFromParent()]))
     }
 
     private var shaking = false

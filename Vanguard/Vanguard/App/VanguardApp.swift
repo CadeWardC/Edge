@@ -283,8 +283,9 @@ struct BackdropView: View {
     }
 
     var body: some View {
+        // the scene has to stay visible to keep running, so a cover fades away instead
         SpriteViewRep(scene: scene)
-            .opacity(game.sceneReady ? 1 : 0)
+            .overlay(Color(red: 0.04, green: 0.06, blue: 0.10).opacity(game.sceneReady ? 0 : 1))
             .animation(.easeIn(duration: 0.8), value: game.sceneReady)
     }
 }
