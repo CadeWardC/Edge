@@ -116,6 +116,8 @@ final class GameController: ObservableObject {
     var missionId: Int?
     /// The battle behind the menus: no sounds, no messages.
     var isBackdrop = false
+    /// False while the terrain is still being drawn (the loading card shows).
+    @Published var sceneReady = false
     /// Army value and crystals mined per player over time, for the charts after the game.
     struct Sample: Identifiable {
         var id: String { "\(player)-\(minute)" }

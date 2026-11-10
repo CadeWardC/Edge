@@ -99,8 +99,21 @@ final class GameScene: SKScene, UIGestureRecognizerDelegate {
         let chunkSize = CGFloat(cn) * CGFloat(Defs.tile)
         for cy in 0..<((map.height + cn - 1) / cn) {
             for cx in 0..<((map.width + cn - 1) / cn) {
-                let s = SKSpriteNode(texture: Art.terrainChunk(map, cx: cx, cy: cy))
-                s.size = CGSize(width: chunkSize, height: chunkSize)
+                // drawn off the main thread so the app never freezes; the loading card covers the wait
+                let pal = Art.palette(map.id.biome)
+                let s = SKSpriteNode(color: UIColor(red: pal.ground.0, green: pal.ground.1, blue: pal.ground.2, alpha: 1),
+                                     size: CGSize(width: chunkSize, height: chunkSize))
+                chunksPending += 1
+                DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+                    let tex = Art.terrainChunk(map, cx: cx, cy: cy)
+                    DispatchQueue.main.async {
+                        s.texture = tex
+                        s.color = .white
+                        guard let self else { return }
+                        self.chunksPending -= 1
+                        if self.chunksPending == 0 { self.terrainReady = true }
+                    }
+                }
                 s.anchorPoint = .zero
                 s.position = CGPoint(x: CGFloat(cx) * chunkSize, y: CGFloat(cy) * chunkSize)
                 s.zPosition = -10
@@ -190,6 +203,8 @@ final class GameScene: SKScene, UIGestureRecognizerDelegate {
         (g is UIPinchGestureRecognizer && other is UIPanGestureRecognizer) || (g is UIPanGestureRecognizer && other is UIPinchGestureRecognizer)
     }
 
+    private var chunksPending = 0
+    private var terrainReady = false
     private let rangeRing = SKShapeNode()
     private var rangeRadius: Double = -1
     private let rallyLine = SKShapeNode()
@@ -326,6 +341,17 @@ final class GameScene: SKScene, UIGestureRecognizerDelegate {
     override func update(_ currentTime: TimeInterval) {
         let dt = lastTime == 0 ? 1.0 / 60 : min(0.1, currentTime - lastTime)
         lastTime = currentTime
+        if !controller.sceneReady {
+            // the menu battle fast-forwards to the action while it is still hidden
+            if controller.isBackdrop && world.tick < 150 * Defs.tickRate {
+                for _ in 0..<30 { controller.session.stepTick() }
+                world.events.removeAll(keepingCapacity: true)
+            } else if terrainReady {
+                controller.sceneReady = true
+            }
+            sync()
+            return
+        }
         controller.frame(dt)
         ambient(dt)
         if controller.isBackdrop {

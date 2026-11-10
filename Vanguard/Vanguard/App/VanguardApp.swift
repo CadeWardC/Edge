@@ -54,9 +54,6 @@ final class AppModel: ObservableObject {
         let g = GameController(setup: MatchSetup(map: map, seed: UInt64.random(in: 1...999_999), players: players), localPlayer: -1)
         g.isBackdrop = true
         g.speed = 1.5
-        // start a couple of minutes in, when armies are on the field
-        for _ in 0..<(150 * Defs.tickRate) { g.session.stepTick() }
-        g.world.events.removeAll()
         let sc = GameScene(controller: g)
         backdrop = sc
         return sc
@@ -70,7 +67,7 @@ struct RootView: View {
         ZStack {
             Theme.background.ignoresSafeArea()
             if app.screen != .game {
-                SpriteViewRep(scene: app.makeBackdrop())
+                BackdropView(scene: app.makeBackdrop())
                     .ignoresSafeArea()
                     .allowsHitTesting(false)
                     .overlay(LinearGradient(colors: [Color.black.opacity(0.72), Color.black.opacity(app.screen == .menu ? 0.25 : 0.6),
@@ -97,6 +94,7 @@ struct RootView: View {
             let args = ProcessInfo.processInfo.arguments
             if let i = args.firstIndex(of: "-screen"), i + 1 < args.count {
                 switch args[i + 1] {
+                case "mission": app.start(Mission.all[0].setup(playerName: "Commander"), localPlayer: 0, mission: 0)
                 case "campaign": app.screen = .campaign
                 case "skirmish": app.screen = .skirmish
                 case "settings": app.screen = .settings
@@ -271,6 +269,23 @@ struct MenuView: View {
             }
         }
         .padding(24)
+    }
+}
+
+/// The bot battle behind the menus; fades in once it is drawn and under way.
+struct BackdropView: View {
+    let scene: GameScene
+    @ObservedObject private var game: GameController
+
+    init(scene: GameScene) {
+        self.scene = scene
+        game = scene.controller
+    }
+
+    var body: some View {
+        SpriteViewRep(scene: scene)
+            .opacity(game.sceneReady ? 1 : 0)
+            .animation(.easeIn(duration: 0.8), value: game.sceneReady)
     }
 }
 

@@ -83,6 +83,10 @@ jobs:
           xcrun simctl launch "$DEV" com.cadewardc.vanguard -screen campaign
           sleep 10
           xcrun simctl io "$DEV" screenshot shots/1-campaign.png
+          xcrun simctl terminate "$DEV" com.cadewardc.vanguard || true
+          xcrun simctl launch "$DEV" com.cadewardc.vanguard -screen mission
+          sleep 14
+          xcrun simctl io "$DEV" screenshot shots/1-mission.png
           shoot() {  # map, name, seconds before the first and second shot
             xcrun simctl terminate "$DEV" com.cadewardc.vanguard || true
             xcrun simctl launch "$DEV" com.cadewardc.vanguard -demo -demo-map "$1"

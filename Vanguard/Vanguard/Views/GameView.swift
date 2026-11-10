@@ -18,6 +18,25 @@ struct GameView: View {
             }
             if game.showMenu { pauseMenu }
             if let r = game.result { resultView(r) }
+            if !game.sceneReady { loadingCard.transition(.opacity) }
+        }
+        .animation(.easeOut(duration: 0.6), value: game.sceneReady)
+    }
+
+    /// Covers the screen while the battlefield is drawn, then fades into the match.
+    private var loadingCard: some View {
+        ZStack {
+            Theme.background.ignoresSafeArea()
+            VStack(spacing: 10) {
+                Text(game.world.map.id.name.uppercased())
+                    .font(.system(size: 38, weight: .black, design: .rounded)).tracking(6)
+                    .foregroundStyle(LinearGradient(colors: [.white, Theme.accent], startPoint: .top, endPoint: .bottom))
+                Rectangle().fill(LinearGradient(colors: [.clear, Theme.accent, .clear], startPoint: .leading, endPoint: .trailing))
+                    .frame(width: 280, height: 2)
+                Text(game.localPlayer >= 0 ? "Destroy every enemy building" : "Spectating")
+                    .font(.system(.callout, design: .rounded).weight(.medium)).foregroundStyle(.white.opacity(0.7))
+                ProgressView().tint(Theme.accent).padding(.top, 8)
+            }
         }
     }
 
@@ -51,7 +70,7 @@ struct GameView: View {
                         Button { game.showMenu = true } label: {
                             Image(systemName: "pause.fill").font(.title3).frame(width: 44, height: 40).panel()
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(PressStyle())
                         ForEach(game.hud.powers) { p in powerButton(p) }
                     }
                 }
@@ -108,7 +127,7 @@ struct GameView: View {
             .background(armed ? Theme.accent.opacity(0.4) : Theme.panel, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(armed ? Theme.accent : Color.white.opacity(0.12), lineWidth: armed ? 2 : 1))
         }
-        .buttonStyle(.plain)
+        .buttonStyle(PressStyle())
         .accessibilityLabel(p.kind.name)
     }
 
@@ -160,7 +179,7 @@ struct GameView: View {
                     Button { game.select([]) } label: {
                         Image(systemName: "xmark.circle.fill").font(.body).foregroundStyle(.white.opacity(0.7))
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(PressStyle())
                     .offset(x: 6, y: -6)
                 }
         }
@@ -199,7 +218,7 @@ struct GameView: View {
                             }
                         }
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(PressStyle())
                 }
             }
             .padding(8)
@@ -352,7 +371,7 @@ struct SideButton: View {
                 }
             }
         }
-        .buttonStyle(.plain)
+        .buttonStyle(PressStyle())
         .accessibilityLabel(label)
     }
 }
@@ -380,7 +399,7 @@ struct CommandTile: View {
             .overlay(RoundedRectangle(cornerRadius: 9).stroke(button.highlighted ? Theme.accent : Color.white.opacity(0.12)))
             .opacity(button.enabled ? 1 : 0.42)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(PressStyle())
         .simultaneousGesture(LongPressGesture(minimumDuration: 0.4).onEnded { _ in
             showHint(button.hint)
             DispatchQueue.main.asyncAfter(deadline: .now() + 3) { showHint(nil) }
