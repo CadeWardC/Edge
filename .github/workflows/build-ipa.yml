@@ -6,8 +6,10 @@ on:
     paths-ignore:
       - "README.md"
       - "Shuo/**"
+      - "Pip/**"
       - ".github/workflows/mirror-*.yml"
       - ".github/workflows/build-shuo-ipa.yml"
+      - ".github/workflows/build-pip-ipa.yml"
   workflow_dispatch:
 
 permissions:
