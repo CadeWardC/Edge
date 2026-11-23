@@ -152,7 +152,8 @@ final class FlightSimulator: NSObject, ObservableObject, SCNSceneRendererDelegat
             state.velocity = airport.axis * fresh.cruise.speed
         }
         cameraHeading = airport.axis
-        cameraPosition = state.position - airport.axis * (aircraft.radius * 4) + SIMD3<Float>(0, aircraft.radius, 0)
+        let behind: Float = aircraft.radius * 4
+        cameraPosition = state.position - airport.axis * behind + SIMD3<Float>(0, aircraft.radius, 0)
 
         nextRing = 0
         ringClock = 0
@@ -193,7 +194,8 @@ final class FlightSimulator: NSObject, ObservableObject, SCNSceneRendererDelegat
             checkRings(frame)
         }
         if !paused {
-            spin += frame * (crashed ? 0 : (showcase ? 0.25 : 0.3 + 0.7 * input.throttle))
+            let engine: Float = crashed ? 0 : (showcase ? 0.25 : 0.3 + 0.7 * input.throttle)
+            spin += frame * engine
             orbit += frame * 0.2
         }
 
@@ -329,7 +331,8 @@ final class FlightSimulator: NSObject, ObservableObject, SCNSceneRendererDelegat
         shadow.simdOrientation = simd_quatf(angle: heading, axis: SIMD3<Float>(0, 1, 0)) * simd_quatf(angle: -.pi / 2, axis: SIMD3<Float>(1, 0, 0))
         let spread = 1 + max(above, 0) / 80
         shadow.simdScale = SIMD3<Float>(built.length * spread, built.span * spread, 1)
-        shadow.opacity = CGFloat(0.4 * max(0, 1 - above / 200))
+        let darkness: Float = 0.4 * max(0, 1 - above / 200)
+        shadow.opacity = CGFloat(darkness)
     }
 
     private func placeCamera(_ built: BuiltAircraft, view: CameraView, dt: Float) {
@@ -337,7 +340,8 @@ final class FlightSimulator: NSObject, ObservableObject, SCNSceneRendererDelegat
         if showcase || crashed {
             built.node.isHidden = false
             let distance = built.radius * (crashed ? 5 : 3.2)
-            cameraPosition = state.position + SIMD3<Float>(cos(orbit) * distance, built.radius * 1.1 + 1, sin(orbit) * distance)
+            let around = SIMD3<Float>(cos(orbit) * distance, built.radius * 1.1 + 1, sin(orbit) * distance)
+            cameraPosition = state.position + around
             cameraNode.simdPosition = aboveGround(cameraPosition)
             cameraNode.simdLook(at: state.position, up: up, localFront: SIMD3<Float>(0, 0, -1))
             return
@@ -352,10 +356,13 @@ final class FlightSimulator: NSObject, ObservableObject, SCNSceneRendererDelegat
             // follow the way it points over the ground, so banks and climbs can be seen
             let flat = SIMD3<Float>(state.forward.x, 0, state.forward.z)
             if simd_length(flat) > 0.2 {
-                cameraHeading = simd_normalize(cameraHeading + (simd_normalize(flat) - cameraHeading) * min(1, 3 * dt))
+                let turn: Float = min(1, 3 * dt)
+                cameraHeading = simd_normalize(cameraHeading + (simd_normalize(flat) - cameraHeading) * turn)
             }
-            let wanted = state.position - cameraHeading * (built.radius * 3.4 + 4) + SIMD3<Float>(0, built.radius * 0.9 + 1.5, 0)
-            cameraPosition += (wanted - cameraPosition) * min(1, 6 * dt)
+            let back: Float = built.radius * 3.4 + 4, lift: Float = built.radius * 0.9 + 1.5
+            let wanted = state.position - cameraHeading * back + SIMD3<Float>(0, lift, 0)
+            let catchUp: Float = min(1, 6 * dt)
+            cameraPosition += (wanted - cameraPosition) * catchUp
             cameraNode.simdPosition = aboveGround(cameraPosition)
             cameraNode.simdLook(at: state.position + SIMD3<Float>(0, built.radius * 0.35, 0), up: up, localFront: SIMD3<Float>(0, 0, -1))
         }

@@ -70,12 +70,15 @@ final class Terrain {
         let side = Self.cells + 1
         let a = heights[row * side + column], b = heights[row * side + column + 1]
         let c = heights[(row + 1) * side + column], d = heights[(row + 1) * side + column + 1]
-        return (a + (b - a) * fx) * (1 - fz) + (c + (d - c) * fx) * fz
+        let near: Float = a + (b - a) * fx, far: Float = c + (d - c) * fx
+        return near + (far - near) * fz
     }
 
     func normal(_ x: Float, _ z: Float) -> SIMD3<Float> {
         let step: Float = 30
-        return simd_normalize(SIMD3<Float>(height(x - step, z) - height(x + step, z), 2 * step, height(x, z - step) - height(x, z + step)))
+        let slopeX: Float = height(x - step, z) - height(x + step, z)
+        let slopeZ: Float = height(x, z - step) - height(x, z + step)
+        return simd_normalize(SIMD3<Float>(slopeX, 2 * step, slopeZ))
     }
 
     func isOnRunway(_ x: Float, _ z: Float) -> Bool {
@@ -98,11 +101,15 @@ final class Terrain {
     private func shaped(_ x: Float, _ z: Float) -> Float {
         let rough = Self.layered(x, z)
         let edge = Self.smooth(0.5, 0.95, (x * x + z * z).squareRoot() / Self.half)
-        var height = (1 - edge) * (18 + 2200 * pow(max(rough - 0.3, 0), 1.9)) - 40 * edge
+        let hills: Float = 18 + 2200 * pow(max(rough - 0.3, 0), 1.9)
+        var height: Float = (1 - edge) * hills - 40 * edge
         for airport in airports {
             let place = airport.local(x, z)
-            let outside = simd_length(SIMD2<Float>(max(abs(place.along) - (airport.length / 2 + 200), 0), max(abs(place.across) - 150, 0)))
-            height = airport.elevation + (height - airport.elevation) * Self.smooth(0, 450, outside)
+            let beyondEnd: Float = max(abs(place.along) - (airport.length / 2 + 200), 0)
+            let beyondSide: Float = max(abs(place.across) - 150, 0)
+            let outside: Float = (beyondEnd * beyondEnd + beyondSide * beyondSide).squareRoot()
+            let blend: Float = Self.smooth(0, 450, outside)
+            height = airport.elevation + (height - airport.elevation) * blend
         }
         return height
     }

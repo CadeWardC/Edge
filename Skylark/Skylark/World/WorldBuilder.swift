@@ -60,10 +60,12 @@ enum WorldBuilder {
             for column in 0..<side {
                 let x = Float(column) * Terrain.spacing - Terrain.half, z = Float(row) * Terrain.spacing - Terrain.half
                 let height = at(row, column)
-                let normal = simd_normalize(SIMD3<Float>(at(row, column - 1) - at(row, column + 1), 2 * Terrain.spacing, at(row - 1, column) - at(row + 1, column)))
+                let slopeX: Float = at(row, column - 1) - at(row, column + 1)
+                let slopeZ: Float = at(row - 1, column) - at(row + 1, column)
+                let normal = simd_normalize(SIMD3<Float>(slopeX, 2 * Terrain.spacing, slopeZ))
                 vertices.append(SCNVector3(x, height, z))
                 normals.append(SCNVector3(normal))
-                let shade = 0.85 + 0.3 * Terrain.layered(x * 7 + 300, z * 7 - 900)
+                let shade: Float = 0.85 + 0.3 * Terrain.layered(x * 7 + 300, z * 7 - 900)
                 var color: SIMD3<Float>
                 if height < 4 {
                     color = SIMD3<Float>(0.86, 0.80, 0.58)                      // beach
@@ -72,7 +74,8 @@ enum WorldBuilder {
                     if height > 470 { color = SIMD3<Float>(0.95, 0.96, 0.98) }  // snow
                 } else {
                     let high = Terrain.smooth(40, 280, height)
-                    color = SIMD3<Float>(0.36, 0.60, 0.27) * (1 - high) + SIMD3<Float>(0.24, 0.43, 0.22) * high
+                    let meadow = SIMD3<Float>(0.36, 0.60, 0.27), forest = SIMD3<Float>(0.24, 0.43, 0.22)
+                    color = meadow + (forest - meadow) * high
                 }
                 color *= shade
                 colors += [color.x, color.y, color.z, 1]
@@ -200,11 +203,14 @@ enum WorldBuilder {
         puff.materials = [white]
         let sky = SCNNode()
         for _ in 0..<70 {
-            let middle = SIMD3<Float>(scatter.next(-9000...9000), scatter.next(650...1400), scatter.next(-9000...9000))
+            let mx = scatter.next(-9000...9000), my = scatter.next(650...1400), mz = scatter.next(-9000...9000)
+            let middle = SIMD3<Float>(mx, my, mz)
             for _ in 0..<4 {
                 let blob = SCNNode(geometry: puff)
-                blob.simdPosition = middle + SIMD3<Float>(scatter.next(-160...160), scatter.next(-20...20), scatter.next(-120...120))
-                blob.simdScale = SIMD3<Float>(scatter.next(110...200), scatter.next(35...60), scatter.next(90...160))
+                let dx = scatter.next(-160...160), dy = scatter.next(-20...20), dz = scatter.next(-120...120)
+                let sx = scatter.next(110...200), sy = scatter.next(35...60), sz = scatter.next(90...160)
+                blob.simdPosition = middle + SIMD3<Float>(dx, dy, dz)
+                blob.simdScale = SIMD3<Float>(sx, sy, sz)
                 sky.addChildNode(blob)
             }
         }
@@ -258,12 +264,15 @@ enum WorldBuilder {
             UIGraphicsImageRenderer(size: CGSize(width: size, height: size), format: format).image { renderer in
                 for row in 0..<size {
                     for column in 0..<size {
-                        let u = (CGFloat(column) + 0.5) / CGFloat(size) * 2 - 1
-                        let v = 1 - (CGFloat(row) + 0.5) / CGFloat(size) * 2
-                        let length = (1 + u * u + v * v).squareRoot()
-                        let up = kind == 4 ? 1 / length : (kind == 5 ? -1 / length : v / length)
-                        let t = pow(max(up, 0), 0.55)
-                        UIColor(red: low.0 + (top.0 - low.0) * t, green: low.1 + (top.1 - low.1) * t, blue: low.2 + (top.2 - low.2) * t, alpha: 1).setFill()
+                        let u: CGFloat = (CGFloat(column) + 0.5) / CGFloat(size) * 2 - 1
+                        let v: CGFloat = 1 - (CGFloat(row) + 0.5) / CGFloat(size) * 2
+                        let length: CGFloat = (1 + u * u + v * v).squareRoot()
+                        let rise: CGFloat = kind == 4 ? 1 : (kind == 5 ? -1 : v)
+                        let t: CGFloat = pow(max(rise / length, 0), 0.55)
+                        let red: CGFloat = low.0 + (top.0 - low.0) * t
+                        let green: CGFloat = low.1 + (top.1 - low.1) * t
+                        let blue: CGFloat = low.2 + (top.2 - low.2) * t
+                        UIColor(red: red, green: green, blue: blue, alpha: 1).setFill()
                         renderer.fill(CGRect(x: column, y: row, width: 1, height: 1))
                     }
                 }

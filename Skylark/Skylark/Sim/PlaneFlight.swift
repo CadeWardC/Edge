@@ -46,10 +46,12 @@ struct PlaneFlight: FlightModel {
         let speed = simd_length(state.velocity)
         let local = state.orientation.inverse.act(state.velocity)
         let moving = speed > 3
-        let attack = moving ? atan2(-local.y, local.x) : 0
-        let slip = moving ? min(max(atan2(local.z, max(abs(local.x), 0.1)), -0.6), 0.6) : 0
+        let attack: Float = moving ? atan2(-local.y, local.x) : 0
+        let rawSlip: Float = atan2(local.z, max(abs(local.x), 0.1))
+        let slip: Float = moving ? min(max(rawSlip, -0.6), 0.6) : 0
 
-        var lift = Self.restLift + (Self.maxLift - Self.restLift) / Self.stallAngle * attack
+        let slope: Float = (Self.maxLift - Self.restLift) / Self.stallAngle
+        var lift: Float = Self.restLift + slope * attack
         if attack > Self.stallAngle {
             lift = max(Self.maxLift - 2.8 * (attack - Self.stallAngle), 0.45)
             if attack > 1.2 { lift = 0.2 }
@@ -58,26 +60,36 @@ struct PlaneFlight: FlightModel {
         if abs(attack) > 1.5 { lift = 0 }   // going backwards
         isStalled = moving && attack > Self.stallAngle && !state.onGround
 
-        var acceleration = SIMD3<Float>(0, -Units.gravity, 0) + state.forward * (thrust * min(max(input.throttle, 0), 1))
+        let push: Float = thrust * min(max(input.throttle, 0), 1)
+        var acceleration = SIMD3<Float>(0, -Units.gravity, 0) + state.forward * push
         if moving {
             let direction = state.velocity / speed
             let pressure = speed * speed
             let liftDirection = simd_cross(state.right, direction)
             if simd_length(liftDirection) > 0.001 {
-                acceleration += simd_normalize(liftDirection) * (liftFactor * pressure * lift)
+                let liftForce: Float = liftFactor * pressure * lift
+                acceleration += simd_normalize(liftDirection) * liftForce
             }
-            let broadside = max(0, sin(attack) * sin(attack) - sin(Self.stallAngle) * sin(Self.stallAngle))
-            acceleration -= direction * ((drag + inducedDrag * lift * lift + liftFactor * 1.5 * broadside) * pressure)
-            acceleration -= state.right * (liftFactor * 2 * pressure * sin(slip))
+            let sinAttack: Float = sin(attack), sinStall: Float = sin(Self.stallAngle)
+            let broadside: Float = max(0, sinAttack * sinAttack - sinStall * sinStall)
+            let dragFactor: Float = drag + inducedDrag * lift * lift + liftFactor * 1.5 * broadside
+            let dragForce: Float = dragFactor * pressure
+            let sideForce: Float = liftFactor * 2 * pressure * sin(slip)
+            acceleration -= direction * dragForce
+            acceleration -= state.right * sideForce
         }
         state.velocity += acceleration * dt
         state.position += state.velocity * dt
 
         // the controls bite harder the faster the air flows over them, and pitch is held to about 6 g
-        let grip = min(1, (speed / (0.9 * stallSpeed)) * (speed / (0.9 * stallSpeed)))
-        let steady = min(1, speed / stallSpeed)
-        let pitchLimit = min(pitchRate, 6 * Units.gravity / max(speed, 1))
-        var wanted = SIMD3<Float>(curve(input.roll) * rollRate * grip, -curve(input.yaw) * yawRate * grip, curve(input.pitch) * pitchLimit * grip)
+        let relative: Float = speed / (0.9 * stallSpeed)
+        let grip: Float = min(1, relative * relative)
+        let steady: Float = min(1, speed / stallSpeed)
+        let pitchLimit: Float = min(pitchRate, 6 * Units.gravity / max(speed, 1))
+        let wantedRoll: Float = curve(input.roll) * rollRate * grip
+        let wantedYaw: Float = -curve(input.yaw) * yawRate * grip
+        let wantedPitch: Float = curve(input.pitch) * pitchLimit * grip
+        var wanted = SIMD3<Float>(wantedRoll, wantedYaw, wantedPitch)
         if moving && !state.onGround {
             // past the stall the nose drops; a sideslip swings the nose into the wind, which is what turns a banked plane
             let excess = attack - min(max(attack, -0.1), 0.17)
@@ -99,7 +111,8 @@ struct PlaneFlight: FlightModel {
         let speed = simd_length(ground)
         if speed < stallSpeed * 0.5 { pitch *= exp(-3 * dt) }
         // rudder steers the wheels; the stick helps
-        heading -= min(max(input.yaw + 0.6 * input.roll, -1), 1) * 0.7 * min(1, speed / 4) * dt
+        let steer: Float = min(max(input.yaw + 0.6 * input.roll, -1), 1)
+        heading -= steer * 0.7 * min(1, speed / 4) * dt
         state.orientation = Attitude.orientation(heading: heading, pitch: pitch, roll: roll)
         state.angularVelocity.x = 0
         state.angularVelocity.y = 0
@@ -107,7 +120,8 @@ struct PlaneFlight: FlightModel {
         // wheels do not slide sideways; they roll, and brake when the throttle is closed
         let side = SIMD3<Float>(sin(heading), 0, cos(heading))
         ground -= side * simd_dot(ground, side) * min(1, 12 * dt)
-        let slowing = (0.4 + (input.throttle < 0.05 ? 5 : 0)) * dt
+        let braking: Float = input.throttle < 0.05 ? 5.4 : 0.4
+        let slowing: Float = braking * dt
         let left = simd_length(ground)
         ground = left > slowing ? ground * ((left - slowing) / left) : .zero
         state.velocity.x = ground.x

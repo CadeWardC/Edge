@@ -29,22 +29,28 @@ struct HelicopterFlight: FlightModel {
         var (heading, pitch, roll) = Attitude.angles(state.orientation)
         if !state.onGround {
             let follow = min(1, 2.6 * agility * dt)
-            pitch += (min(max(input.pitch, -1), 1) * Self.maxLean - pitch) * follow
-            roll += (min(max(input.roll, -1), 1) * 0.5 - roll) * follow
-            heading -= min(max(input.yaw, -1), 1) * yawRate * dt
+            let wantedPitch: Float = min(max(input.pitch, -1), 1) * Self.maxLean
+            let wantedRoll: Float = min(max(input.roll, -1), 1) * 0.5
+            let pedal: Float = min(max(input.yaw, -1), 1)
+            pitch += (wantedPitch - pitch) * follow
+            roll += (wantedRoll - roll) * follow
+            heading -= pedal * yawRate * dt
             // in forward flight the tail swings round behind, like a weathervane
             let ground = SIMD3<Float>(state.velocity.x, 0, state.velocity.z)
             let speed = simd_length(ground)
             if speed > 8 {
-                heading -= simd_dot(ground, state.right) / speed * 0.9 * min(1, speed / 20) * dt
+                let sideways: Float = simd_dot(ground, state.right) / speed
+                heading -= sideways * 0.9 * min(1, speed / 20) * dt
             }
         }
         state.orientation = Attitude.orientation(heading: heading, pitch: pitch, roll: roll)
         state.angularVelocity = .zero
 
         let speed = simd_length(state.velocity)
-        var acceleration = SIMD3<Float>(0, -Units.gravity, 0) + state.up * (lift * min(max(input.throttle, 0), 1))
-        acceleration -= state.velocity * (drag * speed)
+        let rotor: Float = lift * min(max(input.throttle, 0), 1)
+        let resistance: Float = drag * speed
+        var acceleration = SIMD3<Float>(0, -Units.gravity, 0) + state.up * rotor
+        acceleration -= state.velocity * resistance
         acceleration.y -= 1.2 * state.velocity.y   // the rotor disc resists rising and sinking
         state.velocity += acceleration * dt
         state.position += state.velocity * dt
@@ -54,7 +60,8 @@ struct HelicopterFlight: FlightModel {
         var (heading, pitch, roll) = Attitude.angles(state.orientation)
         pitch *= exp(-8 * dt)
         roll *= exp(-8 * dt)
-        heading -= min(max(input.yaw, -1), 1) * yawRate * 0.5 * dt
+        let pedal: Float = min(max(input.yaw, -1), 1)
+        heading -= pedal * yawRate * 0.5 * dt
         state.orientation = Attitude.orientation(heading: heading, pitch: pitch, roll: roll)
         let grip = exp(-6 * dt)
         state.velocity.x *= grip

@@ -84,7 +84,8 @@ enum AircraftBuilder {
         camera.camera = SCNCamera()
         camera.camera?.fieldOfView = 40
         camera.camera?.zFar = 500
-        camera.simdPosition = SIMD3<Float>(built.radius * 1.9, built.radius * 0.8, built.radius * 2.2)
+        let r: Float = built.radius
+        camera.simdPosition = SIMD3<Float>(r * 1.9, r * 0.8, r * 2.2)
         camera.simdLook(at: SIMD3<Float>(0, 0, 0), up: SIMD3<Float>(0, 1, 0), localFront: SIMD3<Float>(0, 0, -1))
         scene.rootNode.addChildNode(camera)
         scene.rootNode.addChildNode(light(.directional, intensity: 900, angles: SIMD3<Float>(-0.9, 0.6, 0)))
@@ -167,9 +168,9 @@ enum AircraftBuilder {
         let tipThickness = thickness * max(min(taper, 1), 0.4)
 
         func corner(_ atTip: Bool, _ front: Float, _ top: Float) -> SIMD3<Float> {
-            let point = atTip
-                ? SIMD3<Float>(-sweep + front * chord * taper / 2, rise + top * tipThickness / 2, reach)
-                : SIMD3<Float>(front * chord / 2, top * thickness / 2, 0)
+            let tipX: Float = -sweep + front * chord * taper / 2, tipY: Float = rise + top * tipThickness / 2
+            let rootX: Float = front * chord / 2, rootY: Float = top * thickness / 2
+            let point = atTip ? SIMD3<Float>(tipX, tipY, reach) : SIMD3<Float>(rootX, rootY, 0)
             return upright ? SIMD3<Float>(point.x, point.z, point.y) : point
         }
         let quads: [[SIMD3<Float>]] = [
