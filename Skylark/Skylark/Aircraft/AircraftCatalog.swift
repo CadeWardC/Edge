@@ -27,7 +27,7 @@ final class AircraftCatalog: ObservableObject {
         for url in builtIn {
             if let spec = try? Self.read(url) { found.append(spec) }
         }
-        found.sort { ($0.cost, $0.name) < ($1.cost, $1.name) }
+        found.sort { $0.name < $1.name }
 
         let files = (try? FileManager.default.contentsOfDirectory(at: Self.userFolder, includingPropertiesForKeys: nil)) ?? []
         for url in files.filter({ $0.pathExtension.lowercased() == "json" }).sorted(by: { $0.lastPathComponent < $1.lastPathComponent }) {

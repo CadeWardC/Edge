@@ -5,8 +5,8 @@ or any voice cloned from a short recording.
 
 This repo also holds **[Shuō 说](Shuo/README.md)**, a separate app for speaking Mandarin with tone checks
 (`shuo-build-N` releases), **[Pip](Pip/README.md)**, which floats several photos over other apps in Picture in
-Picture (`pip-build-N` releases), and **[Skylark](Skylark/README.md)**, a flying game whose aircraft are small files you
-can add to (`skylark-build-N` releases).
+Picture (`pip-build-N` releases), and **[Skylark](Skylark/README.md)**, a 3D flight simulator whose aircraft are small
+files you can add to (`skylark-build-N` releases).
 
 - **Papers:** import a PDF (or share one to Edge). DeepSeek writes two audios from two prompts you can edit: a light
   **introduction** (5–6 minutes) and an **in-depth recap** (15–16 minutes). Add, remove or change the audios in

@@ -1,17 +1,16 @@
 #!/usr/bin/env python3
-"""Checks every aircraft file and draws them, the same way the app does.
+"""Checks every aircraft file and draws rough side, top and front views of them.
 
     aircraft.py check            validate Skylark/Aircraft/*.json
-    aircraft.py sheet out.png    draw all of them on one sheet
+    aircraft.py sheet out.png    draw all of them on one sheet (needs Pillow and numpy)
 """
 import glob, json, math, os, sys
-from PIL import Image, ImageDraw
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 FOLDER = os.path.join(HERE, "..", "Skylark", "Aircraft")
 TYPES = {"plane", "helicopter"}
-SHAPES = {"ellipse", "rect", "polygon"}
-ANIMATIONS = {"none", "propeller", "rotor", "spin", "blink"}
+SHAPES = {"box", "sphere", "cylinder", "cone", "wing", "fin"}
+SPINS = {"none", "propeller", "rotor", "tailrotor"}
 
 
 def color(text):
@@ -30,65 +29,79 @@ def check(spec, name):
     for i, part in enumerate(spec["parts"]):
         where = f"{name}: part {i + 1}"
         assert part.get("shape") in SHAPES, f"{where}: unknown shape"
-        assert part.get("animation", "none") in ANIMATIONS, f"{where}: unknown animation"
+        assert part.get("spin", "none") in SPINS, f"{where}: unknown spin"
         color(part["color"])
-        if "outline" in part:
-            color(part["outline"])
-        if part["shape"] == "polygon":
-            assert len(part["points"]) >= 3 and all(len(p) == 2 for p in part["points"]), f"{where}: bad points"
-        else:
-            assert part["width"] > 0 and part["height"] > 0, f"{where}: needs width and height"
+        assert len(part["size"]) == 3 and all(v > 0 for v in part["size"]), f"{where}: size needs three numbers above 0"
+        for key in ("position", "rotation"):
+            assert len(part.get(key, [0, 0, 0])) == 3, f"{where}: {key} needs three numbers"
 
 
-def outline_points(part):
-    """The part's outline as points in aircraft units (x forward, y up), and its pivot."""
+def points(part):
+    """Sample points on the part's surface in aircraft axes (x forward, y up, z right)."""
+    import numpy as np
+    sx, sy, sz = part["size"]
     shape = part["shape"]
-    if shape == "polygon":
-        pts = [tuple(p) for p in part["points"]]
-        xs, ys = [p[0] for p in pts], [p[1] for p in pts]
-        pivot = ((min(xs) + max(xs)) / 2, (min(ys) + max(ys)) / 2)
-        if part.get("smooth"):
-            n, out = len(pts), []
-            mid = lambda a, b: ((a[0] + b[0]) / 2, (a[1] + b[1]) / 2)
-            for i in range(n):
-                start, ctrl, end = mid(pts[i], pts[(i + 1) % n]), pts[(i + 1) % n], mid(pts[(i + 1) % n], pts[(i + 2) % n])
-                for s in range(12):
-                    t = s / 12
-                    out.append(((1 - t) ** 2 * start[0] + 2 * (1 - t) * t * ctrl[0] + t * t * end[0],
-                                (1 - t) ** 2 * start[1] + 2 * (1 - t) * t * ctrl[1] + t * t * end[1]))
-            pts = out
+    if shape == "box":
+        pts = [(a * sx / 2, b * sy / 2, c * sz / 2) for a in (-1, 1) for b in (-1, 1) for c in (-1, 1)]
+    elif shape == "sphere":
+        pts = [(sx / 2 * math.cos(v) * math.cos(u), sy / 2 * math.sin(v), sz / 2 * math.cos(v) * math.sin(u))
+               for u in np.linspace(0, 2 * math.pi, 20) for v in np.linspace(-math.pi / 2, math.pi / 2, 9)]
+    elif shape in ("cylinder", "cone"):
+        taper = part.get("taper", 1 if shape == "cylinder" else 0)
+        pts = [(end * sx / 2, r * sy / 2 * math.cos(u), r * sz / 2 * math.sin(u))
+               for end, r in ((-1, 1), (1, taper)) for u in np.linspace(0, 2 * math.pi, 20)]
     else:
-        cx, cy, w, h = part.get("x", 0), part.get("y", 0), part["width"], part["height"]
-        pivot = (cx, cy)
-        if shape == "ellipse":
-            pts = [(cx + w / 2 * math.cos(a), cy + h / 2 * math.sin(a)) for a in (2 * math.pi * i / 48 for i in range(48))]
-        else:
-            r = min(part.get("radius", 0), w / 2, h / 2)
-            pts = []
-            for qx, qy, a0 in ((1, 1, 0), (-1, 1, 90), (-1, -1, 180), (1, -1, 270)):
-                ox, oy = cx + qx * (w / 2 - r), cy + qy * (h / 2 - r)
-                for s in range(7):
-                    a = math.radians(a0 + 15 * s)
-                    pts.append((ox + r * math.cos(a), oy + r * math.sin(a)))
-    angle = math.radians(part.get("rotation", 0))
-    if angle:
-        c, s = math.cos(angle), math.sin(angle)
-        pts = [(pivot[0] + (x - pivot[0]) * c - (y - pivot[1]) * s, pivot[1] + (x - pivot[0]) * s + (y - pivot[1]) * c) for x, y in pts]
-    return pts
+        taper, sweep, dihedral = part.get("taper", 1), part.get("sweep", 0), part.get("dihedral", 0)
+        span = sz if shape == "wing" else sy
+        thick = sy if shape == "wing" else sz
+        pts = []
+        for s, chord, t, dx, dy in ((0, sx, thick, 0, 0), (span, sx * taper, thick * max(taper, 0.4), -sweep, dihedral)):
+            for a in (-1, 1):
+                for b in (-1, 1):
+                    p = (dx + a * chord / 2, dy + b * t / 2, s)
+                    pts.append(p if shape == "wing" else (p[0], p[2], p[1]))
+    pts = np.array(pts, float)
+    rx, ry, rz = (math.radians(v) for v in part.get("rotation", [0, 0, 0]))
+    Rx = np.array([[1, 0, 0], [0, math.cos(rx), -math.sin(rx)], [0, math.sin(rx), math.cos(rx)]])
+    Ry = np.array([[math.cos(ry), 0, math.sin(ry)], [0, 1, 0], [-math.sin(ry), 0, math.cos(ry)]])
+    Rz = np.array([[math.cos(rz), -math.sin(rz), 0], [math.sin(rz), math.cos(rz), 0], [0, 0, 1]])
+    pts = pts @ (Rz @ Ry @ Rx).T + np.array(part.get("position", [0, 0, 0]), float)
+    out = [pts]
+    if part.get("mirror"):
+        out.append(pts * np.array([1, 1, -1]))
+    return out
 
 
-def draw(spec, image, center, scale, hitbox=False):
+def hull(pts):
+    pts = sorted(set(map(tuple, pts)))
+    if len(pts) < 3:
+        return pts
+    def half(seq):
+        h = []
+        for p in seq:
+            while len(h) >= 2 and (h[-1][0] - h[-2][0]) * (p[1] - h[-2][1]) - (h[-1][1] - h[-2][1]) * (p[0] - h[-2][0]) <= 0:
+                h.pop()
+            h.append(p)
+        return h[:-1]
+    return half(pts) + half(reversed(pts))
+
+
+def draw(spec, image, center, scale, view):
+    """view: (horizontal axis, vertical axis, depth axis, depth sign)"""
+    from PIL import Image, ImageDraw
+    h, v, dep, sign = view
+    shapes = []
     for part in spec["parts"]:
+        for pts in points(part):
+            flat = [(center[0] + p[h] * scale, center[1] - p[v] * scale) for p in pts]
+            shapes.append((sign * pts[:, dep].mean(), hull(flat), color(part["color"])))
+    for _, outline, fill in sorted(shapes, key=lambda s: s[0]):
         layer = Image.new("RGBA", image.size, (0, 0, 0, 0))
         d = ImageDraw.Draw(layer)
-        pts = [(center[0] + x * scale, center[1] - y * scale) for x, y in outline_points(part)]
-        d.polygon(pts, fill=color(part["color"]))
-        if "outline" in part:
-            d.line(pts + [pts[0]], fill=color(part["outline"]), width=max(1, round(1.5 * scale)))
+        if len(outline) >= 3:
+            d.polygon(outline, fill=fill)
+            d.line(outline + [outline[0]], fill=(0, 0, 0, 70), width=1)
         image.alpha_composite(layer)
-    if hitbox and "hitbox" in spec:
-        w, h = spec["hitbox"]["width"] * scale / 2, spec["hitbox"]["height"] * scale / 2
-        ImageDraw.Draw(image).rectangle((center[0] - w, center[1] - h, center[0] + w, center[1] + h), outline=(255, 0, 255, 255), width=2)
 
 
 def load_all():
@@ -106,8 +119,12 @@ if __name__ == "__main__":
     specs = load_all()
     print("ok:", ", ".join(s["id"] for s in specs))
     if len(sys.argv) > 2 and sys.argv[1] == "sheet":
-        scale, cell = 5, (640, 420)
-        sheet = Image.new("RGBA", (cell[0] * 3, cell[1] * ((len(specs) + 2) // 3)), (135, 196, 235, 255))
-        for i, spec in enumerate(specs):
-            draw(spec, sheet, (cell[0] * (i % 3) + cell[0] // 2, cell[1] * (i // 3) + cell[1] // 2), scale, hitbox=True)
+        from PIL import Image
+        scale, cell = 26, (400, 300)
+        sheet = Image.new("RGBA", (cell[0] * 3, cell[1] * len(specs)), (135, 196, 235, 255))
+        for row, spec in enumerate(specs):
+            y = cell[1] * row + cell[1] // 2
+            draw(spec, sheet, (200, y), scale, (0, 1, 2, 1))     # side
+            draw(spec, sheet, (600, y), scale, (0, 2, 1, 1))     # top (right wing towards the top of the page)
+            draw(spec, sheet, (1000, y), scale, (2, 1, 0, 1))    # front
         sheet.save(sys.argv[2])

@@ -1,6 +1,6 @@
 name: Build unsigned IPA (Skylark)
 
-# The flying game in Skylark/. Edge, Shuō and Skylark have their own workflows.
+# The flight simulator in Skylark/. Edge, Shuō and Pip have their own workflows.
 
 on:
   push:
@@ -89,5 +89,5 @@ jobs:
           gh release create "$TAG" build/Skylark-unsigned.ipa \
             --target "${{ github.sha }}" \
             --title "Skylark (unsigned) #${{ github.run_number }}" \
-            --notes "Unsigned Skylark IPA (flying game) built from ${{ github.ref_name }} @ ${GITHUB_SHA::7}. Sign it with your sideloading tool (AltStore, SideStore, Sideloadly, TrollStore) before installing." \
+            --notes "Unsigned Skylark IPA (flight simulator) built from ${{ github.ref_name }} @ ${GITHUB_SHA::7}. Sign it with your sideloading tool (AltStore, SideStore, Sideloadly, TrollStore) before installing." \
             --latest=false

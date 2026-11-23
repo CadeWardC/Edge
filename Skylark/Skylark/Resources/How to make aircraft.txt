@@ -15,52 +15,67 @@ THE SETTINGS
 
 "id"           A short name nothing else uses, like "my-glider".
 "name"         What the Hangar calls it.
-"type"         How it flies:
-                 "plane"       hold to climb, let go to dive
-                 "helicopter"  hold to lift, let go to sink; it floats and drifts
+"type"         How it flies: "plane" or "helicopter".
 "description"  One line for the Hangar. Optional.
-"price"        Stars needed to unlock it. 0 or left out means free.
-"level"        true keeps it flat instead of tilting as it climbs. Optional.
-"trail"        Colour of the puffs it leaves behind. Leave it out for none.
-
-"stats"        All optional.
-  "speed"      How fast it flies forward. 80 to 320; 170 is normal.
-               Faster means more distance, and less time to react.
-  "climb"      How fast it gains height. 0.4 to 2; 1 is normal.
-  "agility"    How quickly it answers your finger. 0.4 to 2.5; 1 is normal.
-  "magnet"     Pulls stars in from this far away. 0 to 120; 0 is none.
-
-"hitbox"       The invisible box that crashes into things: "width" and "height".
-               Smaller is more forgiving. Leave it out and the game works one out.
+"cockpit"      Where the pilot's eyes are, for the cockpit view: [x, y, z]. Optional.
 
 
-DRAWING IT: "parts"
+HOW IT FLIES: "flight"
 
-An aircraft is drawn from a list of coloured shapes, first one at the back.
+All of these are optional.
 
-Measure from the middle of the aircraft: x goes forward (the nose points right),
-y goes up. A normal aircraft is about 90 long and 30 tall, so the nose is near
-x 45 and the tail near x -45. The whole sky is 400 tall.
+For a plane:
+  "stallSpeed"  Knots. Below this the wing stops flying. It is also roughly the
+                speed it lifts off and lands at. A trainer is about 45, a jet 95.
+  "topSpeed"    Knots. The fastest it goes level at full throttle.
+  "power"       Engine thrust as a share of the weight. 0.3 is a light plane,
+                0.8 a fighter. More power climbs steeper and takes off shorter.
+  "rollRate"    Degrees a second it rolls with the stick fully over. 60 is lazy, 180 is sharp.
+  "pitchRate"   Degrees a second the nose comes up with the stick fully back. About 40.
+  "yawRate"     Degrees a second from full rudder. About 20.
+
+For a helicopter:
+  "topSpeed"    Knots. The fastest it goes leaning fully forward.
+  "power"       The most the rotor can lift, as a multiple of the weight.
+                1.5 hovers at two thirds lift; it must be above 1.15.
+  "agility"     How briskly it leans where the stick points. 1 is normal.
+  "yawRate"     Degrees a second it turns on the spot with full rudder. About 60.
+
+
+BUILDING IT: "parts"
+
+An aircraft is built from a list of solid shapes.
+
+Everything is measured in metres from the middle of the aircraft:
+  x goes forward (the nose), y goes up, z goes out along the right wing.
+A light plane is about 8 long with wings reaching 5 out each side.
+The lowest part is taken to be the wheels: that is what touches the ground.
 
 Every part has:
-  "shape"      "ellipse", "rect" or "polygon"
-  "color"      like "#E94F37". Add two more digits for see-through: "#55555599".
-  "outline"    a colour for a thin line round it. Optional.
-  "rotation"   turns it, in degrees, anticlockwise. Optional.
-  "animation"  optional:
-                 "propeller"  flickers tall and thin, like a propeller seen from the side
-                 "rotor"      flickers wide and narrow, like helicopter blades
-                 "spin"       turns round and round
-                 "blink"      fades in and out
+  "shape"     "box", "sphere", "cylinder", "cone", "wing" or "fin"
+  "size"      [length, height, width]: how big it is along x, y and z
+  "color"     like "#E94F37". Two more digits make it see-through: "#BFE9FFCC" is glass.
+  "position"  [x, y, z] of its middle (for a wing or fin, of its root). Optional.
+  "rotation"  [x, y, z] degrees to turn it about each of those axes. Optional.
+  "mirror"    true makes a second copy on the other side of the aircraft:
+              describe the right wing or wheel, and the left one comes free.
+  "spin"      makes it turn while the engine runs:
+                "propeller"  about the line through nose and tail
+                "rotor"      about the upright line, like a main rotor
+                "tailrotor"  about the line through the wings
 
-An ellipse or rect also needs:
-  "x", "y"            where its middle is
-  "width", "height"   how big it is
-  "radius"            rounded corners, for a rect. Optional.
-
-A polygon needs:
-  "points"     a list of corners, each [x, y], at least three
-  "smooth"     true turns the corners into curves. Optional.
+The shapes:
+  box        A block. "radius" rounds its edges.
+  sphere     A ball, squashed or stretched to the size: good for cabins and canopies.
+  cylinder   A tube lying nose to tail. "taper" narrows its front end: 1 is none,
+             0.5 is half as wide at the front. To narrow the back instead, as on a
+             tail, turn it round with "rotation": [0, 180, 0].
+  cone       A cylinder that comes to a point at the front.
+  wing       A flat surface reaching out to the right from its root, by size[2].
+             "taper" narrows the tip (0.5 is a tip half as wide as the root),
+             "sweep" moves the tip back by that many metres,
+             "dihedral" raises the tip by that many metres.
+  fin        The same, but standing up from its root, by size[1]. Takes "taper" and "sweep".
 
 
 A TINY EXAMPLE
@@ -69,11 +84,12 @@ A TINY EXAMPLE
   "id": "paper-dart",
   "name": "Paper Dart",
   "type": "plane",
-  "stats": { "speed": 200, "climb": 1.2, "agility": 1.3 },
+  "flight": { "stallSpeed": 30, "topSpeed": 110, "power": 0.3, "rollRate": 140 },
   "parts": [
-    { "shape": "polygon", "color": "#FFFFFF", "outline": "#8D99AE",
-      "points": [[-45, 8], [45, 0], [-45, -4], [-35, 2]] },
-    { "shape": "polygon", "color": "#DDE3EA",
-      "points": [[-45, -4], [45, 0], [-30, -12]] }
+    { "shape": "cone", "position": [0, 0, 0], "size": [8, 0.5, 0.6], "color": "#FFFFFF" },
+    { "shape": "wing", "position": [-1.5, 0, 0], "size": [5, 0.06, 3.2], "taper": 0.1, "sweep": 2.4,
+      "mirror": true, "color": "#DDE3EA" },
+    { "shape": "fin", "position": [-2.5, 0, 0], "size": [2.5, 0.9, 0.06], "taper": 0.2, "sweep": 1.2,
+      "rotation": [180, 0, 0], "color": "#C9D1D9" }
   ]
 }

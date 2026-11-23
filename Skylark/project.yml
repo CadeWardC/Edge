@@ -44,5 +44,5 @@ targets:
         TARGETED_DEVICE_FAMILY: "1,2"
         ENABLE_BITCODE: NO
     dependencies:
-      - sdk: SpriteKit.framework
+      - sdk: SceneKit.framework
     scheme: {}
