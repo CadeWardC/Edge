@@ -1,0 +1,20 @@
+{
+  "id": "arrow-jet",
+  "name": "Arrow Jet",
+  "type": "plane",
+  "description": "Very fast. Blink and the mountain is already there.",
+  "price": 120,
+  "stats": { "speed": 240, "climb": 1.35, "agility": 1.15, "magnet": 0 },
+  "hitbox": { "width": 76, "height": 16 },
+  "trail": "#FFB347",
+  "parts": [
+    { "shape": "polygon", "color": "#FF9F1C", "points": [[-46, 4], [-62, 0], [-46, -4]], "animation": "blink" },
+    { "shape": "polygon", "color": "#1D3557", "points": [[-44, 4], [-40, 24], [-30, 24], [-14, 6]] },
+    { "shape": "polygon", "color": "#16283F", "points": [[-46, 5], [-48, -1], [-28, -1], [-22, 5]] },
+    { "shape": "polygon", "smooth": true, "color": "#457B9D", "points": [[-46, 6], [-10, 9], [22, 7], [50, 0], [22, -7], [-10, -8], [-46, -5]] },
+    { "shape": "polygon", "smooth": true, "color": "#A8DADC", "outline": "#FFFFFF", "points": [[2, 6], [10, 13], [22, 12], [32, 4]] },
+    { "shape": "polygon", "color": "#1D3557", "points": [[-22, -2], [12, -2], [-14, -9], [-28, -9]] },
+    { "shape": "polygon", "color": "#E63946", "points": [[-40, 20], [-31, 20], [-33, 16], [-41, 16]] },
+    { "shape": "rect", "x": -47, "y": 0, "width": 5, "height": 11, "color": "#2B2B2B" }
+  ]
+}

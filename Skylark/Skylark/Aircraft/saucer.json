@@ -1,0 +1,24 @@
+{
+  "id": "saucer",
+  "name": "Saucer",
+  "type": "helicopter",
+  "description": "Not from around here. Quick, twitchy and hard to tame.",
+  "price": 200,
+  "stats": { "speed": 205, "climb": 1.4, "agility": 1.5, "magnet": 20 },
+  "hitbox": { "width": 70, "height": 18 },
+  "level": true,
+  "trail": "#9BF6FF",
+  "parts": [
+    { "shape": "polygon", "color": "#9BF6FF55", "points": [[-12, -8], [12, -8], [22, -34], [-22, -34]], "animation": "blink" },
+    { "shape": "ellipse", "x": 0, "y": 8, "width": 36, "height": 28, "color": "#BDE0FE", "outline": "#FFFFFF" },
+    { "shape": "ellipse", "x": 0, "y": 9, "width": 12, "height": 14, "color": "#70E000" },
+    { "shape": "ellipse", "x": -3, "y": 11, "width": 3, "height": 4, "color": "#1B1B1B" },
+    { "shape": "ellipse", "x": 3, "y": 11, "width": 3, "height": 4, "color": "#1B1B1B" },
+    { "shape": "ellipse", "x": 0, "y": 0, "width": 80, "height": 20, "color": "#8D99AE" },
+    { "shape": "ellipse", "x": 0, "y": 3, "width": 76, "height": 10, "color": "#ADB5BD" },
+    { "shape": "ellipse", "x": -26, "y": -2, "width": 7, "height": 7, "color": "#FFD60A", "animation": "blink" },
+    { "shape": "ellipse", "x": -9, "y": -5, "width": 7, "height": 7, "color": "#FF595E", "animation": "blink" },
+    { "shape": "ellipse", "x": 9, "y": -5, "width": 7, "height": 7, "color": "#FFD60A", "animation": "blink" },
+    { "shape": "ellipse", "x": 26, "y": -2, "width": 7, "height": 7, "color": "#FF595E", "animation": "blink" }
+  ]
+}
