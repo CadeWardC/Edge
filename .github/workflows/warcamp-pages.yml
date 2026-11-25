@@ -12,6 +12,7 @@ on:
 
 permissions:
   contents: read
+  actions: read # the deploy step looks up the uploaded site among this run's artifacts
   pages: write
   id-token: write
 
