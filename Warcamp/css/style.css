@@ -1,0 +1,123 @@
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+html, body { margin: 0; height: 100%; overflow: hidden; background: #0b1220; color: #e8edf5;
+  font: 15px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; overscroll-behavior: none; }
+[hidden] { display: none !important; }
+#c { position: fixed; inset: 0; width: 100%; height: 100%; touch-action: none; display: block; }
+
+button, select, input { font: inherit; color: inherit; }
+button { background: #24324a; border: 1px solid #3b4d6b; border-radius: 10px; padding: 9px 14px; cursor: pointer; touch-action: manipulation; }
+button:active { background: #31445f; }
+button:disabled { opacity: .45; cursor: default; }
+button.big { background: #2563eb; border-color: #3b82f6; font-weight: 600; padding: 12px 16px; }
+button.big:active { background: #1d4ed8; }
+input, select { background: #0f1a2e; border: 1px solid #3b4d6b; border-radius: 10px; padding: 9px 10px; min-width: 0; user-select: text; -webkit-user-select: text; }
+
+/* ---------- menus ---------- */
+.screen { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; padding: 16px;
+  padding: max(16px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) max(16px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
+  background: radial-gradient(circle at 50% 30%, #1b2b47, #0b1220 70%); overflow: auto; z-index: 10; }
+.screen.clear { background: rgba(11, 18, 32, .72); }
+.card { width: min(380px, 100%); display: flex; flex-direction: column; gap: 10px; margin: auto; }
+.card.wide { width: min(560px, 100%); }
+.card h1 { margin: 0; font-size: 44px; letter-spacing: 4px; text-align: center; color: #fde68a; text-shadow: 0 3px 0 #92400e; }
+.card h2 { margin: 0; font-size: 22px; }
+.card h3 { margin: 6px 0 0; font-size: 15px; color: #fde68a; }
+.card ul { margin: 0; padding-left: 20px; }
+.card li { margin: 3px 0; }
+.tag { margin: 0 0 8px; text-align: center; color: #9fb0c9; }
+.msg { margin: 0; min-height: 1.4em; text-align: center; color: #fca5a5; }
+.card label { display: flex; align-items: center; gap: 8px; color: #9fb0c9; }
+.card label input, .card label select { flex: 1; color: #e8edf5; }
+.row { display: flex; gap: 8px; }
+.row > * { flex: 1; }
+.row.opts { flex-wrap: wrap; }
+.row.opts label { flex: 1 1 150px; }
+#code { text-transform: uppercase; letter-spacing: 6px; text-align: center; font-weight: 700; }
+.code { margin: 0; text-align: center; color: #9fb0c9; }
+.code b { display: block; font-size: 40px; letter-spacing: 10px; color: #fde68a; padding-left: 10px; }
+#slots { display: flex; flex-direction: column; gap: 6px; }
+.slot { display: flex; align-items: center; gap: 10px; background: #16233a; border: 1px solid #2c3d5a; border-radius: 10px; padding: 8px 10px; min-height: 46px; }
+.slot i { width: 18px; height: 18px; border-radius: 5px; flex: none; }
+.slot span { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.slot.off span { color: #6b7c96; }
+.slot button { padding: 5px 10px; }
+
+/* ---------- in-game HUD ---------- */
+#hud { position: fixed; inset: 0; pointer-events: none; z-index: 5; }
+#hud > * { pointer-events: auto; }
+#top { position: absolute; top: 0; left: 0; right: 0; display: flex; align-items: center; gap: 14px;
+  padding: max(6px, env(safe-area-inset-top)) max(10px, env(safe-area-inset-right)) 6px max(10px, env(safe-area-inset-left));
+  background: linear-gradient(#0b1220e6, #0b122000); font-weight: 700; pointer-events: none !important; }
+#top button { pointer-events: auto; padding: 4px 12px; font-size: 18px; }
+#res { color: #7dd3fc; } #pop { color: #fde68a; } #heroInfo { color: #fca5a5; font-weight: 500; font-size: 13px; }
+.grow { flex: 1; }
+#mini { position: absolute; left: max(8px, env(safe-area-inset-left)); bottom: max(8px, env(safe-area-inset-bottom));
+  width: 124px; height: 124px; border: 2px solid #3b4d6b; border-radius: 8px; background: #0b1220; touch-action: none; image-rendering: pixelated; }
+#side { position: absolute; right: max(8px, env(safe-area-inset-right)); top: 50%; transform: translateY(-60%); display: flex; flex-direction: column; gap: 8px; }
+#side button { width: 46px; height: 46px; padding: 0; font-size: 20px; background: #16233ae6; position: relative; }
+#side button.on { background: #2563eb; border-color: #93c5fd; }
+#idleN { position: absolute; top: -5px; right: -5px; min-width: 18px; height: 18px; border-radius: 9px; background: #dc2626; font-size: 11px; line-height: 18px; padding: 0 4px; }
+#idleN:empty { display: none; }
+#panel { position: absolute; left: calc(max(8px, env(safe-area-inset-left)) + 134px); width: fit-content; min-width: 150px;
+  max-width: calc(100% - 150px - env(safe-area-inset-left) - env(safe-area-inset-right));
+  bottom: max(8px, env(safe-area-inset-bottom)); min-height: 62px; max-height: 128px; overflow: auto;
+  background: #101b2fe6; border: 1px solid #2c3d5a; border-radius: 10px; padding: 6px 8px; display: flex; flex-direction: column; gap: 5px; }
+#panel:empty { display: none; }
+#panel .t { font-weight: 700; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#panel .d { font-size: 12px; color: #9fb0c9; }
+#panel .acts { display: flex; gap: 6px; flex-wrap: wrap; }
+#panel button { padding: 5px 9px; font-size: 13px; line-height: 1.2; text-align: left; }
+#panel button small { display: block; color: #7dd3fc; font-size: 11px; }
+#panel .pb { height: 5px; background: #24324a; border-radius: 3px; overflow: hidden; }
+#panel .pb i { display: block; height: 100%; width: 0; background: #fbbf24; }
+#toast { position: absolute; top: max(44px, calc(env(safe-area-inset-top) + 38px)); left: 50%; transform: translateX(-50%); background: #101b2ff2;
+  border: 1px solid #3b4d6b; border-radius: 20px; padding: 6px 14px; font-size: 13px; opacity: 0; transition: opacity .25s; pointer-events: none !important; white-space: nowrap; }
+#toast.on { opacity: 1; }
+
+.hint { margin: 0; text-align: center; color: #9fb0c9; font-size: 13px; }
+#panel .acts { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
+#panel .acts::-webkit-scrollbar { display: none; }
+#panel button { flex: none; }
+
+/* ---------- phones and tablets: thumb-sized controls ---------- */
+@media (pointer: coarse) {
+  button { min-height: 44px; }
+  #panel button { min-height: 44px; padding: 6px 12px; font-size: 14px; }
+  #panel .t { font-size: 14px; }
+  #side button { width: 52px; height: 52px; font-size: 22px; }
+  #top button { min-height: 44px; min-width: 48px; }
+  .slot button { min-height: 40px; }
+  .desk { display: none; }
+}
+/* Portrait: the map and the buttons share the bottom edge, within reach of both thumbs,
+   and the selection panel takes the full width above them. */
+@media (orientation: portrait) {
+  #side { top: auto; transform: none; bottom: max(8px, env(safe-area-inset-bottom)); display: grid; grid-template-columns: repeat(2, auto); gap: 8px; }
+  #side button { width: 58px; height: 58px; }
+  #panel { left: max(8px, env(safe-area-inset-left)); right: max(8px, env(safe-area-inset-right)); width: auto; max-width: none;
+    bottom: calc(max(8px, env(safe-area-inset-bottom)) + 136px); max-height: 190px; }
+  #panel .acts { flex-wrap: wrap; }
+}
+/* Short landscape phones: a tighter menu so everything fits without scrolling. */
+@media (orientation: landscape) and (max-height: 480px) {
+  .card { gap: 7px; }
+  .card h1 { font-size: 30px; }
+  .tag { margin-bottom: 2px; }
+  #menu .card { width: min(560px, 100%); display: grid; grid-template-columns: 1fr 1fr; align-items: center; }
+  #menu .card > h1, #menu .card > .tag, #menu .card > label, #menu .card > .msg, #menu .card > .hint { grid-column: 1 / -1; }
+  #menu .card > .row { grid-column: 1 / -1; }
+  #mini { width: 108px; height: 108px; }
+  #panel { left: calc(max(8px, env(safe-area-inset-left)) + 118px); max-height: 112px;
+    max-width: calc(100% - 196px - env(safe-area-inset-left) - env(safe-area-inset-right)); }
+  #side { gap: 6px; transform: translateY(-50%); }
+  #side button { width: 48px; height: 48px; }
+}
+
+/* iPhone and iPad: Safari zooms the page when a text field with type under 16px gets focus. */
+input, select { font-size: 16px; }
+/* Installed on iOS the game runs under the status bar and round the notch: keep menus clear of both. */
+@supports (-webkit-touch-callout: none) {
+  html, body { position: fixed; inset: 0; width: 100%; }
+  .screen { -webkit-overflow-scrolling: touch; }
+}

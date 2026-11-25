@@ -8,6 +8,8 @@ on:
       - "Shuo/**"
       - ".github/workflows/mirror-*.yml"
       - ".github/workflows/build-shuo-ipa.yml"
+      - "Warcamp/**"
+      - ".github/workflows/warcamp-pages.yml"
   workflow_dispatch:
 
 permissions:
