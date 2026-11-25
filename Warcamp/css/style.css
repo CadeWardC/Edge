@@ -113,3 +113,11 @@ input, select { background: #0f1a2e; border: 1px solid #3b4d6b; border-radius: 1
   #side { gap: 6px; transform: translateY(-50%); }
   #side button { width: 48px; height: 48px; }
 }
+
+/* iPhone and iPad: Safari zooms the page when a text field with type under 16px gets focus. */
+input, select { font-size: 16px; }
+/* Installed on iOS the game runs under the status bar and round the notch: keep menus clear of both. */
+@supports (-webkit-touch-callout: none) {
+  html, body { position: fixed; inset: 0; width: 100%; }
+  .screen { -webkit-overflow-scrolling: touch; }
+}

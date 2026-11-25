@@ -27,6 +27,21 @@ GitHub Pages whenever `Warcamp/` changes on `main`. To switch it on: repository 
 **GitHub Actions**. The game is then at `https://<user>.github.io/<repo>/`, and "Add to Home Screen" (iPhone:
 Share menu; Android: the Install button in the menu) makes it an app.
 
+## iPhone and iPad
+
+Warcamp is built for iOS Safari first.
+
+- **Install it:** open the link in Safari, tap Share, then "Add to Home Screen". From the Home Screen it runs
+  full screen with no address bar, in portrait or landscape, and works offline. (Safari on iPhone has no
+  full-screen mode for a page in a tab, so installing is the way to get the whole screen.)
+- The layout keeps clear of the notch, the Dynamic Island and the Home indicator in both orientations.
+- Text fields do not zoom the page, the page does not pinch-zoom or bounce under the game, and long presses do
+  not bring up the copy menu.
+- The screen stays on during a game (iOS 16.4 and later).
+- Written for iOS 15 and later. Multiplayer uses WebRTC, which Safari and installed web apps both support.
+- iOS pauses a web app as soon as it leaves the screen. If the host switches apps, the game freezes for everyone
+  until they come back, and a long absence drops the connection. The host should stay in the game.
+
 ## Multiplayer
 
 One player taps **Host a multiplayer game** and gets a 4-letter code. The others type the code and tap **Join**.

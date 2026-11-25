@@ -208,6 +208,8 @@ function startGame(cfg, me, conns) {
 // Phones: keep the screen on during a game, and take the whole screen where the browser allows it.
 let wake = null;
 const coarse = matchMedia('(pointer: coarse)').matches;
+// iPadOS calls itself a Mac, so look for touch points as well.
+const iOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (/Macintosh/.test(navigator.userAgent) && navigator.maxTouchPoints > 1);
 const standalone = matchMedia('(display-mode: standalone), (display-mode: fullscreen)').matches || navigator.standalone;
 async function awake(on) {
   try {
@@ -216,11 +218,17 @@ async function awake(on) {
   } catch { /* not allowed here: the game still works */ }
   try {
     const el = document.documentElement;
-    if (on && coarse && !standalone && !document.fullscreenElement && el.requestFullscreen) await el.requestFullscreen({ navigationUI: 'hide' });
+    // Not on iOS: iPhone has no fullscreen, and iPad shows a "fake keyboard" warning when a fullscreen page is tapped quickly.
+    if (on && coarse && !iOS && !standalone && !document.fullscreenElement && el.requestFullscreen) await el.requestFullscreen({ navigationUI: 'hide' });
     if (!on && document.fullscreenElement) await document.exitFullscreen();
   } catch { /* iPhone Safari has no fullscreen: installing the app gives it */ }
 }
-document.addEventListener('visibilitychange', () => { if (!document.hidden && G.view) awake(true); });
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden || !G.view) return;
+  awake(true);
+  R.resize();
+  if (G.conns && G.conns.some(c => c)) toast('You host this game: it pauses for everyone while you are away');
+});
 function endScreen(title, msg) {
   G.ended = true;
   $('eTitle').textContent = title; $('eMsg').textContent = msg;
@@ -591,5 +599,5 @@ if ('serviceWorker' in navigator && !LOCAL && (location.protocol === 'https:' ||
 }
 // Where multiplayer cannot work (an embedded preview with no peer connections), offer single player only.
 if (window.WARCAMP_SOLO) { $('mHost').hidden = true; $('code').parentElement.hidden = true; }
-if (/iPad|iPhone|iPod/.test(navigator.userAgent) && !standalone && !window.WARCAMP_SOLO) $('mIOS').hidden = false;
+if (iOS && !standalone && !window.WARCAMP_SOLO) $('mIOS').hidden = false;
 show('menu');
