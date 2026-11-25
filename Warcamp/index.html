@@ -49,6 +49,7 @@
     </div>
     <button id="mHelp">How to play</button>
     <button id="mInstall" hidden>Install app</button>
+    <p id="mIOS" class="hint" hidden>To install: tap Share, then “Add to Home Screen”.</p>
     <p id="mMsg" class="msg"></p>
   </div>
 </div>
@@ -86,8 +87,8 @@
       <li>Drag to scroll, pinch to zoom. Hold then drag (or tap ▭ first) to select with a box.</li>
       <li>⚔ selects your whole army. ⛏ jumps to an idle worker. Tap the map in the corner to jump there.</li>
     </ul>
-    <h3>Mouse and keyboard</h3>
-    <ul>
+    <h3 class="desk">Mouse and keyboard</h3>
+    <ul class="desk">
       <li>Left-click or drag a box to select, right-click to give orders, wheel to zoom.</li>
       <li>Arrow keys or WASD scroll. <b>Q</b> army, <b>.</b> idle worker, <b>Esc</b> cancel.</li>
     </ul>
@@ -97,6 +98,17 @@
       <li>If a player drops out, a computer takes over their base.</li>
     </ul>
     <button id="hClose" class="big">Got it</button>
+  </div>
+</div>
+
+<div id="ask" class="screen clear" hidden>
+  <div class="card">
+    <h2>Leave this game?</h2>
+    <p class="tag" id="askMsg">Your base will be lost.</p>
+    <div class="row">
+      <button id="askNo" class="big">Keep playing</button>
+      <button id="askYes">Leave</button>
+    </div>
   </div>
 </div>
 

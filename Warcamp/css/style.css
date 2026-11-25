@@ -74,3 +74,42 @@ input, select { background: #0f1a2e; border: 1px solid #3b4d6b; border-radius: 1
 #toast { position: absolute; top: max(44px, calc(env(safe-area-inset-top) + 38px)); left: 50%; transform: translateX(-50%); background: #101b2ff2;
   border: 1px solid #3b4d6b; border-radius: 20px; padding: 6px 14px; font-size: 13px; opacity: 0; transition: opacity .25s; pointer-events: none !important; white-space: nowrap; }
 #toast.on { opacity: 1; }
+
+.hint { margin: 0; text-align: center; color: #9fb0c9; font-size: 13px; }
+#panel .acts { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
+#panel .acts::-webkit-scrollbar { display: none; }
+#panel button { flex: none; }
+
+/* ---------- phones and tablets: thumb-sized controls ---------- */
+@media (pointer: coarse) {
+  button { min-height: 44px; }
+  #panel button { min-height: 44px; padding: 6px 12px; font-size: 14px; }
+  #panel .t { font-size: 14px; }
+  #side button { width: 52px; height: 52px; font-size: 22px; }
+  #top button { min-height: 44px; min-width: 48px; }
+  .slot button { min-height: 40px; }
+  .desk { display: none; }
+}
+/* Portrait: the map and the buttons share the bottom edge, within reach of both thumbs,
+   and the selection panel takes the full width above them. */
+@media (orientation: portrait) {
+  #side { top: auto; transform: none; bottom: max(8px, env(safe-area-inset-bottom)); display: grid; grid-template-columns: repeat(2, auto); gap: 8px; }
+  #side button { width: 58px; height: 58px; }
+  #panel { left: max(8px, env(safe-area-inset-left)); right: max(8px, env(safe-area-inset-right)); width: auto; max-width: none;
+    bottom: calc(max(8px, env(safe-area-inset-bottom)) + 136px); max-height: 190px; }
+  #panel .acts { flex-wrap: wrap; }
+}
+/* Short landscape phones: a tighter menu so everything fits without scrolling. */
+@media (orientation: landscape) and (max-height: 480px) {
+  .card { gap: 7px; }
+  .card h1 { font-size: 30px; }
+  .tag { margin-bottom: 2px; }
+  #menu .card { width: min(560px, 100%); display: grid; grid-template-columns: 1fr 1fr; align-items: center; }
+  #menu .card > h1, #menu .card > .tag, #menu .card > label, #menu .card > .msg, #menu .card > .hint { grid-column: 1 / -1; }
+  #menu .card > .row { grid-column: 1 / -1; }
+  #mini { width: 108px; height: 108px; }
+  #panel { left: calc(max(8px, env(safe-area-inset-left)) + 118px); max-height: 112px;
+    max-width: calc(100% - 196px - env(safe-area-inset-left) - env(safe-area-inset-right)); }
+  #side { gap: 6px; transform: translateY(-50%); }
+  #side button { width: 48px; height: 48px; }
+}

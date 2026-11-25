@@ -19,7 +19,7 @@ window.__wc = { G, R, get L() { return L; } };
 
 // ---------------------------------------------------------------- screens
 function show(id) {
-  for (const s of ['menu', 'lobby', 'help', 'end']) $(s).hidden = s !== id;
+  for (const s of ['menu', 'lobby', 'help', 'end', 'ask']) $(s).hidden = s !== id;
   $('hud').hidden = !G.view;
 }
 let toastT = 0;
@@ -203,7 +203,24 @@ function startGame(cfg, me, conns) {
   }
   show(null);
   hudT = 0;
+  awake(true);
 }
+// Phones: keep the screen on during a game, and take the whole screen where the browser allows it.
+let wake = null;
+const coarse = matchMedia('(pointer: coarse)').matches;
+const standalone = matchMedia('(display-mode: standalone), (display-mode: fullscreen)').matches || navigator.standalone;
+async function awake(on) {
+  try {
+    if (on && !wake && navigator.wakeLock) { wake = await navigator.wakeLock.request('screen'); wake.addEventListener('release', () => { wake = null; }); }
+    if (!on && wake) { const w = wake; wake = null; await w.release(); }
+  } catch { /* not allowed here: the game still works */ }
+  try {
+    const el = document.documentElement;
+    if (on && coarse && !standalone && !document.fullscreenElement && el.requestFullscreen) await el.requestFullscreen({ navigationUI: 'hide' });
+    if (!on && document.fullscreenElement) await document.exitFullscreen();
+  } catch { /* iPhone Safari has no fullscreen: installing the app gives it */ }
+}
+document.addEventListener('visibilitychange', () => { if (!document.hidden && G.view) awake(true); });
 function endScreen(title, msg) {
   G.ended = true;
   $('eTitle').textContent = title; $('eMsg').textContent = msg;
@@ -212,12 +229,19 @@ function endScreen(title, msg) {
 function quit() {
   closeNet();
   G.view = null; G.sim = null; G.send = null;
+  awake(false);
   $('mMsg').textContent = '';
   show('menu');
 }
 $('eWatch').onclick = () => show(null);
 $('eMenu').onclick = quit;
-$('menuBtn').onclick = () => { if (G.ended || confirm('Leave this game?')) quit(); };
+$('menuBtn').onclick = () => {
+  if (G.ended) return quit();
+  $('askMsg').textContent = G.conns && G.conns.some(c => c) ? 'You are the host: the game ends for everyone.' : G.conn ? 'A computer will take over your base.' : 'This game will be lost.';
+  show('ask');
+};
+$('askNo').onclick = () => show(null);
+$('askYes').onclick = quit;
 
 // ---------------------------------------------------------------- selection and orders
 const ents = () => G.view.ents;
@@ -255,7 +279,7 @@ function confirmPlace() {
   if (ids.length) G.send({ t: 'build', ids, b: p.type, tx: p.tx, ty: p.ty });
   G.placing = null; hudT = 0;
 }
-function mark(x, y, col) { G.view.fx.push({ k: 'm', a: ['m', x, y, col], t: 0 }); }
+function mark(x, y, col) { if (G.touch) buzz(8); G.view.fx.push({ k: 'm', a: ['m', x, y, col], t: 0 }); }
 
 // What a tap (or right-click) on the world means for the units that are selected.
 function order(wx, wy, ent) {
@@ -420,6 +444,12 @@ addEventListener('keydown', e => {
 addEventListener('keyup', e => keys.delete(e.key.toLowerCase()));
 addEventListener('blur', () => keys.clear());
 addEventListener('resize', () => R.resize());
+addEventListener('orientationchange', () => setTimeout(() => R.resize(), 250));
+if (window.visualViewport) visualViewport.addEventListener('resize', () => R.resize());
+// iPhone: stop the page itself from zooming or bouncing under the game.
+for (const t of ['gesturestart', 'gesturechange']) document.addEventListener(t, e => e.preventDefault());
+document.addEventListener('touchmove', e => { if (G.view && !e.target.closest('#panel, .screen')) e.preventDefault(); }, { passive: false });
+const buzz = ms => { if (navigator.vibrate) navigator.vibrate(ms); };
 
 // ---------------------------------------------------------------- HUD buttons and the selection panel
 $('bArmy').onclick = () => {
@@ -559,4 +589,7 @@ addEventListener('appinstalled', () => { $('mInstall').hidden = true; });
 if ('serviceWorker' in navigator && !LOCAL && (location.protocol === 'https:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1')) {
   addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => {}));
 }
+// Where multiplayer cannot work (an embedded preview with no peer connections), offer single player only.
+if (window.WARCAMP_SOLO) { $('mHost').hidden = true; $('code').parentElement.hidden = true; }
+if (/iPad|iPhone|iPod/.test(navigator.userAgent) && !standalone && !window.WARCAMP_SOLO) $('mIOS').hidden = false;
 show('menu');

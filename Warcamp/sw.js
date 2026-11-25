@@ -1,7 +1,7 @@
 // Offline support: the whole game is cached on first visit, served from the cache afterwards,
 // and refreshed in the background whenever the network is there.
 // Bump VERSION when a file is added or removed.
-const VERSION = 'warcamp-v1';
+const VERSION = 'warcamp-v2';
 const ASSETS = [
   './', 'index.html', 'manifest.webmanifest', 'css/style.css',
   'js/main.js', 'js/data.js', 'js/sim.js', 'js/ai.js', 'js/render.js', 'js/net.js',
