@@ -43,7 +43,8 @@ Small things that decide whether the game is fun to hold.
 - Sound: taps, attacks, building finished, "under attack", and one looping tune per world. Web Audio, a few kB.
 - Attack-move button and a rally point for each production building.
 - Control groups on desktop (Ctrl+1..9) and a "last selection" button on touch.
-- Repair buildings with workers; cancel a queued unit or an unfinished building for a refund.
+- Repair buildings with workers. (Resuming or cancelling an unfinished building, and cancelling a queued unit,
+  are done.)
 - A second drop-off building (Depot) so far-away crystals are worth mining.
 - Walls and gates, as in the genre.
 - A five-step interactive tutorial on first launch.

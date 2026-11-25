@@ -3,7 +3,7 @@
 import { TILE as T, DEF, TI, MAXCAP, ABILITY, HERO_RESPAWN } from './data.js';
 
 export const DT = 0.1;
-const TREE_AMT = 80, CRYSTAL_AMT = 400, CARRY = 10;
+const TREE_AMT = 200, CRYSTAL_AMT = 1500, CARRY = 10;
 
 export function rng(a) {
   return () => {
@@ -33,9 +33,10 @@ export function genMap(seed, N) {
   for (let y = 0; y < Q; y++) for (let x = 0; x < Q; x++) if (Math.hypot(x - 7, y - 7) < 6) q[y * Q + x] = 0;
   for (let i = 7; i < Q; i++) { set(i, 7, 0); set(i, 8, 0); set(7, i, 0); set(8, i, 0); set(i, i, 0); set(i - 1, i, 0); }
   // Guaranteed starting resources, and a contested deposit near the middle.
-  for (const [x, y] of [[12, 4], [13, 4], [12, 5], [13, 5]]) set(x, y, 3);
+  for (const [x, y] of [[12, 4], [13, 4], [14, 4], [12, 5], [13, 5], [14, 5]]) set(x, y, 3);
+  for (const [x, y] of [[3, 19], [4, 19], [3, 20], [4, 20]]) set(x, y, 3); // a second deposit a short walk away
   for (let x = 2; x <= 6; x++) { set(x, 13, 2); set(x, 14, 2); }
-  for (const [x, y] of [[Q - 2, Q - 6], [Q - 1, Q - 6], [Q - 6, Q - 2], [Q - 6, Q - 1]]) set(x, y, 3);
+  for (const [x, y] of [[Q - 3, Q - 6], [Q - 2, Q - 6], [Q - 1, Q - 6], [Q - 6, Q - 3], [Q - 6, Q - 2], [Q - 6, Q - 1]]) set(x, y, 3);
 
   const terrain = new Uint8Array(N * N), amt = new Uint16Array(N * N);
   for (let y = 0; y < Q; y++) for (let x = 0; x < Q; x++) {
@@ -131,7 +132,7 @@ export class Sim {
     for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) if ((dx || dy) && this.walkable(x + dx, y + dy)) return true;
     return false;
   }
-  nearestRes(tx, ty, kind, R = 16) {
+  nearestRes(tx, ty, kind, R = 24) {
     const N = this.N;
     let best = null, bd = 1e9;
     for (let y = Math.max(0, ty - R); y <= Math.min(N - 1, ty + R); y++) {
@@ -409,7 +410,7 @@ export class Sim {
         if (!b || b.built) { e.order = null; this.autoHarvest(e); break; }
         const bd = DEF[b.type];
         if (this.dist(e, b) <= 26) {
-          b.prog += DT / bd.time;
+          b.prog += DT / bd.time; b.wk = this.tick;
           b.hp = Math.min(bd.hp, b.hp + bd.hp * 0.9 * DT / bd.time);
           if (b.prog >= 1) { b.prog = 1; b.built = true; if (bd.cap) this.players[b.owner].cap += bd.cap; }
         } else if (this.follow(e)) {
@@ -562,6 +563,33 @@ export class Sim {
         }
         break;
       }
+      case 'resume': { // send the nearest free workers to an unfinished building
+        const b = this.ents.get(c.b);
+        if (!b || !b.b || b.built || b.owner !== pid) return;
+        const ws = [];
+        for (const e of this.ents.values()) if (e.owner === pid && e.type === 'worker' && !(e.order && e.order.k === 'build')) ws.push(e);
+        ws.sort((p, q) => (p.order ? 1e6 : 0) + this.dist(p, b) - (q.order ? 1e6 : 0) - this.dist(q, b)); // idle workers first
+        for (const e of ws.slice(0, 2)) {
+          e.order = { k: 'build', b: b.id, tries: 0 };
+          this.pathTo(e, b.tx, b.ty, b.tx + b.size - 1, b.ty + b.size - 1);
+        }
+        break;
+      }
+      case 'cancel': { // tear down an unfinished building and get the crystal back
+        const b = this.ents.get(c.b);
+        if (!b || !b.b || b.built || b.owner !== pid) return;
+        P.res += DEF[b.type].cost;
+        this.kill(b);
+        break;
+      }
+      case 'unqueue': { // drop the last unit waiting in a building's queue
+        const b = this.ents.get(c.b);
+        if (!b || !b.b || b.owner !== pid || !b.queue.length) return;
+        const u = b.queue.pop();
+        P.res += DEF[u].cost;
+        if (!b.queue.length) b.trainT = 0;
+        break;
+      }
       case 'train': {
         const b = this.ents.get(c.b), d = DEF[c.u];
         if (!b || b.owner !== pid || !b.built || !d || !(DEF[b.type].trains || []).includes(c.u)) return;
@@ -594,7 +622,7 @@ export class Sim {
     this.changed = []; this.fx = [];
     for (const e of this.ents.values()) {
       const a = [e.id, TI[e.type], e.owner, Math.round(e.x), Math.round(e.y), Math.ceil(e.hp)];
-      if (e.b) a.push(e.built ? 1 : 0, Math.floor((e.built ? (e.queue.length ? e.trainT / DEF[e.queue[0]].time : 0) : e.prog) * 100), e.queue.map(u => TI[u]));
+      if (e.b) a.push(e.built ? 1 : 0, Math.floor((e.built ? (e.queue.length ? e.trainT / DEF[e.queue[0]].time : 0) : e.prog) * 100), e.queue.map(u => TI[u]), !e.built && this.tick - (e.wk ?? -99) > 8 ? 1 : 0);
       else a.push(e.carry ? 1 : 0, Math.max(0, Math.ceil(e.abT)), e.order ? 0 : 1);
       s.e.push(a);
     }

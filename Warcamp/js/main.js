@@ -258,17 +258,17 @@ const myUnits = () => selected().filter(e => e.owner === G.view.me && !e.b);
 const visible = e => G.view.spectating() || G.view.canSee(e);
 
 function pick(wx, wy, pad) {
-  let best = null, bd = 1e9;
+  let best = null, bd = 1e9, under = null;
+  for (const e of ents().values()) {
+    if (e.b && visible(e) && wx >= e.tx * T && wy >= e.ty * T && wx < (e.tx + e.size) * T && wy < (e.ty + e.size) * T) under = e;
+  }
+  if (under) pad = Math.min(pad, 1); // a tap on a building means the building, unless it lands right on a unit
   for (const e of ents().values()) {
     if (e.b || !visible(e)) continue;
     const d = Math.hypot(e.rx - wx, e.ry - 4 - wy);
     if (d < DEF[e.type].r + pad && d < bd) { bd = d; best = e; }
   }
-  if (best) return best;
-  for (const e of ents().values()) {
-    if (e.b && visible(e) && wx >= e.tx * T && wy >= e.ty * T && wx < (e.tx + e.size) * T && wy < (e.ty + e.size) * T) return e;
-  }
-  return null;
+  return best || under;
 }
 function canPlace(type, tx, ty) {
   const v = G.view, N = v.N, s = DEF[type].size;
@@ -493,10 +493,13 @@ function panelHTML() {
   if (b) {
     const d = DEF[b.type];
     let h = `<div class="t">${d.name}</div><div class="d" id="pd"></div>`;
-    if (!b.built) return h + '<div class="pb"><i id="pbar"></i></div>';
+    if (!b.built) return h + '<div class="pb"><i id="pbar"></i></div><div class="acts">' +
+      `<button data-act="resume" class="go">${b.paused ? 'Resume building' : 'Send more workers'}</button>` +
+      `<button data-act="cancelb" class="warn">Cancel<small>◆ +${d.cost} back</small></button></div>`;
     if (d.trains) {
       h += '<div class="acts">' + d.trains.map(u => btn('train:' + u, DEF[u].name, DEF[u].cost, P.res < DEF[u].cost || P.pop >= P.cap || b.queue.length >= 5)).join('') + '</div>';
       if (b.queue.length) h += `<div class="d">Training: ${b.queue.map(i => DEF[TYPES[i]].name).join(', ')}</div><div class="pb"><i id="pbar"></i></div>`;
+      if (b.queue.length) h = h.replace('</div><div class="d">Training', '<button data-act="unqueue" class="warn">Cancel last<small>refund</small></button></div><div class="d">Training');
     }
     return h;
   }
@@ -519,13 +522,17 @@ function updateHud() {
   let idle = 0;
   for (const e of ents().values()) if (e.owner === v.me && e.type === 'worker' && e.idle) idle++;
   $('idleN').textContent = idle || '';
+  let army = 0;
+  for (const e of ents().values()) if (e.owner === v.me && DEF[e.type].mil) army++;
+  $('armyN').textContent = army || '';
+  $('bDesel').disabled = !G.sel.size && !G.placing;
   const h = panelHTML();
   if (h !== lastPanel) { $('panel').innerHTML = lastPanel = h; }
   const sel = selected(), pd = $('pd'), pbar = $('pbar'), pab = $('pab');
   if (pd && sel.length) {
     const e = sel[0];
     if (sel.length > 1) pd.textContent = 'Tap the ground to move, an enemy to attack.';
-    else if (e.b && !e.built) pd.textContent = `Under construction ${e.prog}%` + (e.owner === v.me ? ': send a worker to keep building' : '');
+    else if (e.b && !e.built) pd.textContent = e.owner !== v.me ? `Under construction ${e.prog}%` : e.paused ? `Paused at ${e.prog}%: no worker is building it` : `Under construction ${e.prog}%`;
     else if (e.b && e.owner === v.me && DEF[e.type].trains && P.pop >= P.cap) pd.textContent = 'Unit limit reached: build a Cottage.';
     else pd.textContent = `Health ${e.hp}/${DEF[e.type].hp}` + (DEF[e.type].req && !e.built ? '' : '');
     if (pbar) pbar.style.width = (e.prog || 0) + '%';
@@ -553,6 +560,11 @@ $('panel').addEventListener('click', ev => {
   if (a === 'build') G.placing = { type: arg, tx: 0, ty: 0, has: false };
   else if (a === 'cancel') G.placing = null;
   else if (a === 'confirm') confirmPlace();
+  else if (a === 'resume' || a === 'cancelb' || a === 'unqueue') {
+    const e = selected().find(e => e.b && e.owner === me);
+    if (e) G.send({ t: a === 'cancelb' ? 'cancel' : a, b: e.id });
+    if (a === 'resume') toast('Workers are on their way');
+  }
   else if (a === 'train') { const e = selected().find(e => e.b && e.owner === me); if (e) G.send({ t: 'train', b: e.id, u: arg }); }
   else if (a === 'ability') { for (const e of myUnits()) if (e.type === 'hero') G.send({ t: 'ability', id: e.id }); }
   else if (a === 'stop') G.send({ t: 'stop', ids: myUnits().map(e => e.id) });

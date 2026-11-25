@@ -74,5 +74,39 @@ for (const seed of [1, 2, 3, 4, 5, 6]) {
   check(idle === 0 && s.players[0].res > 3000, `seed ${seed}: 10 workers never idle in 10 game-min (gathered ${Math.floor(s.players[0].res)})`);
 }
 
+// A half-built building can be left, resumed by the nearest workers, or cancelled for a full refund.
+{
+  const s = new Sim({ seed: 9, players: [{ name: 'a', team: 0 }, { name: 'b', team: 1 }] });
+  const run = n => { for (let i = 0; i < n; i++) { s.step(); s.snapshot(); } };
+  const hq = [...s.ents.values()].find(e => e.type === 'hq' && e.owner === 0);
+  const w = [...s.ents.values()].find(e => e.type === 'worker' && e.owner === 0);
+  const site = s.findSite('house', hq.tx + 1, hq.ty + 1);
+  s.command(0, { t: 'build', ids: [w.id], b: 'house', tx: site[0], ty: site[1] });
+  const b = [...s.ents.values()].find(e => e.type === 'house');
+  run(60);
+  const mid = b.prog;
+  s.command(0, { t: 'stop', ids: [w.id] });
+  run(30);
+  const snap = s.snapshot().e.find(a => a[0] === b.id);
+  check(mid > 0 && mid < 1 && b.prog === mid && snap[9] === 1, 'a building with no worker stays where it is and reports paused');
+  s.command(1, { t: 'cancel', b: b.id }); s.command(1, { t: 'resume', b: b.id });
+  check(s.ents.has(b.id) && b.prog === mid, "another player can't cancel or resume it");
+  s.command(0, { t: 'resume', b: b.id });
+  run(200);
+  check(b.built, 'resume sends workers and the building is finished');
+  const before = s.players[0].res;
+  s.command(0, { t: 'build', ids: [w.id], b: 'house', tx: s.findSite('house', hq.tx + 1, hq.ty + 1)[0], ty: s.findSite('house', hq.tx + 1, hq.ty + 1)[1] });
+  const b2 = [...s.ents.values()].find(e => e.type === 'house' && !e.built);
+  run(20);
+  const paid = before - s.players[0].res < 0 ? 80 : 80; // income keeps arriving, so compare around the cancel itself
+  const r0 = s.players[0].res;
+  s.command(0, { t: 'cancel', b: b2.id });
+  check(!s.ents.has(b2.id) && s.players[0].res === r0 + paid && s.canPlace('house', b2.tx, b2.ty), 'cancel removes it, frees the ground and refunds the cost');
+  s.command(0, { t: 'train', b: hq.id, u: 'worker' });
+  const r1 = s.players[0].res;
+  s.command(0, { t: 'unqueue', b: hq.id });
+  check(hq.queue.length === 0 && s.players[0].res === r1 + 50, 'a queued unit can be cancelled for a refund');
+}
+
 if (failed) { console.error(`${failed} check(s) failed`); process.exit(1); }
 console.log('all checks passed');
