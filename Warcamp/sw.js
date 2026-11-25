@@ -1,11 +1,11 @@
 // Offline support: the whole game is cached on first visit, served from the cache afterwards,
 // and refreshed in the background whenever the network is there.
 // Bump VERSION when a file is added or removed.
-const VERSION = 'warcamp-v3';
+const VERSION = 'warcamp-v4';
 const ASSETS = [
   './', 'index.html', 'manifest.webmanifest', 'css/style.css',
   'js/main.js', 'js/data.js', 'js/sim.js', 'js/ai.js', 'js/render.js', 'js/net.js',
-  'vendor/peerjs.min.js', 'icons/icon.svg', 'icons/icon-192.png', 'icons/apple-touch-icon.png', 'icons/icon-512.png', 'icons/icon-maskable-512.png',
+  'lib/peerjs.min.js', 'icons/icon.svg', 'icons/icon-192.png', 'icons/apple-touch-icon.png', 'icons/icon-512.png', 'icons/icon-maskable-512.png',
 ];
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(VERSION).then(c => c.addAll(ASSETS)).then(() => self.skipWaiting()));

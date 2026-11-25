@@ -94,4 +94,4 @@ that every game ends, that workers never stand idle and that bad input from the 
 Adding `?net=local` to the URL connects tabs of one browser to each other without the internet, and
 `?speed=8` fast-forwards a hosted game; both are for testing.
 
-`vendor/peerjs.min.js` is PeerJS 1.5.4 (MIT licence).
+`lib/peerjs.min.js` is PeerJS 1.5.4 (MIT licence).

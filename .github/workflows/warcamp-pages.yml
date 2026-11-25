@@ -33,6 +33,8 @@ jobs:
           node-version: 22
       - name: Play whole games headless
         run: node Warcamp/test/sim.test.mjs
+      - name: Every file the game loads is in the repository
+        run: node Warcamp/test/assets.test.mjs
       - name: Leave tests and docs out of the site
         run: rm -rf Warcamp/test Warcamp/docs Warcamp/PLAN.md Warcamp/README.md
       - uses: actions/configure-pages@v5
