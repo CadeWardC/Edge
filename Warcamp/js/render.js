@@ -28,7 +28,7 @@ export class View {
       }
       if (a[5] < e.hp && e.owner === this.me) this.hurt = { x: a[3], y: a[4], tick: s.k };
       e.x = a[3]; e.y = a[4]; e.hp = a[5]; e.stamp = s.k;
-      if (d.b) { e.built = !!a[6]; e.prog = a[7]; e.queue = a[8]; }
+      if (d.b) { e.built = !!a[6]; e.prog = a[7]; e.queue = a[8]; e.paused = !!a[9]; }
       else { e.carry = a[6]; e.abT = a[7]; e.idle = a[8]; }
     }
     for (const [id, e] of this.ents) if (e.stamp !== s.k) this.ents.delete(id);
@@ -249,6 +249,12 @@ export class Renderer {
       drawBuilding(g, e, v.info[e.owner].color);
       const max = DEF[e.type].hp;
       if (e.built && (e.hp < max || ui.sel.has(e.id))) bar(g, e.rx, e.ty * T - 4, e.size * T - 10, e.hp / max, '#4ade80');
+      if (!e.built && e.paused && v.friendly(e)) { // nobody is building this: a pause badge
+        const bx = e.rx, by = e.ry - 4;
+        g.fillStyle = '#f59e0b'; g.strokeStyle = '#1f2937'; g.lineWidth = 1.5;
+        g.beginPath(); g.arc(bx, by, 9, 0, 7); g.fill(); g.stroke();
+        g.fillStyle = '#1f2937'; g.fillRect(bx - 4, by - 4.5, 3, 9); g.fillRect(bx + 1, by - 4.5, 3, 9);
+      }
     }
     units.sort((a, b) => a.ry - b.ry);
     for (const e of units) {

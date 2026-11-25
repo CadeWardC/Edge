@@ -121,3 +121,22 @@ input, select { font-size: 16px; }
   html, body { position: fixed; inset: 0; width: 100%; }
   .screen { -webkit-overflow-scrolling: touch; }
 }
+
+/* ---------- side bar: drawn icons with a word under each ---------- */
+#side { gap: 0; padding: 4px; background: #101b2fd9; border: 1px solid #2c3d5a; border-radius: 16px; box-shadow: 0 4px 14px #0006; }
+#side button { width: 58px; height: 54px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
+  background: transparent; border: 0; border-radius: 12px; color: #dbe5f4; }
+#side button:active { background: #24324a; }
+#side button.on { background: #2563eb; color: #fff; }
+#side button:disabled { opacity: .35; }
+#side svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+#side span { font-size: 10.5px; font-weight: 600; letter-spacing: .2px; line-height: 1; }
+#side b { position: absolute; top: 2px; right: 4px; min-width: 17px; height: 17px; border-radius: 9px; font-size: 10.5px; line-height: 17px; padding: 0 4px; color: #fff; }
+#side b:empty { display: none; }
+#armyN { background: #2563eb; } #idleN { background: #dc2626; }
+@media (pointer: coarse) { #side button { width: 60px; height: 56px; font-size: inherit; } }
+@media (orientation: portrait) { #side { gap: 0; } #side button { width: 62px; height: 58px; } }
+@media (orientation: landscape) and (max-height: 480px) { #side { gap: 0; padding: 3px; } #side button { width: 56px; height: 50px; } }
+#panel button.warn small { color: #fca5a5; }
+#panel button.go { background: #1d4ed8; border-color: #3b82f6; }
+@media (orientation: landscape) and (max-height: 480px) { #panel { max-height: 136px; } }

@@ -29,10 +29,10 @@
   </div>
   <canvas id="mini" width="168" height="168"></canvas>
   <div id="side">
-    <button id="bArmy" title="Select whole army (A)">⚔</button>
-    <button id="bIdle" title="Next idle worker (.)">⛏<b id="idleN"></b></button>
-    <button id="bBox" title="Drag a box to select">▭</button>
-    <button id="bDesel" title="Deselect (Esc)">✕</button>
+    <button id="bArmy" title="Select your whole army (Q)"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4l11 11M20 4L9 15M13 17l4-4M11 17l-4-4M6 20l3-3M18 20l-3-3"/></svg><span>Army</span><b id="armyN"></b></button>
+    <button id="bIdle" title="Go to an idle worker (.)"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9c5-5 11-5 16 0M12 6v15"/></svg><span>Idle</span><b id="idleN"></b></button>
+    <button id="bBox" title="Drag a box to select"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="5" width="16" height="14" rx="2" stroke-dasharray="3 2.5"/></svg><span>Box</span></button>
+    <button id="bDesel" title="Clear the selection (Esc)"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg><span>Clear</span></button>
   </div>
   <div id="panel"></div>
   <div id="toast"></div>
@@ -86,8 +86,9 @@
     <ul>
       <li>Tap a unit or building to select it. Double-tap a unit to select all of its kind on screen.</li>
       <li>With units selected, tap the ground to move, an enemy to attack, a crystal or tree to gather.</li>
-      <li>Drag to scroll, pinch to zoom. Hold then drag (or tap ▭ first) to select with a box.</li>
-      <li>⚔ selects your whole army. ⛏ jumps to an idle worker. Tap the map in the corner to jump there.</li>
+      <li>Drag to scroll, pinch to zoom. Hold then drag (or tap Box first) to select with a box.</li>
+      <li><b>Army</b> selects all your fighters. <b>Idle</b> jumps to a worker with nothing to do. Tap the map in the corner to jump there.</li>
+      <li>Tap a half-built building to send workers back to it, or to cancel it and get the crystal back.</li>
     </ul>
     <h3 class="desk">Mouse and keyboard</h3>
     <ul class="desk">
