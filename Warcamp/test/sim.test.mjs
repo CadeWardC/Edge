@@ -413,5 +413,36 @@ for (const seed of [1, 2, 3, 4, 5, 6]) {
   check(ws[2].order.k !== 'repair' || ws[2].order.b === hq.id, 'a unit cannot be "repaired"');
 }
 
+// Allies start close together; the other side starts far away. Outposts may go anywhere.
+{
+  const dist = (s, a, b) => { const p = s.basePos(a), q = s.basePos(b); return Math.hypot(p[0] - q[0], p[1] - q[1]); };
+  let near = 0, far = 1e9, linked = true, sep = 1e9;
+  for (const seed of [1, 2, 3, 4, 5, 6, 7, 8]) {
+    const players = [0, 1, 2, 3].map(i => ({ name: 'P' + i, team: 0 })).concat([4, 5, 6, 7, 8].map(i => ({ name: 'C' + i, team: 1, ai: true })));
+    const s = new Sim({ seed, cluster: true, players });
+    for (let a = 0; a < 4; a++) for (let b = a + 1; b < 4; b++) { near = Math.max(near, dist(s, a, b)); sep = Math.min(sep, dist(s, a, b)); }
+    for (let a = 0; a < 4; a++) for (let b = 4; b < 9; b++) far = Math.min(far, dist(s, a, b));
+    for (let a = 0; a < 9; a++) for (let b = a + 1; b < 9; b++) sep = Math.min(sep, dist(s, a, b));
+    const [ax, ay] = s.basePos(0);
+    for (let i = 1; i < 9; i++) { const [bx, by] = s.basePos(i), p = s.findPath(ax, ay + 3, bx, by + 3, bx, by + 3); if (p[p.length - 1] !== (by + 3) * s.N + bx) linked = false; }
+    // every ally has the same start: a Keep, crystal within 9 tiles, trees within 10
+    for (let i = 0; i < 4; i++) { const [x, y] = s.basePos(i); if (!s.nearestRes(x, y, 3, 9) || !s.nearestRes(x, y, 2, 10) || s.terrain[s.nearestRes(x, y, 3, 9)[1] * s.N + s.nearestRes(x, y, 3, 9)[0]] !== 3) linked = false; }
+  }
+  check(near <= 23 && sep >= 12, `four allies start within ${near.toFixed(0)} tiles of each other (never closer than ${sep.toFixed(0)})`);
+  check(far >= 30, `the other side starts at least ${far.toFixed(0)} tiles away`);
+  check(linked, 'on 8 maps every base is connected and every ally has crystal and trees beside it');
+  const surv = new Sim({ seed: 9, mode: 'survival', cluster: true, players: [{ name: 'A', team: 0 }, { name: 'B', team: 0 }, { name: 'C', team: 0 }, { name: 'The Horde', team: 1, horde: true }] });
+  check(dist(surv, 0, 1) <= 23 && dist(surv, 0, 2) <= 23 && [...surv.ents.values()].filter(e => e.type === 'hq').length === 3, 'in Survival the players start together too');
+  const ffa = new Sim({ seed: 9, players: [0, 1, 2, 3].map(i => ({ name: 'P' + i, team: i })) });
+  check(dist(ffa, 0, 1) > 60, `in a free-for-all they still start far apart (${dist(ffa, 0, 1).toFixed(0)} tiles)`);
+  // an Outpost far from any Keep
+  const s = new Sim({ seed: 3, players: [{ name: 'a', team: 0 }, { name: 'b', team: 1 }] });
+  const ws = [...s.ents.values()].filter(e => e.type === 'worker' && e.owner === 0).map(w => w.id), [bx, by] = s.basePos(0);
+  const site = s.findSite('outpost', bx + 32, by + 30);
+  s.command(0, { t: 'build', ids: ws, b: 'outpost', tx: site[0], ty: site[1] });
+  s.command(0, { t: 'build', ids: ws, b: 'house', tx: site[0] + 4, ty: site[1] });
+  check([...s.ents.values()].some(e => e.type === 'outpost') && ![...s.ents.values()].some(e => e.type === 'house'), 'an Outpost can be built far from any Keep; other buildings still cannot');
+}
+
 if (failed) { console.error(`${failed} check(s) failed`); process.exit(1); }
 console.log('all checks passed');

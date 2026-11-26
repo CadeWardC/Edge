@@ -19,7 +19,7 @@ export function rng(a) {
 
 // One quarter of the map is generated from the seed and mirrored four ways, so every player's corner is equal.
 // The base sits at a different spot in its quarter each game. Terrain: 0 grass, 1 water, 2 tree, 3 crystal.
-export function genMap(seed, N, extra) {
+export function genMap(seed, N, extra, cluster) {
   const r = rng(seed), Q = N >> 1, q = new Uint8Array(Q * Q), ri = n => (r() * n) | 0;
   const set = (x, y, t) => { if (x >= 0 && y >= 0 && x < Q && y < Q) q[y * Q + x] = t; };
   const blob = (t, x, y, n) => {
@@ -43,10 +43,23 @@ export function genMap(seed, N, extra) {
     if (x < Q - 1 && (y >= Q - 1 || (Q - 1 - x) >= (Q - 1 - y))) x++; else y++;
     set(x, y, 0); set(x - 1, y, 0); set(x, y - 1, 0);
   }
+  // Allies start near each other: three more base sites a short walk from the first, each with its own roads.
+  const allies = [[bx + 15, by], [bx, by + 15], [bx + 15, by + 15]];
+  if (cluster) for (const [ax, ay] of allies) {
+    for (let y = 0; y < Q; y++) for (let x = 0; x < Q; x++) if (Math.hypot(x - ax, y - ay) < 6.5) q[y * Q + x] = 0;
+    for (let x = ax; x < Q; x++) { set(x, ay, 0); set(x, ay + 1, 0); }
+    for (let y = ay; y < Q; y++) { set(ax, y, 0); set(ax + 1, y, 0); }
+    for (let x = bx; x <= ax; x++) { set(x, ay, 0); set(x, ay + 1, 0); } // and a road back to the first base
+    for (let y = by; y <= ay; y++) { set(ax, y, 0); set(ax + 1, y, 0); }
+  }
   // Guaranteed starting resources beside the base, and a contested deposit in the middle.
   for (let x = bx + 5; x <= bx + 7; x++) { set(x, by - 3, 3); set(x, by - 2, 3); }
   for (let x = bx - 4; x <= bx - 3; x++) { set(x, by + 11, 3); set(x, by + 12, 3); } // a second deposit a short walk away
   for (let x = bx - 5; x <= bx - 1; x++) { set(x, by + 6, 2); set(x, by + 7, 2); }
+  if (cluster) for (const [ax, ay] of allies) { // the same start for every ally: crystal and trees by the base
+    for (let x = ax + 5; x <= ax + 7; x++) { set(x, ay - 3, 3); set(x, ay - 2, 3); }
+    for (let x = ax - 5; x <= ax - 1; x++) { set(x, ay + 6, 2); set(x, ay + 7, 2); }
+  }
   for (const [x, y] of [[Q - 3, Q - 6], [Q - 2, Q - 6], [Q - 1, Q - 6], [Q - 6, Q - 3], [Q - 6, Q - 2], [Q - 6, Q - 1]]) set(x, y, 3);
 
   // With more than four players, each quarter gets a second base site nearer the middle of the map.
@@ -67,7 +80,7 @@ export function genMap(seed, N, extra) {
       amt[my * N + mx] = v === 2 ? TREE_AMT : v === 3 ? CRYSTAL_AMT : 0;
     }
   }
-  return { terrain, amt, base: [bx, by], base2: [sx, sy] };
+  return { terrain, amt, base: [bx, by], base2: [sx, sy], allies };
 }
 
 // Slots 0 and 1 are opposite each other, so a two-player game is always a fair diagonal.
@@ -85,8 +98,18 @@ const num = v => typeof v === 'number' && isFinite(v);
 export class Sim {
   constructor(cfg) {
     const N = this.N = cfg.size || MAP_SIZE;
-    const m = genMap(cfg.seed, N, cfg.extra);
+    const m = genMap(cfg.seed, N, cfg.extra, cfg.cluster);
     this.base = m.base; this.base2 = m.base2;
+    // Where each player starts. Normally one per quarter of the map. When the players are allies (cfg.cluster),
+    // they share one quarter, close together, and the other side takes the other quarters.
+    this.spots = null;
+    if (cfg.cluster) {
+      const flip = (p, qd) => [[p[0], p[1]], [N - 1 - p[0], N - 1 - p[1]], [N - 1 - p[0], p[1]], [p[0], N - 1 - p[1]]][qd];
+      const home = [m.base, ...m.allies].map(p => flip(p, 0));
+      const away = [1, 2, 3].map(qd => flip(m.base, qd)).concat([1, 2, 3].flatMap(qd => m.allies.map(p => flip(p, qd))));
+      const team0 = cfg.players[0].team;
+      this.spots = cfg.players.map(p => p.horde ? null : p.team === team0 ? home.shift() : away.shift());
+    }
     this.terrain = m.terrain; this.amt = m.amt;
     this.occ = new Int32Array(N * N);
     this.ents = new Map();
@@ -113,7 +136,7 @@ export class Sim {
   }
 
   // ---------- helpers ----------
-  basePos(slot) { return slot < 4 ? basePos(slot, this.N, this.base) : basePos(slot - 4, this.N, this.base2); }
+  basePos(slot) { return this.spots ? this.spots[slot] : slot < 4 ? basePos(slot, this.N, this.base) : basePos(slot - 4, this.N, this.base2); }
   maxHp(e) { const d = DEF[e.type]; return Math.round(d.hp * (d.hero ? heroMult(this.players[e.owner].lvl) : 1) * (e.mul || 1)); }
   walkable(x, y) {
     const N = this.N;
@@ -736,7 +759,7 @@ export class Sim {
         if (P.res < d.cost || P.wood < wood || (d.req && !this.hasBuilt(pid, d.req)) || !this.canPlace(c.b, tx, ty)) return;
         const ws = own(c.ids).filter(e => e.type === 'worker');
         if (!ws.length) return;
-        if (c.b === 'hq') { if (P.keeps >= KEEP_LIMIT) return; } else if (!this.nearKeep(pid, c.b, tx, ty)) return;
+        if (c.b === 'hq') { if (P.keeps >= KEEP_LIMIT) return; } else if (!d.anywhere && !this.nearKeep(pid, c.b, tx, ty)) return;
         if (c.b === 'hq') P.keeps++;
         P.res -= d.cost; P.wood -= wood;
         const b = this.addBuilding(c.b, pid, tx, ty, false);

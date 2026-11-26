@@ -70,7 +70,7 @@ export class AI {
       if (want && me.res >= DEF[want].cost && me.wood >= (DEF[want].wood || 0)) {
         const site = s.findSite(want, at[0], at[1]);
         const w = workers.find(w => !w.order || w.order.k === 'harvest');
-        if (site && w && (want === 'hq' || s.nearKeep(pid, want, site[0], site[1]))) cmd({ t: 'build', ids: [w.id], b: want, tx: site[0], ty: site[1] });
+        if (site && w && (DEF[want].anywhere || s.nearKeep(pid, want, site[0], site[1]))) cmd({ t: 'build', ids: [w.id], b: want, tx: site[0], ty: site[1] });
       }
     }
 
