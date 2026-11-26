@@ -324,3 +324,50 @@ input, select { background: var(--dock); border: 1px solid #3b4d6b; border-radiu
   #game.on.left:is(.lay-over, .lay-lite) #waveInfo { right: calc(env(safe-area-inset-right) + 108px); }
   #game.on.left.mapoff:is(.lay-over, .lay-lite) #waveInfo { right: calc(env(safe-area-inset-right) + 62px); }
 }
+
+/* ---------- floating layout, phone sideways: everything to do with the selection runs along the bottom ----------
+   Resources top-right, mini-map top-left, and along the bottom the selection panel with the action buttons
+   at its right-hand end. */
+@media (orientation: landscape) {
+  #game.on:is(.lay-over, .lay-lite, .folded) #side { top: auto; bottom: calc(env(safe-area-inset-bottom) + 4px); right: calc(env(safe-area-inset-right) + 4px); width: 214px; }
+  #game.on:is(.lay-over, .lay-lite) #panel { top: auto; bottom: calc(env(safe-area-inset-bottom) + 4px); left: calc(env(safe-area-inset-left) + 4px); right: calc(env(safe-area-inset-right) + 224px);
+    width: auto; max-height: 116px; }
+  #game.on.left:is(.lay-over, .lay-lite, .folded) #side { right: auto; left: calc(env(safe-area-inset-left) + 4px); }
+  #game.on.left:is(.lay-over, .lay-lite, .folded) #top { right: auto; left: calc(env(safe-area-inset-left) + 4px); }
+  #game.on.left:is(.lay-over, .lay-lite) #panel { left: calc(env(safe-area-inset-left) + 224px); right: calc(env(safe-area-inset-right) + 4px); }
+  /* in a strip along the bottom the buttons are full-size again, in one row that swipes sideways */
+  #game.on:is(.lay-over, .lay-lite) #panel :is(.acts, .chips) { flex-wrap: nowrap; overflow-x: auto; gap: 5px;
+    -webkit-mask-image: linear-gradient(90deg, #000 calc(100% - 26px), transparent); mask-image: linear-gradient(90deg, #000 calc(100% - 26px), transparent); padding-right: 20px; }
+  #game.on:is(.lay-over, .lay-lite) #panel .acts > button { flex: none; min-width: 0; padding: 5px 10px; font-size: 13px; line-height: 1.2; text-align: left; white-space: nowrap; min-height: 44px; }
+  #game.on:is(.lay-over, .lay-lite) #panel button.ib { flex: none; flex-direction: row; gap: 6px; padding: 3px 9px 3px 4px; }
+  #game.on:is(.lay-over, .lay-lite) #panel button.ib img { width: 30px; height: 30px; }
+  #game.on:is(.lay-over, .lay-lite) #panel button.ib .l { align-items: flex-start; width: auto; font-size: 13px; overflow: visible; }
+  #game.on:is(.lay-over, .lay-lite) #panel button.ib .l > span { flex-direction: row; gap: 2px; }
+  #game.on:is(.lay-over, .lay-lite) #panel button.ib small { font-size: 11px; margin-right: 5px; }
+  /* the messages and the fold arrow follow */
+  #game.on:is(.lay-over, .lay-lite, .folded) #waveInfo { right: calc(env(safe-area-inset-right) + 232px); }
+  #game.on.left:is(.lay-over, .lay-lite, .folded) #waveInfo { right: calc(env(safe-area-inset-right) + 108px); }
+  #game.on.left.mapoff:is(.lay-over, .lay-lite, .folded) #waveInfo { right: calc(env(safe-area-inset-right) + 62px); }
+  #game.on:is(.lay-over, .lay-lite, .folded) #fold, #game.on.left:is(.lay-over, .lay-lite, .folded) #fold { top: auto; right: auto; left: 38%; bottom: var(--pb, 0px); width: 44px; height: 22px;
+    border: 1px solid var(--line); border-bottom: 0; border-radius: 11px 11px 0 0; transform: translateX(-50%); }
+  #game.on:is(.lay-over, .lay-lite) #fold svg, #game.on.left:is(.lay-over, .lay-lite) #fold svg { transform: none; }
+  #game.on.folded #fold svg, #game.on.left.folded #fold svg { transform: rotate(180deg); }
+}
+/* Dock layout, phone sideways: four tiles to a row, so the names are never cut short. */
+@media (orientation: landscape) and (max-height: 559px) {
+  #game.on.lay-dock:not(.folded) #panel button.ib { flex: 0 0 calc(25% - 4px); }
+  #game.on.lay-dock:not(.folded) #panel .acts:has(.ib) > button:not(.ib) { flex: 0 0 calc(25% - 4px); }
+  #game.on.lay-dock:not(.folded) #panel button.ib .l { font-size: 9px; letter-spacing: -.2px; }
+}
+/* Sideways, floating: the name, health and level share one line above the buttons, to keep the strip low. */
+@media (orientation: landscape) {
+  #game.on:is(.lay-over, .lay-lite) #panel { flex-direction: row; flex-wrap: wrap; align-items: center; column-gap: 12px; row-gap: 4px; align-content: flex-start; }
+  #game.on:is(.lay-over, .lay-lite) #panel > .t { flex: 0 1 auto; }
+  #game.on:is(.lay-over, .lay-lite) #panel > .d { display: block; flex: 1 1 180px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #game.on:is(.lay-over, .lay-lite) #panel > .bars { flex: 1 1 220px; }
+  #game.on:is(.lay-over, .lay-lite) #panel > .chips { flex: 1 1 100%; }
+  #game.on:is(.lay-over, .lay-lite) #panel > .acts { flex: 1 1 100%; }
+  #game.on:is(.lay-over, .lay-lite) #panel > .pb { flex: 1 1 100%; }
+  #game.on:is(.lay-over, .lay-lite) #panel > .d.q { flex: 0 1 auto; display: flex; }
+}
+@media (orientation: landscape) { #game.on:is(.lay-over, .lay-lite) #panel > .chips { flex: 1 1 52%; min-width: 0; } #game.on:is(.lay-over, .lay-lite) #panel > .bars { flex: 1 1 200px; min-width: 0; } }
