@@ -793,9 +793,20 @@ addEventListener('keydown', e => {
 });
 addEventListener('keyup', e => keys.delete(e.key.toLowerCase()));
 addEventListener('blur', () => keys.clear());
-addEventListener('resize', () => R.resize());
+// An installed iPhone app can lay the page out shorter than the screen (by the height of the clock bar). Use the real height.
+function fit() {
+  let h = 0;
+  if (navigator.standalone) {
+    const full = innerHeight >= innerWidth ? Math.max(screen.width, screen.height) : Math.min(screen.width, screen.height);
+    if (full > innerHeight && full - innerHeight < 100) h = full;
+  }
+  const st = document.documentElement.style;
+  if (h) st.setProperty('--fh', h + 'px'); else st.removeProperty('--fh');
+}
+fit();
+addEventListener('resize', () => { fit(); R.resize(); });
 if (window.ResizeObserver) new ResizeObserver(() => { R.resize(); pads(); }).observe(cv); // the map area changes size with the dock
-addEventListener('orientationchange', () => setTimeout(() => R.resize(), 250));
+addEventListener('orientationchange', () => setTimeout(() => { fit(); R.resize(); }, 250));
 if (window.visualViewport) visualViewport.addEventListener('resize', () => R.resize());
 // iPhone: stop the page itself from zooming or bouncing under the game.
 for (const t of ['gesturestart', 'gesturechange']) document.addEventListener(t, e => e.preventDefault());
