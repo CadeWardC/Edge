@@ -33,7 +33,7 @@ export class AI {
     } else if (onWood.length > wantWood) s.autoHarvest(onWood[0], 3);
 
     // Never leave a building half finished.
-    const unbuilt = ['hq', 'house', 'barracks', 'stable', 'tower', 'outpost'].flatMap(t => g(t).filter(b => !b.built));
+    const unbuilt = ['hq', 'house', 'barracks', 'stable', 'tower', 'outpost', 'workshop', 'sanctum', 'wall'].flatMap(t => g(t).filter(b => !b.built));
     for (const b of unbuilt) {
       if (workers.some(w => w.order && w.order.k === 'build' && w.order.b === b.id)) continue;
       const w = near(workers.filter(w => !w.order || w.order.k !== 'build'), b);
@@ -42,7 +42,7 @@ export class AI {
 
     if (hq && !hq.queue.length && workers.length < this.maxW) cmd({ t: 'train', b: hq.id, u: 'worker' });
 
-    const army = [...g('soldier'), ...g('archer'), ...g('knight')];
+    const army = [...g('soldier'), ...g('archer'), ...g('knight'), ...g('guard'), ...g('mage'), ...g('catapult')];
     const racks = g('barracks');
     if (hq && !unbuilt.length && workers.length) {
       let want = null;
@@ -50,6 +50,8 @@ export class AI {
       else if (!racks.length && workers.length >= 4) want = 'barracks';
       else if (!g('stable').length && racks.length && me.res >= 260) want = 'stable';
       else if (g('tower').length < 2 && army.length >= 4 && me.res >= 320) want = 'tower';
+      else if (!g('workshop').length && g('stable').length && me.res >= 300) want = 'workshop';
+      else if (!g('sanctum').length && g('workshop').length && me.res >= 350) want = 'sanctum';
       else if (racks.length < 2 && me.res >= 500) want = 'barracks';
       let at = [hq.tx + 1, hq.ty + 1];
       if (!want && g('outpost').length < 2 && workers.length >= 6 && me.res >= 180) {
@@ -66,9 +68,11 @@ export class AI {
     }
 
     for (const b of racks) {
-      if (b.built && b.queue.length < 2) cmd({ t: 'train', b: b.id, u: g('archer').length < g('soldier').length * 0.7 ? 'archer' : 'soldier' });
+      if (b.built && b.queue.length < 2) cmd({ t: 'train', b: b.id, u: g('archer').length < g('soldier').length * 0.7 ? 'archer' : g('guard').length < g('soldier').length * 0.4 ? 'guard' : 'soldier' });
     }
     for (const b of g('stable')) if (b.built && b.queue.length < 1) cmd({ t: 'train', b: b.id, u: 'knight' });
+    for (const b of g('workshop')) if (b.built && !b.queue.length && g('catapult').length < 2) cmd({ t: 'train', b: b.id, u: 'catapult' });
+    for (const b of g('sanctum')) if (b.built && !b.queue.length && g('mage').length < 4) cmd({ t: 'train', b: b.id, u: 'mage' });
 
     const hero = HEROES.flatMap(g)[0];
     const force = hero ? [...army, hero] : army;
@@ -90,16 +94,17 @@ export class AI {
       this.wave = Math.min(this.wave + 3, 22);
     }
 
-    if (hero && hero.abT <= 0) {
-      const ab = DEF[hero.type].ab;
-      let foes = 0, friends = 0, hurt = 0;
+    if (hero) DEF[hero.type].abs.forEach((ab, n) => {
+      if (me.lvl < ab.lvl || hero.cds[n] > 0) return;
+      let foes = 0, friends = 0, hurt = 0, big = 0;
       for (const t of s.ents.values()) {
         if (t.b || s.dist(hero, t) > ab.radius - 10) continue;
-        if (s.enemy(hero, t)) foes++;
-        else { friends++; if (t.hp < DEF[t.type].hp * 0.6) hurt++; }
+        if (s.enemy(hero, t)) { foes++; if (t.hp > 80) big++; }
+        else { friends++; if (t.hp < s.maxHp(t) * 0.6) hurt++; }
       }
-      if (ab.kind === 'shock' ? foes >= 2 : ab.kind === 'heal' ? hurt >= 2 : this.att && friends >= 4) cmd({ t: 'ability', id: hero.id });
-    }
+      const go = { shock: foes >= 2, snipe: big >= 1, heal: hurt >= 2, haste: this.att && friends >= 4, rage: foes >= 2 && friends >= 3, ward: foes >= 2 && friends >= 3 }[ab.kind];
+      if (go) cmd({ t: 'ability', id: hero.id, n });
+    });
   }
   // The nearest enemy building, or any enemy at all if none is left standing.
   target(from) {

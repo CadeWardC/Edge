@@ -6,7 +6,10 @@ Gather crystal, build a base, raise an army and destroy every enemy building.
 ![Warcamp on a phone](docs/screenshot.png)
 
 - **Single player** against 1 to 3 computers (easy, normal or hard).
-- Pick one of three **heroes** (Warden, Ranger, Sage) and one of eight **colours** before each game.
+- Pick one of three **heroes** (Warden, Ranger, Sage) and one of eight **colours** before each game. Heroes level up
+  from kills and unlock two more spells.
+- Eight kinds of troops (Soldier, Archer, Guard, Rider, Mage, Cleric, Catapult, plus Workers), walls, and extra Keeps
+  on a large map where the starting spots change every game.
 - **Multiplayer** for 2 to 4 people on their own devices, with computers in the empty seats if wanted:
   free for all, or everyone against the computers.
 - **Touch first**, and it also plays with mouse and keyboard.

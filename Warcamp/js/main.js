@@ -1,5 +1,5 @@
 // Menus, lobby, controls and the game loop.
-import { TILE as T, DEF, TYPES, BUILDABLE, COLORS, COLOR_NAMES, HEROES } from './data.js';
+import { TILE as T, DEF, TYPES, BUILDABLE, COLORS, COLOR_NAMES, HEROES, MAP_SIZE } from './data.js';
 import { Sim } from './sim.js';
 import { AI } from './ai.js';
 import { View, Renderer } from './render.js';
@@ -164,7 +164,7 @@ function renderLobby() {
   const me = L.slots[L.you];
   $('pick').innerHTML = !me ? '' :
     '<div class="pl">Your hero</div><div class="heroes">' + HEROES.map(h =>
-      `<button data-hero="${h}" class="${me.hero === h ? 'on' : ''}"><b>${DEF[h].name}</b><small>${DEF[h].about}</small><small><i>${DEF[h].ab.name}</i>: ${DEF[h].ab.about}</small></button>`).join('') +
+      `<button data-hero="${h}" class="${me.hero === h ? 'on' : ''}"><b>${DEF[h].name}</b><small>${DEF[h].about}</small><small><i>${DEF[h].abs[0].name}</i>: ${DEF[h].abs[0].about}</small><small>More spells at levels 2 and 4</small></button>`).join('') +
     '</div><div class="pl">Your colour</div><div class="colors">' + COLORS.map((c, i) =>
       `<button data-color="${i}" style="background:${c}" class="${me.color === i ? 'on' : ''}" aria-label="${COLOR_NAMES[i]}"${L.slots.some(o => o !== me && seated(o) && o.color === i) ? ' disabled' : ''}></button>`).join('') + '</div>';
   $('lMode').value = L.mode; $('lLevel').value = L.level;
@@ -206,7 +206,7 @@ $('lStart').onclick = () => {
   const coop = L.mode === 'coop' && ps.some(p => p.ai) && ps.some(p => !p.ai);
   if (L.mode === 'coop' && !coop) { $('lMsg').textContent = 'Players vs computers needs at least one computer.'; return; }
   ps.forEach((p, i) => { p.team = coop ? (p.ai ? 1 : 0) : i; });
-  const cfg = { seed: (Math.random() * 2 ** 31) | 0, size: 56, level: L.level, players: ps };
+  const cfg = { seed: (Math.random() * 2 ** 31) | 0, size: MAP_SIZE, level: L.level, players: ps };
   G.tokens = tokens;
   conns.forEach((c, i) => c && c.send({ t: 'start', cfg, you: i }));
   startGame(cfg, 0, conns);
@@ -284,7 +284,7 @@ function startGame(cfg, me, conns) {
   G.view = new View(cfg, me);
   R.setView(G.view);
   R.cam.z = Math.min(innerWidth, innerHeight) < 500 ? .8 : 1;
-  G.sel.clear(); G.placing = null; G.box = null; G.boxMode = false; G.ended = false; G.elim = false; G.needCenter = true;
+  G.sel.clear(); G.placing = null; G.box = null; G.boxMode = false; G.amove = false; G.ended = false; G.elim = false; G.needCenter = true;
   G.lastSnap = performance.now();
   $('bBox').classList.remove('on');
   if (conns) {
@@ -416,7 +416,9 @@ function confirmPlace() {
   if (!canPlace(p.type, p.tx, p.ty)) { toast("Can't build there"); return; }
   const ids = myUnits().filter(e => e.type === 'worker').map(e => e.id);
   if (ids.length) G.send({ t: 'build', ids, b: p.type, tx: p.tx, ty: p.ty });
-  G.placing = null; hudT = 0;
+  // Walls go down in runs: stay in placing mode until the player stops.
+  if (DEF[p.type].wall) { p.has = false; if (G.touch) buzz(8); } else G.placing = null;
+  hudT = 0;
 }
 function mark(x, y, col) { if (G.touch) buzz(8); G.view.fx.push({ k: 'm', a: ['m', x, y, col], t: 0 }); }
 
@@ -437,8 +439,9 @@ function order(wx, wy, ent) {
     if (rest.length) G.send({ t: 'move', ids: rest, x: wx, y: wy });
     mark((tx + .5) * T, (ty + .5) * T, '#7dd3fc'); return;
   }
-  G.send({ t: 'move', ids, x: wx, y: wy });
-  mark(wx, wy, '#4ade80');
+  G.send({ t: 'move', ids, x: wx, y: wy, a: G.amove ? 1 : 0 });
+  mark(wx, wy, G.amove ? '#f87171' : '#4ade80');
+  if (G.amove) { G.amove = false; hudT = 0; }
 }
 let lastTap = { id: 0, t: 0 };
 function selectEnt(e, add) {
@@ -609,13 +612,13 @@ $('bBox').onclick = () => { G.boxMode = !G.boxMode; $('bBox').classList.toggle('
 $('bDesel').onclick = () => { G.sel.clear(); G.placing = null; hudT = 0; };
 
 const price = d => (d.wood ? `<small class="w">▮ ${d.wood}</small>` : '') + (d.cost ? `<small>◆ ${d.cost}</small>` : '');
-const btn = (act, d, off) => `<button data-act="${act}"${off ? ' disabled' : ''}>${d.name}${price(d)}</button>`;
+const btn = (act, d, off) => `<button data-act="${act}"${off ? ' disabled' : ''}>${d.name}<span>${price(d)}</span></button>`;
 function panelHTML() {
   const v = G.view, me = v.me, P = v.pl[me];
   if (G.placing) {
     const p = G.placing;
-    return `<div class="t">Place ${DEF[p.type].name}</div><div class="d">${G.touch ? (p.has ? 'Tap the same spot again, or Build here.' : 'Tap where it should go.') : 'Click where it should go.'}</div>` +
-      `<div class="acts">${p.has && G.touch ? '<button data-act="confirm">Build here</button>' : ''}<button data-act="cancel">Cancel</button></div>`;
+    return `<div class="t">Place ${DEF[p.type].name}${DEF[p.type].wall ? ': keep tapping to build a run, then Done' : ''}</div><div class="d">${G.touch ? (p.has ? 'Tap the same spot again, or Build here.' : 'Tap where it should go.') : 'Click where it should go.'}</div>` +
+      `<div class="acts">${p.has && G.touch ? '<button data-act="confirm">Build here</button>' : ''}<button data-act="cancel">${DEF[p.type].wall ? 'Done' : 'Cancel'}</button></div>`;
   }
   const sel = selected();
   if (!sel.length) return '';
@@ -637,13 +640,27 @@ function panelHTML() {
   }
   const count = {};
   for (const e of mine) count[e.type] = (count[e.type] || 0) + 1;
-  let h = `<div class="t">${Object.entries(count).map(([t, n]) => (n > 1 ? n + ' ' : '') + DEF[t].name + (n > 1 ? 's' : '')).join(', ')}</div><div class="d" id="pd"></div><div class="acts">`;
+  const kinds = Object.keys(count), hero = mine.find(e => DEF[e.type].hero), fighters = mine.some(e => DEF[e.type].mil);
+  let h;
+  if (mine.length === 1) {
+    const e = mine[0], d = DEF[e.type];
+    h = `<div class="t">${d.name}${d.hero ? ` · Level ${P.lvl}` : ''}</div><div class="d">${d.info || d.about || ''}</div>`;
+  } else {
+    // One chip per kind of unit: tap a chip to keep only that kind selected.
+    h = `<div class="chips"><span class="n">${mine.length} units</span>` +
+      kinds.map(t => `<button data-act="only:${t}" class="chip${DEF[t].hero ? ' hero' : ''}"><i></i>${DEF[t].name}${count[t] > 1 ? `<b>${count[t]}</b>` : ''}</button>`).join('') + '</div>';
+  }
+  h += '<div class="bars"><div class="hpl"><span id="pd"></span><div class="pb hp"><i id="phb"></i></div></div>' +
+    (hero ? `<div class="hpl"><span>${P.lvl >= 5 ? 'Top level' : 'Lv ' + P.lvl}</span><div class="pb xp"><i id="pxp"></i></div></div>` : '') + '</div>';
+  h += '<div class="acts">';
+  if (hero) h += DEF[hero.type].abs.map((ab, n) => P.lvl >= ab.lvl
+    ? `<button data-act="ability:${n}" id="pab${n}" class="go spell" title="${ab.about}">${ab.name}<small>${ab.about}</small></button>`
+    : `<button disabled class="spell">${ab.name}<small>unlocks at level ${ab.lvl}</small></button>`).join('');
   if (count.worker) {
     const has = t => [...ents().values()].some(e => e.owner === me && e.type === t && e.built);
     h += BUILDABLE.map(t => btn('build:' + t, DEF[t], P.res < DEF[t].cost || P.wood < (DEF[t].wood || 0) || (DEF[t].req && !has(DEF[t].req)))).join('');
   }
-  const hero = mine.find(e => DEF[e.type].hero);
-  if (hero) h += `<button data-act="ability" id="pab" class="go">${DEF[hero.type].ab.name}</button>`;
+  if (fighters) h += `<button data-act="amove" class="${G.amove ? 'on' : ''}">Attack-move<small>${G.amove ? 'now tap where to go' : 'fight on the way'}</small></button>`;
   return h + '<button data-act="stop">Stop</button></div>';
 }
 let hudT = 0, lastPanel = null, lastAlert = 0;
@@ -652,7 +669,8 @@ function updateHud() {
   $('res').textContent = '◆ ' + P.res;
   $('pop').textContent = `☗ ${P.pop}/${P.cap}`;
   $('wood').textContent = '▮ ' + P.wood;
-  $('heroInfo').textContent = P.heroT > 0 ? `${DEF[v.info[v.me].hero].name} returns in ${P.heroT}s` : '';
+  $('heroInfo').textContent = P.heroT > 0 ? `${DEF[v.info[v.me].hero].name} returns in ${P.heroT}s` : P.alive ? `${DEF[v.info[v.me].hero].name} Lv ${P.lvl}` : '';
+  $('heroInfo').classList.toggle('down', P.heroT > 0);
   if (!G.conns && !G.ended && !G.rc && performance.now() - G.lastSnap > 7000) reconnect(); // the host has gone quiet
   let idle = 0;
   for (const e of ents().values()) if (e.owner === v.me && e.type === 'worker' && e.idle) idle++;
@@ -663,22 +681,30 @@ function updateHud() {
   $('bDesel').disabled = !G.sel.size && !G.placing;
   const h = panelHTML();
   if (h !== lastPanel) { $('panel').innerHTML = lastPanel = h; }
-  const sel = selected(), pd = $('pd'), pbar = $('pbar'), pab = $('pab');
+  const sel = selected(), pd = $('pd'), pbar = $('pbar'), phb = $('phb'), pxp = $('pxp');
   if (pd && sel.length) {
     const e = sel[0];
-    if (sel.length > 1) pd.textContent = 'Tap the ground to move, an enemy to attack.';
+    if (phb) { // one or many of my units: total health
+      let hp = 0, max = 0;
+      for (const u of sel) { hp += u.hp; max += u.max; }
+      pd.textContent = `Health ${hp}/${max}`;
+      phb.style.width = Math.round(hp / max * 100) + '%';
+      phb.style.background = hp / max > .5 ? '#4ade80' : hp / max > .25 ? '#fbbf24' : '#f87171';
+    }
     else if (e.b && !e.built) pd.textContent = e.owner !== v.me ? `Under construction ${e.prog}%` : e.paused ? `Paused at ${e.prog}%: no worker is building it` : `Under construction ${e.prog}%`;
-    else if (e.b && e.owner === v.me && DEF[e.type].trains && P.pop >= P.cap) pd.textContent = 'Unit limit reached: build a Cottage.';
-    else if (e.type === 'outpost' && e.owner === v.me) pd.textContent = 'Workers drop crystal here. Build it next to a far-away deposit.';
-    else pd.textContent = `Health ${e.hp}/${DEF[e.type].hp}` + (DEF[e.type].req && !e.built ? '' : '');
+    else if (e.b && e.owner === v.me && DEF[e.type].trains && P.pop >= P.cap) pd.textContent = P.cap >= 40 ? 'Unit limit reached.' : 'Unit limit reached: build a Cottage.';
+    else pd.textContent = (e.b && e.owner === v.me && DEF[e.type].info ? DEF[e.type].info + '. ' : '') + `Health ${e.hp}/${e.max}`;
     if (pbar) pbar.style.width = (e.prog || 0) + '%';
   }
-  if (pab) {
-    const hero = sel.find(e => DEF[e.type].hero);
-    const cd = hero ? hero.abT : 0, name = hero ? DEF[hero.type].ab.name : '';
-    pab.disabled = cd > 0;
-    pab.textContent = cd > 0 ? `${name} (${cd}s)` : name;
-  }
+  if (pxp) pxp.style.width = P.xp + '%';
+  const hero = sel.find(e => DEF[e.type].hero && e.owner === v.me);
+  if (hero && hero.cds) DEF[hero.type].abs.forEach((ab, n) => {
+    const b = $('pab' + n);
+    if (!b) return;
+    const cd = hero.cds[n];
+    b.disabled = cd > 0;
+    b.firstChild.textContent = cd > 0 ? `${ab.name} ${cd}s` : ab.name;
+  });
   // alerts and the end of the game
   if (v.hurt && v.tick - v.hurt.tick < 5 && performance.now() - lastAlert > 12000) {
     const c = R.cam, h = v.hurt;
@@ -703,8 +729,10 @@ $('panel').addEventListener('click', ev => {
     if (a === 'resume') toast('Workers are on their way');
   }
   else if (a === 'train') { const e = selected().find(e => e.b && e.owner === me); if (e) G.send({ t: 'train', b: e.id, u: arg }); }
-  else if (a === 'ability') { for (const e of myUnits()) if (DEF[e.type].hero) G.send({ t: 'ability', id: e.id }); }
-  else if (a === 'stop') G.send({ t: 'stop', ids: myUnits().map(e => e.id) });
+  else if (a === 'ability') { for (const e of myUnits()) if (DEF[e.type].hero) G.send({ t: 'ability', id: e.id, n: +arg }); }
+  else if (a === 'stop') { G.send({ t: 'stop', ids: myUnits().map(e => e.id) }); G.amove = false; }
+  else if (a === 'amove') G.amove = !G.amove;
+  else if (a === 'only') { for (const e of selected()) if (e.type !== arg) G.sel.delete(e.id); }
   hudT = 0;
 });
 
