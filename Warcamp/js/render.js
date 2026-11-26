@@ -143,6 +143,10 @@ function drawBuilding(g, e, col) {
     } else if (t === 'barracks') {
       g.strokeStyle = '#f8fafc'; g.lineWidth = 3; g.lineCap = 'round';
       line(g, cx - 10, cy - 10, cx + 10, cy + 10); line(g, cx + 10, cy - 10, cx - 10, cy + 10);
+    } else if (t === 'outpost') {
+      g.fillStyle = '#7dd3fc'; g.strokeStyle = '#0c4a6e'; g.lineWidth = 1.5;
+      g.beginPath(); g.moveTo(cx, cy - 11); g.lineTo(cx + 8, cy - 2); g.lineTo(cx, cy + 11); g.lineTo(cx - 8, cy - 2); g.closePath(); g.fill(); g.stroke();
+      g.strokeStyle = 'rgba(255,255,255,.8)'; line(g, cx - 8, cy - 2, cx + 8, cy - 2);
     } else if (t === 'stable') {
       g.strokeStyle = '#f8fafc'; g.lineWidth = 4; g.lineCap = 'round';
       g.beginPath(); g.arc(cx, cy - 1, 9, Math.PI * .85, Math.PI * .15); g.stroke();

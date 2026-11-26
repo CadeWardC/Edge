@@ -59,12 +59,12 @@ The host's device runs the game and the other devices connect straight to it (We
 | | Touch | Mouse and keyboard |
 | --- | --- | --- |
 | Select | Tap. Double-tap a unit for all of its kind on screen | Click, Shift-click to add |
-| Select many | Hold, then drag a box (or tap ▭ first) | Drag a box |
+| Select many | Hold, then drag a box (or tap Box first) | Drag a box |
 | Order (move, attack, gather, help build) | Tap the target | Right-click the target |
 | Scroll | Drag | Arrow keys, WASD, middle-drag |
 | Zoom | Pinch | Wheel |
-| Whole army / idle worker | ⚔ / ⛏ | Q / . |
-| Cancel | ✕ | Esc |
+| Whole army / idle worker | Army / Idle | Q / . |
+| Cancel | Clear | Esc |
 
 ## How it is built
 

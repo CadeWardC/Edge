@@ -26,7 +26,7 @@ export class AI {
     for (const w of workers) if (!w.order) s.autoHarvest(w);
 
     // Never leave a building half finished.
-    const unbuilt = ['hq', 'house', 'barracks', 'stable', 'tower'].flatMap(t => g(t).filter(b => !b.built));
+    const unbuilt = ['hq', 'house', 'barracks', 'stable', 'tower', 'outpost'].flatMap(t => g(t).filter(b => !b.built));
     for (const b of unbuilt) {
       if (workers.some(w => w.order && w.order.k === 'build' && w.order.b === b.id)) continue;
       const w = near(workers.filter(w => !w.order || w.order.k !== 'build'), b);
@@ -44,8 +44,15 @@ export class AI {
       else if (!g('stable').length && racks.length && me.res >= 260) want = 'stable';
       else if (g('tower').length < 2 && army.length >= 4 && me.res >= 320) want = 'tower';
       else if (racks.length < 2 && me.res >= 500) want = 'barracks';
+      let at = [hq.tx + 1, hq.ty + 1];
+      if (!want && g('outpost').length < 2 && workers.length >= 6 && me.res >= 180) {
+        // When the crystal being mined is a long walk from any drop-off, put an Outpost beside it.
+        const w = workers.find(w => w.order && w.order.k === 'harvest');
+        const far = w && !['hq', 'outpost'].some(t => g(t).some(b => b.built && Math.hypot(b.x / 32 - w.order.tx, b.y / 32 - w.order.ty) < 8));
+        if (far) { want = 'outpost'; at = [w.order.tx, w.order.ty]; }
+      }
       if (want && me.res >= DEF[want].cost) {
-        const site = s.findSite(want, hq.tx + 1, hq.ty + 1);
+        const site = s.findSite(want, at[0], at[1]);
         const w = workers.find(w => !w.order || w.order.k === 'harvest');
         if (site && w) cmd({ t: 'build', ids: [w.id], b: want, tx: site[0], ty: site[1] });
       }

@@ -534,6 +534,7 @@ function updateHud() {
     if (sel.length > 1) pd.textContent = 'Tap the ground to move, an enemy to attack.';
     else if (e.b && !e.built) pd.textContent = e.owner !== v.me ? `Under construction ${e.prog}%` : e.paused ? `Paused at ${e.prog}%: no worker is building it` : `Under construction ${e.prog}%`;
     else if (e.b && e.owner === v.me && DEF[e.type].trains && P.pop >= P.cap) pd.textContent = 'Unit limit reached: build a Cottage.';
+    else if (e.type === 'outpost' && e.owner === v.me) pd.textContent = 'Workers drop crystal here. Build it next to a far-away deposit.';
     else pd.textContent = `Health ${e.hp}/${DEF[e.type].hp}` + (DEF[e.type].req && !e.built ? '' : '');
     if (pbar) pbar.style.width = (e.prog || 0) + '%';
   }
