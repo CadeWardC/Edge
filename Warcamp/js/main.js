@@ -377,6 +377,7 @@ function startGame(cfg, me, conns, save) {
   R.cam.z = Math.min(innerWidth, innerHeight) < 500 ? .8 : 1;
   G.sel.clear(); G.placing = null; G.box = null; G.boxMode = false; G.amove = false; G.disband = 0; G.moving = false; G.cfg = cfg; G.ended = false; G.elim = false; G.needCenter = true;
   G.lastSnap = performance.now();
+  $('news').textContent = '';
   $('bBox').classList.remove('on');
   if (conns) {
     // This device is the host: it runs the simulation and sends everyone a snapshot each tick.
@@ -797,6 +798,15 @@ function panelHTML() {
   if (n) h += `<button data-act="disband" class="warn${armed ? ' on' : ''}">${armed ? 'Tap again' : 'Disband'}<small>${armed ? `to remove ${n} unit${n > 1 ? 's' : ''} for good` : 'remove for good'}</small></button>`;
   return h + '</div>';
 }
+// A line across the top of the screen for news that everyone should see.
+function announce(text, color, note) {
+  const row = document.createElement('div');
+  row.innerHTML = `<i style="background:${color}"></i><b>${esc(text)}</b>${note ? `<span>${esc(note)}</span>` : ''}`;
+  $('news').appendChild(row);
+  buzz(30);
+  setTimeout(() => row.classList.add('out'), 6000);
+  setTimeout(() => row.remove(), 6600);
+}
 let hudT = 0, lastPanel = null, lastAlert = 0;
 function updateHud() {
   const v = G.view, P = v.pl[v.me];
@@ -839,6 +849,11 @@ function updateHud() {
     b.disabled = cd > 0;
     b.firstChild.textContent = cd > 0 ? `${ab.name} ${cd}s` : ab.name;
   });
+  // tell everyone when a player has been knocked out
+  while (v.news.length) {
+    const i = v.news.shift(), left = v.pl.filter(p => p.alive).length;
+    if (i !== v.me) announce(`${v.info[i].name} has been wiped out`, v.info[i].color, v.winner === -1 && left > 1 ? `${left} players left` : '');
+  }
   // alerts and the end of the game
   if (v.hurt && v.tick - v.hurt.tick < 5 && performance.now() - lastAlert > 12000) {
     const c = R.cam, h = v.hurt;
@@ -849,7 +864,7 @@ function updateHud() {
     const won = v.winner === v.team;
     endScreen(won ? 'Victory' : 'Defeat', won ? 'Every enemy Keep, worker and hero is gone.' : v.winner === -2 ? 'Nobody is left standing.' : 'Your Keeps, workers and hero are all gone.');
   } else if (!P.alive && !G.elim && !G.ended) {
-    G.elim = true; toast('You are out: no Keep, no workers, no hero. You can keep watching.');
+    G.elim = true; announce('You have been wiped out', v.info[v.me].color, 'You can keep watching');
     // A knocked-out host passes the game on straight away, so it no longer depends on their device.
     if (G.conns && G.conns.some(c => c)) handover().then(to => { if (to) follow(to); });
   }
