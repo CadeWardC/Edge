@@ -430,3 +430,44 @@ input, select { background: var(--dock); border: 1px solid #3b4d6b; border-radiu
   #game.on:is(.lay-over, .lay-lite, .folded) #toast { top: 60px; max-width: 55%; }
   #game.on:is(.lay-over, .lay-lite, .folded) #news { top: 98px; }
 }
+
+/* ---------- floating layout: Menu joins the resource bar, top-left; sideways, the action buttons stand in a column ----------
+   Top-left: one bar with a small Menu button at its left end, then the resources. Hero level and wave under it.
+   Top-right: the mini-map.
+   Upright: selection panel and action buttons along the bottom.
+   Sideways: action buttons in a column down the right-hand side under the mini-map; selection panel along the bottom. */
+#game.on:is(.lay-over, .lay-lite, .folded) #top { top: calc(env(safe-area-inset-top) + 4px) !important; left: calc(env(safe-area-inset-left) + 4px) !important; right: auto !important;
+  height: 36px; padding: 0 10px 0 40px; display: flex; align-items: center; }
+#game.on:is(.lay-over, .lay-lite, .folded) #menuBtn { position: fixed; top: calc(env(safe-area-inset-top) + 7px) !important; left: calc(env(safe-area-inset-left) + 7px) !important; right: auto !important;
+  width: 30px !important; min-width: 30px !important; height: 30px !important; min-height: 30px !important; padding: 0; background: #223250; border: 1px solid #3b4d6b; border-radius: 8px; z-index: 4; }
+#game.on:is(.lay-over, .lay-lite, .folded) #menuBtn span { display: none !important; }
+#game.on:is(.lay-over, .lay-lite, .folded) #menuBtn svg { width: 17px; height: 17px; }
+@media (orientation: portrait) {
+  #game.on:is(.lay-over, .lay-lite) #top { max-width: calc(100% - 114px) !important; font-size: 13px; gap: 8px; }
+  #game.on.mapoff:is(.lay-over, .lay-lite) #top, #game.on.folded #top { max-width: calc(100% - 70px) !important; }
+  #game.on:is(.lay-over, .lay-lite, .folded) #heroInfo { left: 8px !important; right: auto; top: calc(env(safe-area-inset-top) + 46px); }
+  #game.on:is(.lay-over, .lay-lite, .folded) #waveInfo { left: 8px !important; right: auto; top: calc(env(safe-area-inset-top) + 74px); }
+}
+@media (orientation: portrait) and (max-width: 372px) { #game.on:is(.lay-over, .lay-lite) #top { font-size: 11.5px; gap: 5px; padding-right: 7px; } }
+@media (orientation: landscape) {
+  #game.on:is(.lay-over, .lay-lite, .folded) #heroInfo { left: calc(env(safe-area-inset-left) + 8px) !important; top: 46px; }
+  #game.on:is(.lay-over, .lay-lite, .folded) #waveInfo { left: calc(env(safe-area-inset-left) + 8px) !important; right: auto; top: 74px; }
+  /* the action buttons: a column down the right-hand side, under the mini-map */
+  #game.on:is(.lay-over, .lay-lite, .folded) #side { flex-direction: column; top: 104px; bottom: calc(env(safe-area-inset-bottom) + 4px); right: calc(env(safe-area-inset-right) + 4px); left: auto; width: 62px; gap: 2px; padding: 3px; }
+  #game.on.mapoff:is(.lay-over, .lay-lite) #side, #game.on.folded #side { top: 56px; }
+  #game.on:is(.lay-over, .lay-lite, .folded) #side button { flex: 1 1 0; width: 100%; min-width: 0; height: auto; min-height: 36px; max-height: 58px; }
+  #game.on.left:is(.lay-over, .lay-lite, .folded) #side { right: auto; left: calc(env(safe-area-inset-left) + 4px); top: 104px; }
+  /* the Hide button sits beside the mini-map rather than under it, to leave the column its room */
+  #game.on:is(.lay-over, .lay-lite) #mapTog, #game.on.left:is(.lay-over, .lay-lite) #mapTog { top: 4px; right: calc(env(safe-area-inset-right) + 102px); left: auto; }
+  #game.on.mapoff:is(.lay-over, .lay-lite) #mapTog { right: calc(env(safe-area-inset-right) + 4px); }
+  /* the selection panel has the whole bottom edge up to the column */
+  #game.on:is(.lay-over, .lay-lite) #panel { left: calc(env(safe-area-inset-left) + 4px); right: calc(env(safe-area-inset-right) + 72px); }
+  #game.on.left:is(.lay-over, .lay-lite) #panel { left: calc(env(safe-area-inset-left) + 72px); right: calc(env(safe-area-inset-right) + 4px); }
+  #game.on.left:is(.lay-over, .lay-lite, .folded) #top { left: calc(env(safe-area-inset-left) + 72px) !important; }
+  #game.on.left:is(.lay-over, .lay-lite, .folded) #menuBtn { left: calc(env(safe-area-inset-left) + 75px) !important; }
+  #game.on.left:is(.lay-over, .lay-lite, .folded) :is(#heroInfo, #waveInfo) { left: calc(env(safe-area-inset-left) + 76px) !important; }
+}
+@media (orientation: landscape) {
+  #game.on:is(.lay-over, .lay-lite, .folded) #heroInfo { top: 46px !important; }
+  #game.on:is(.lay-over, .lay-lite, .folded) #waveInfo { top: 74px !important; }
+}
