@@ -3,6 +3,9 @@
 import { TILE as T, DEF, TI, MAXCAP, ABILITY, HERO_RESPAWN } from './data.js';
 
 export const DT = 0.1;
+// How close a worker must be to a wall to build or unload. A worker on the tile beside the wall is 16 away;
+// the slack is for being jostled by other workers at a busy drop-off.
+const REACH = 36;
 const TREE_AMT = 200, CRYSTAL_AMT = 1500, CARRY = 10;
 
 export function rng(a) {
@@ -156,7 +159,7 @@ export class Sim {
   dropoff(e) {
     let best = null, bd = 1e9;
     for (const h of this.ents.values()) {
-      if (h.type !== 'hq' || h.owner !== e.owner || !h.built) continue;
+      if (!DEF[h.type].drop || h.owner !== e.owner || !h.built) continue;
       const d = this.dist(e, h);
       if (d < bd) { bd = d; best = h; }
     }
@@ -394,13 +397,13 @@ export class Sim {
             hq = this.dropoff(e);
             if (!hq) { e.order = null; break; }
             o.d = hq.id;
-            this.pathTo(e, hq.tx, hq.ty, hq.tx + 2, hq.ty + 2);
+            this.pathTo(e, hq.tx, hq.ty, hq.tx + hq.size - 1, hq.ty + hq.size - 1);
           }
-          if (this.dist(e, hq) <= 26) {
+          if (this.dist(e, hq) <= REACH) {
             P.res += e.carry * P.bonus; e.carry = 0; o.ph = 0; o.tries = 0;
             this.pathTo(e, o.tx, o.ty, o.tx, o.ty);
           } else if (this.follow(e)) {
-            if (++o.tries > 4) e.order = null; else this.pathTo(e, hq.tx, hq.ty, hq.tx + 2, hq.ty + 2);
+            if (++o.tries > 4) e.order = null; else this.pathTo(e, hq.tx, hq.ty, hq.tx + hq.size - 1, hq.ty + hq.size - 1);
           }
         }
         break;
@@ -409,7 +412,7 @@ export class Sim {
         const b = this.ents.get(o.b);
         if (!b || b.built) { e.order = null; this.autoHarvest(e); break; }
         const bd = DEF[b.type];
-        if (this.dist(e, b) <= 26) {
+        if (this.dist(e, b) <= REACH) {
           b.prog += DT / bd.time; b.wk = this.tick;
           b.hp = Math.min(bd.hp, b.hp + bd.hp * 0.9 * DT / bd.time);
           if (b.prog >= 1) { b.prog = 1; b.built = true; if (bd.cap) this.players[b.owner].cap += bd.cap; }

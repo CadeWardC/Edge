@@ -108,5 +108,43 @@ for (const seed of [1, 2, 3, 4, 5, 6]) {
   check(hq.queue.length === 0 && s.players[0].res === r1 + 50, 'a queued unit can be cancelled for a refund');
 }
 
+// An Outpost beside a far deposit is a drop-off: the same workers bring in more than when they walk home.
+{
+  const income = withOutpost => {
+    const s = new Sim({ seed: 9, players: [{ name: 'a', team: 0 }, { name: 'b', team: 1 }] });
+    const run = n => { for (let i = 0; i < n; i++) { s.step(); s.snapshot(); } };
+    const ws = [...s.ents.values()].filter(e => e.type === 'worker' && e.owner === 0);
+    s.players[0].res = 1000;
+    if (withOutpost) {
+      const site = s.findSite('outpost', 4, 19);
+      s.command(0, { t: 'build', ids: ws.map(w => w.id), b: 'outpost', tx: site[0], ty: site[1] });
+      run(400);
+    } else run(400);
+    s.command(0, { t: 'harvest', ids: ws.map(w => w.id), tx: 4, ty: 19 });
+    run(100);
+    const r0 = s.players[0].res; run(1200);
+    return { gain: s.players[0].res - r0, built: !withOutpost || [...s.ents.values()].some(e => e.type === 'outpost' && e.built) };
+  };
+  const a = income(false), b = income(true);
+  check(b.built && b.gain > a.gain * 1.5, `an Outpost by the far deposit raises income (${a.gain} -> ${b.gain} in 2 game-min)`);
+}
+
+// A crowd of workers shuttling between a deposit and an Outpost right beside it must never give up.
+{
+  let idle = 0, unbuilt = 0;
+  for (let seed = 1; seed <= 40; seed++) {
+    const s = new Sim({ seed, players: [{ name: 'a', team: 0 }, { name: 'b', team: 1 }] });
+    const hq = [...s.ents.values()].find(e => e.type === 'hq' && e.owner === 0);
+    s.players[0].res = 2000;
+    for (let i = 0; i < 7; i++) { s.players[0].cap = 30; s.command(0, { t: 'train', b: hq.id, u: 'worker' }); for (let k = 0; k < 85; k++) s.step(); }
+    const ws = [...s.ents.values()].filter(e => e.type === 'worker' && e.owner === 0).map(w => w.id);
+    const site = s.findSite('outpost', 13, 5);
+    s.command(0, { t: 'build', ids: ws, b: 'outpost', tx: site[0], ty: site[1] });
+    for (let t = 0; t < 3000; t++) { s.step(); s.snapshot(); if (t > 300) for (const e of s.ents.values()) if (e.type === 'worker' && e.owner === 0 && !e.order) idle++; }
+    if (![...s.ents.values()].some(e => e.type === 'outpost' && e.built)) unbuilt++;
+  }
+  check(idle === 0 && unbuilt === 0, `10 workers crowding an Outpost on 40 maps: ${idle} idle worker-ticks, ${unbuilt} Outposts left unbuilt`);
+}
+
 if (failed) { console.error(`${failed} check(s) failed`); process.exit(1); }
 console.log('all checks passed');

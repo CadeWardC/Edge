@@ -13,7 +13,7 @@ is copied, which also means the game can be shared and published freely.
 | --- | --- |
 | Core loop | Workers gather crystal from crystals and trees, carry it to the Keep, and build. Cottages raise the unit limit (up to 40). |
 | Units | Worker, Soldier (melee), Archer (ranged), Rider (fast, heavy), and a Champion hero with a Shockwave power who returns 30 s after falling. |
-| Buildings | Keep, Cottage, Barracks, Stable (needs a Barracks), Watchtower. |
+| Buildings | Keep, Cottage, Outpost (a second drop-off for crystal), Barracks, Stable (needs a Barracks), Watchtower. |
 | Map | 56×56 tiles, generated from a seed and mirrored four ways so every corner is equal. Fog of war and a minimap. |
 | Players | 1 to 4, any mix of people and computers. Free for all, or everyone against the computers. Three computer levels. |
 | Multiplayer | Host shares a 4-letter code. Peer to peer, no game server. A computer takes over a player who drops out. |
@@ -45,7 +45,6 @@ Small things that decide whether the game is fun to hold.
 - Control groups on desktop (Ctrl+1..9) and a "last selection" button on touch.
 - Repair buildings with workers. (Resuming or cancelling an unfinished building, and cancelling a queued unit,
   are done.)
-- A second drop-off building (Depot) so far-away crystals are worth mining.
 - Walls and gates, as in the genre.
 - A five-step interactive tutorial on first launch.
 - Pause in single player. Game speed setting.
