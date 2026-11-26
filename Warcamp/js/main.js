@@ -244,7 +244,7 @@ $('lStart').onclick = () => {
   if (L.mode === 'coop' && !coop) { $('lMsg').textContent = 'Players vs computers needs at least one computer.'; return; }
   ps.forEach((p, i) => { p.team = survival ? 0 : coop ? (p.ai ? 1 : 0) : i; });
   if (survival) { ps.push({ name: 'The Horde', horde: true, team: 1, tint: '#57534e' }); conns.push(null); tokens.push(null); }
-  const cfg = { seed: (Math.random() * 2 ** 31) | 0, size: MAP_SIZE, level: L.level, mode: L.mode, extra: ps.filter(p => !p.horde).length > 4, players: ps };
+  const cfg = { seed: (Math.random() * 2 ** 31) | 0, size: MAP_SIZE, level: L.level, mode: L.mode, cluster: L.mode !== 'ffa', extra: L.mode === 'ffa' && ps.length > 4, players: ps };
   G.tokens = tokens;
   conns.forEach((c, i) => c && c.send({ t: 'start', cfg, you: i }));
   startGame(cfg, 0, conns);
@@ -601,7 +601,7 @@ function canPlace(type, tx, ty) {
     if (x < 0 || y < 0 || x >= N || y >= N || v.terrain[y * N + x] !== 0 || !v.explored[y * N + x]) return false;
   }
   for (const e of ents().values()) if (e.b && tx < e.tx + e.size && tx + s > e.tx && ty < e.ty + e.size && ty + s > e.ty) return false;
-  return type === 'hq' || inRange(type, tx, ty);
+  return !!DEF[type].anywhere || inRange(type, tx, ty);
 }
 // Everything but a Keep has to go up near one of my finished Keeps.
 function inRange(type, tx, ty) {
@@ -613,7 +613,7 @@ const ghostTile = (type, wx, wy) => { const s = DEF[type].size; return [Math.flo
 function confirmPlace() {
   const p = G.placing;
   if (!p || !p.has) return;
-  if (!canPlace(p.type, p.tx, p.ty)) { toast(p.type !== 'hq' && !inRange(p.type, p.tx, p.ty) ? 'Too far from your Keep: build inside the dashed line' : "Can't build there"); return; }
+  if (!canPlace(p.type, p.tx, p.ty)) { toast(!DEF[p.type].anywhere && !inRange(p.type, p.tx, p.ty) ? 'Too far from your Keep: build inside the dashed line' : "Can't build there"); return; }
   const ids = myUnits().filter(e => e.type === 'worker').map(e => e.id);
   if (ids.length) G.send({ t: 'build', ids, b: p.type, tx: p.tx, ty: p.ty });
   // Walls go down in runs: stay in placing mode until the player stops.

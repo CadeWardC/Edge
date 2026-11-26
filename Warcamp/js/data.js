@@ -37,9 +37,9 @@ export const DEF = {
                     { name: 'Ward', lvl: 2, cd: 35, kind: 'ward', radius: 150, secs: 6, about: 'nearby troops take less damage' },
                     { name: 'Renewal', lvl: 4, cd: 60, kind: 'heal', radius: 160, heal: 130, secs: 4, about: 'a great heal, and a burst of speed' }] },
 
-  hq:       { name: 'Keep',       b: 1, size: 3, hp: 1400, cost: 450, wood: 550, time: 45, sight: 8, cap: 10, trains: ['worker'], drop: 1, info: 'A base: trains workers, takes crystal and wood, and lets you build around it' },
+  hq:       { name: 'Keep',       b: 1, size: 3, hp: 1400, cost: 450, wood: 550, time: 45, sight: 8, cap: 10, trains: ['worker'], drop: 1, anywhere: 1, info: 'A base: trains workers, takes crystal and wood, and lets you build around it' },
   house:    { name: 'Cottage',    b: 1, size: 2, hp: 320,  cost: 0,   wood: 80,  time: 12, sight: 4, cap: 5, info: 'Room for 5 more units' },
-  outpost:  { name: 'Outpost',    b: 1, size: 2, hp: 450,  cost: 0,   wood: 100, time: 14, sight: 6, drop: 1, info: 'Workers drop crystal and wood here' },
+  outpost:  { name: 'Outpost',    b: 1, size: 2, hp: 450,  cost: 0,   wood: 100, time: 14, sight: 6, drop: 1, anywhere: 1, info: 'Workers drop crystal and wood here. Can go anywhere, like a Keep' },
   // Two buildings make every fighter: the Barracks the troops of the line, the Arsenal the specialists.
   barracks: { name: 'Barracks',   b: 1, size: 2, hp: 700,  cost: 0,   wood: 150, time: 20, sight: 5, trains: ['soldier', 'archer', 'guard', 'knight'], info: 'Trains Soldiers, Archers, Guards and Riders' },
   stable:   { name: 'Stable',     b: 1, size: 2, hp: 650,  cost: 80,  wood: 150, time: 22, sight: 5, trains: ['knight'], req: 'barracks' },

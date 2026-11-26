@@ -7,7 +7,7 @@ export class View {
   constructor(cfg, me) {
     this.N = cfg.size || MAP_SIZE;
     this.seed = cfg.seed;
-    this.terrain = genMap(cfg.seed, this.N, cfg.extra).terrain;
+    this.terrain = genMap(cfg.seed, this.N, cfg.extra, cfg.cluster).terrain;
     this.wave = null; // Survival: [wave number, seconds to the next one]
     this.info = cfg.players.map((p, i) => ({ name: p.name, team: p.team, color: p.tint || COLORS[p.color ?? i] || COLORS[i % COLORS.length], hero: p.hero || 'hero', horde: !!p.horde }));
     this.me = me; this.team = this.info[me].team;
@@ -567,7 +567,7 @@ export class Renderer {
 
     if (ui.ghost) {
       const gh = ui.ghost, s = DEF[gh.type].size * T;
-      if (gh.type !== 'hq') { // where building is allowed: around each of my finished Keeps
+      if (!DEF[gh.type].anywhere) { // where building is allowed: around each of my finished Keeps
         g.strokeStyle = 'rgba(253,230,138,.95)'; g.lineWidth = 2.5 / c.z; g.setLineDash([10 / c.z, 7 / c.z]);
         for (const k of v.ents.values()) if (k.type === 'hq' && k.owner === v.me && k.built) g.strokeRect(k.x - BUILD_RANGE * T, k.y - BUILD_RANGE * T, BUILD_RANGE * 2 * T, BUILD_RANGE * 2 * T);
         g.setLineDash([]);
