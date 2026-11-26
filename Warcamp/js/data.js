@@ -22,19 +22,19 @@ export const DEF = {
 
   // Heroes: each player picks one. It costs nothing, comes back at a Keep after falling, and levels up from kills.
   hero:     { name: 'Warden', hp: 420, speed: 82, dmg: 24, range: 0,   cd: 1, cost: 0, time: 0, sight: 8, r: 11, mil: 1, hero: 1, about: 'Tough fighter up close',
-              abs: [{ name: 'Shockwave', lvl: 1, cd: 20, kind: 'shock', radius: 90, dmg: 45, about: 'hurts every enemy around' },
-                    { name: 'Battle Cry', lvl: 2, cd: 30, kind: 'rage', radius: 160, secs: 10, about: 'nearby troops hit harder' },
-                    { name: 'Earthshatter', lvl: 4, cd: 45, kind: 'shock', radius: 150, dmg: 130, about: 'a huge blast' }] },
+              abs: [{ name: 'Shockwave', lvl: 1, cd: 24, kind: 'shock', radius: 90, dmg: 32, about: 'hurts every enemy around' },
+                    { name: 'Battle Cry', lvl: 2, cd: 35, kind: 'rage', radius: 150, secs: 8, about: 'nearby troops hit a little harder' },
+                    { name: 'Earthshatter', lvl: 4, cd: 60, kind: 'shock', radius: 115, dmg: 65, about: 'a heavy blast' }] },
   ranger:   { name: 'Ranger', hp: 300, speed: 90, dmg: 20, range: 170, cd: 1, cost: 0, time: 0, sight: 9, r: 11, mil: 1, hero: 1, about: 'Fast, shoots from far away',
-              abs: [{ name: 'Swift March', lvl: 1, cd: 25, kind: 'haste', radius: 160, secs: 8, about: 'nearby troops move faster' },
-                    { name: 'Volley', lvl: 2, cd: 25, kind: 'shock', radius: 200, dmg: 38, about: 'arrows rain on every enemy in sight' },
-                    { name: 'Deadeye', lvl: 4, cd: 40, kind: 'snipe', radius: 330, dmg: 280, about: 'one shot at the strongest enemy' }] },
+              abs: [{ name: 'Swift March', lvl: 1, cd: 30, kind: 'haste', radius: 150, secs: 6, about: 'nearby troops move faster' },
+                    { name: 'Volley', lvl: 2, cd: 30, kind: 'shock', radius: 170, dmg: 22, about: 'arrows rain on every enemy near' },
+                    { name: 'Deadeye', lvl: 4, cd: 45, kind: 'snipe', radius: 300, dmg: 150, about: 'one shot at the strongest enemy' }] },
   sage:     { name: 'Sage', hp: 340, speed: 80, dmg: 14, range: 110, cd: 1, cost: 0, time: 0, sight: 8, r: 11, mil: 1, hero: 1, about: 'Keeps the army alive',
-              abs: [{ name: 'Mend', lvl: 1, cd: 18, kind: 'heal', radius: 130, heal: 70, about: 'heals nearby troops' },
-                    { name: 'Ward', lvl: 2, cd: 30, kind: 'ward', radius: 160, secs: 8, about: 'nearby troops take half damage' },
-                    { name: 'Renewal', lvl: 4, cd: 50, kind: 'heal', radius: 180, heal: 260, secs: 6, about: 'a great heal, and a burst of speed' }] },
+              abs: [{ name: 'Mend', lvl: 1, cd: 22, kind: 'heal', radius: 130, heal: 45, about: 'heals nearby troops' },
+                    { name: 'Ward', lvl: 2, cd: 35, kind: 'ward', radius: 150, secs: 6, about: 'nearby troops take less damage' },
+                    { name: 'Renewal', lvl: 4, cd: 60, kind: 'heal', radius: 160, heal: 130, secs: 4, about: 'a great heal, and a burst of speed' }] },
 
-  hq:       { name: 'Keep',       b: 1, size: 3, hp: 1400, cost: 200, wood: 300, time: 40, sight: 8, cap: 10, trains: ['worker'], drop: 1, info: 'A new base: trains workers, takes crystal and wood' },
+  hq:       { name: 'Keep',       b: 1, size: 3, hp: 1400, cost: 450, wood: 550, time: 45, sight: 8, cap: 10, trains: ['worker'], drop: 1, info: 'A base: trains workers, takes crystal and wood, and lets you build around it' },
   house:    { name: 'Cottage',    b: 1, size: 2, hp: 320,  cost: 0,   wood: 80,  time: 12, sight: 4, cap: 5, info: 'Room for 5 more units' },
   outpost:  { name: 'Outpost',    b: 1, size: 2, hp: 450,  cost: 0,   wood: 100, time: 14, sight: 6, drop: 1, info: 'Workers drop crystal and wood here' },
   barracks: { name: 'Barracks',   b: 1, size: 2, hp: 650,  cost: 0,   wood: 150, time: 20, sight: 5, trains: ['soldier', 'archer', 'guard'] },
@@ -51,7 +51,13 @@ export const COLOR_NAMES = ['Red', 'Blue', 'Gold', 'Violet', 'Green', 'Orange', 
 export const HEROES = ['hero', 'ranger', 'sage'];
 
 export const HERO_RESPAWN = 30;
-// Experience needed to reach level 2, 3, 4, 5. Each level adds 12% health and damage.
+// Experience needed to reach level 2, 3, 4, 5. Each level adds 8% health and damage.
 export const LEVELS = [20, 55, 110, 190];
-export const LEVEL_BONUS = 0.12;
+export const LEVEL_BONUS = 0.08;
+// Spell strengths that are not per-spell numbers.
+export const RAGE_BONUS = 1.25, WARD_TAKEN = 0.7, SHOCK_VS_BUILDINGS = 0.4;
+// Every building except a Keep must stand within this many tiles of one of the player's finished Keeps.
+export const BUILD_RANGE = 16;
+// How many Keeps a player may build in one game, on top of the one they start with.
+export const KEEP_LIMIT = 2;
 export const heroMult = lvl => 1 + LEVEL_BONUS * ((lvl || 1) - 1);

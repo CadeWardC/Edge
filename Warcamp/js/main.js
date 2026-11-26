@@ -1,5 +1,5 @@
 // Menus, lobby, controls and the game loop.
-import { TILE as T, DEF, TYPES, BUILDABLE, COLORS, COLOR_NAMES, HEROES, MAP_SIZE } from './data.js';
+import { TILE as T, DEF, TYPES, BUILDABLE, COLORS, COLOR_NAMES, HEROES, MAP_SIZE, BUILD_RANGE } from './data.js';
 import { Sim } from './sim.js';
 import { AI } from './ai.js';
 import { View, Renderer } from './render.js';
@@ -443,13 +443,19 @@ function canPlace(type, tx, ty) {
     if (x < 0 || y < 0 || x >= N || y >= N || v.terrain[y * N + x] !== 0 || !v.explored[y * N + x]) return false;
   }
   for (const e of ents().values()) if (e.b && tx < e.tx + e.size && tx + s > e.tx && ty < e.ty + e.size && ty + s > e.ty) return false;
-  return true;
+  return type === 'hq' || inRange(type, tx, ty);
+}
+// Everything but a Keep has to go up near one of my finished Keeps.
+function inRange(type, tx, ty) {
+  const s = DEF[type].size, cx = tx + s / 2, cy = ty + s / 2, me = G.view.me;
+  for (const k of ents().values()) if (k.type === 'hq' && k.owner === me && k.built && Math.max(Math.abs(cx - k.x / T), Math.abs(cy - k.y / T)) <= BUILD_RANGE) return true;
+  return false;
 }
 const ghostTile = (type, wx, wy) => { const s = DEF[type].size; return [Math.floor(wx / T - s / 2 + .5), Math.floor(wy / T - s / 2 + .5)]; };
 function confirmPlace() {
   const p = G.placing;
   if (!p || !p.has) return;
-  if (!canPlace(p.type, p.tx, p.ty)) { toast("Can't build there"); return; }
+  if (!canPlace(p.type, p.tx, p.ty)) { toast(p.type !== 'hq' && !inRange(p.type, p.tx, p.ty) ? 'Too far from your Keep: build inside the dashed line' : "Can't build there"); return; }
   const ids = myUnits().filter(e => e.type === 'worker').map(e => e.id);
   if (ids.length) G.send({ t: 'build', ids, b: p.type, tx: p.tx, ty: p.ty });
   // Walls go down in runs: stay in placing mode until the player stops.
@@ -694,7 +700,7 @@ function panelHTML() {
     : `<button disabled class="spell">${ab.name}<small>unlocks at level ${ab.lvl}</small></button>`).join('');
   if (count.worker) {
     const has = t => [...ents().values()].some(e => e.owner === me && e.type === t && e.built);
-    h += BUILDABLE.map(t => btn('build:' + t, DEF[t], P.res < DEF[t].cost || P.wood < (DEF[t].wood || 0) || (DEF[t].req && !has(DEF[t].req)))).join('');
+    h += BUILDABLE.map(t => btn('build:' + t, t === 'hq' ? { ...DEF.hq, name: `Keep (${P.keeps} left)` } : DEF[t], P.res < DEF[t].cost || P.wood < (DEF[t].wood || 0) || (DEF[t].req && !has(DEF[t].req)) || (t === 'hq' && P.keeps < 1))).join('');
   }
   if (fighters) h += `<button data-act="amove" class="${G.amove ? 'on' : ''}">Attack-move<small>${G.amove ? 'now tap where to go' : 'fight on the way'}</small></button>`;
   return h + '<button data-act="stop">Stop</button></div>';
@@ -749,8 +755,8 @@ function updateHud() {
   if (v.winner !== -1 && !G.ended) {
     store.set(SKEY, '');
     const won = v.winner === v.team;
-    endScreen(won ? 'Victory' : 'Defeat', won ? 'Every enemy base has fallen.' : v.winner === -2 ? 'Nobody is left standing.' : 'Your side has been wiped out.');
-  } else if (!P.alive && !G.elim && !G.ended) { G.elim = true; toast('Your last building fell. You can keep watching.'); }
+    endScreen(won ? 'Victory' : 'Defeat', won ? 'Every enemy Keep, worker and hero is gone.' : v.winner === -2 ? 'Nobody is left standing.' : 'Your Keeps, workers and hero are all gone.');
+  } else if (!P.alive && !G.elim && !G.ended) { G.elim = true; toast('You are out: no Keep, no workers, no hero. You can keep watching.'); }
 }
 $('panel').addEventListener('click', ev => {
   const b = ev.target.closest('button[data-act]');

@@ -1,6 +1,6 @@
 // The authoritative simulation. It has no DOM or network code: the host (or a single-player
 // game) steps it 10 times a second, feeds it commands, and ships snapshot() to every screen.
-import { TILE as T, DEF, TI, MAXCAP, MAP_SIZE, HEROES, HERO_RESPAWN, LEVELS, heroMult } from './data.js';
+import { TILE as T, DEF, TI, MAXCAP, MAP_SIZE, HEROES, HERO_RESPAWN, LEVELS, heroMult, RAGE_BONUS, WARD_TAKEN, SHOCK_VS_BUILDINGS, BUILD_RANGE, KEEP_LIMIT } from './data.js';
 
 export const DT = 0.1;
 // How close a worker must be to a wall to build or unload. A worker on the tile beside the wall is 16 away;
@@ -87,7 +87,7 @@ export class Sim {
     this._g = new Float32Array(N * N); this._st = new Uint32Array(N * N);
     this._cl = new Uint32Array(N * N); this._par = new Int32Array(N * N); this._stamp = 0;
     this.players = cfg.players.map(p => ({
-      name: p.name, team: p.team, res: 250, wood: 250, hero: HEROES.includes(p.hero) ? p.hero : 'hero', xp: 0, lvl: 1, pop: 0, cap: 0, alive: true, heroT: 0, bonus: p.bonus || 1, alert: null,
+      name: p.name, team: p.team, res: 250, wood: 250, hero: HEROES.includes(p.hero) ? p.hero : 'hero', xp: 0, lvl: 1, keeps: 0, pop: 0, cap: 0, alive: true, heroT: 0, bonus: p.bonus || 1, alert: null,
     }));
     this.players.forEach((p, i) => {
       const [bx, by] = this.basePos(i);
@@ -142,6 +142,14 @@ export class Sim {
     if (DEF[type].hero) { e.cds = [0, 0, 0]; e.hp = this.maxHp(e); }
     this.ents.set(e.id, e);
     return e;
+  }
+  // Is this spot within building range of one of the player's finished Keeps?
+  nearKeep(pid, type, tx, ty) {
+    const s = DEF[type].size, cx = tx + s / 2, cy = ty + s / 2;
+    for (const k of this.ents.values()) {
+      if (k.type === 'hq' && k.owner === pid && k.built && Math.max(Math.abs(cx - k.x / T), Math.abs(cy - k.y / T)) <= BUILD_RANGE) return true;
+    }
+    return false;
   }
   canPlace(type, tx, ty) {
     const s = DEF[type].size;
@@ -350,7 +358,7 @@ export class Sim {
   }
   hit(t, dmg, src) {
     if (t.hp <= 0) return;
-    t.hp -= t.wardT > this.tick ? dmg * 0.5 : dmg;
+    t.hp -= t.wardT > this.tick ? dmg * WARD_TAKEN : dmg;
     this.players[t.owner].alert = { x: t.x, y: t.y, tick: this.tick };
     if (t.hp <= 0) {
       if (src && this.enemy(src, t)) this.award(src.owner, t, !!DEF[src.type].hero);
@@ -427,7 +435,7 @@ export class Sim {
           if (e.cdT <= 0) {
             e.cdT = d.cd;
             this.fx.push(d.range ? ['a', e.x | 0, e.y | 0, t.x | 0, t.y | 0] : ['h', t.x | 0, t.y | 0]);
-            const dmg = d.dmg * (d.hero ? heroMult(P.lvl) : 1) * (e.rageT > this.tick ? 1.4 : 1), tx = t.x, ty = t.y;
+            const dmg = d.dmg * (d.hero ? heroMult(P.lvl) : 1) * (e.rageT > this.tick ? RAGE_BONUS : 1), tx = t.x, ty = t.y;
             this.hit(t, dmg, e);
             if (d.splash) for (const u of [...this.ents.values()]) {
               if (u !== t && !u.b && this.enemy(e, u) && Math.hypot(u.x - tx, u.y - ty) <= d.splash) this.hit(u, dmg * 0.6, e);
@@ -588,8 +596,10 @@ export class Sim {
   }
   // A player is out when their last building falls; the last team standing wins.
   checkWin() {
+    // A player stays in while they have a Keep, a worker (who could build one) or a living hero.
+    // To knock someone out: destroy every Keep, kill every worker, and kill the hero.
     const has = this.players.map(() => false);
-    for (const e of this.ents.values()) if (e.b && !DEF[e.type].wall) has[e.owner] = true; // walls alone do not keep a player in
+    for (const e of this.ents.values()) if (e.type === 'hq' || e.type === 'worker' || DEF[e.type].hero) has[e.owner] = true;
     this.players.forEach((p, i) => {
       if (p.alive && !has[i]) {
         p.alive = false; p.heroT = 0;
@@ -646,6 +656,8 @@ export class Sim {
         if (P.res < d.cost || P.wood < wood || (d.req && !this.hasBuilt(pid, d.req)) || !this.canPlace(c.b, tx, ty)) return;
         const ws = own(c.ids).filter(e => e.type === 'worker');
         if (!ws.length) return;
+        if (c.b === 'hq') { if (P.keeps >= KEEP_LIMIT) return; } else if (!this.nearKeep(pid, c.b, tx, ty)) return;
+        if (c.b === 'hq') P.keeps++;
         P.res -= d.cost; P.wood -= wood;
         const b = this.addBuilding(c.b, pid, tx, ty, false);
         for (const e of ws) {
@@ -681,6 +693,7 @@ export class Sim {
         const b = this.ents.get(c.b);
         if (!b || !b.b || b.built || b.owner !== pid) return;
         P.res += DEF[b.type].cost; P.wood += DEF[b.type].wood || 0;
+        if (b.type === 'hq') P.keeps--;
         this.kill(b);
         break;
       }
@@ -718,7 +731,7 @@ export class Sim {
           this.fx.push(['s', e.x | 0, e.y | 0, ab.radius, { shock: 0, haste: 1, heal: 2, rage: 3, ward: 4 }[ab.kind]]);
           for (const t of [...this.ents.values()]) {
             if (this.dist(e, t) > ab.radius) continue;
-            if (ab.kind === 'shock') { if (this.enemy(e, t)) this.hit(t, ab.dmg, e); }
+            if (ab.kind === 'shock') { if (this.enemy(e, t)) this.hit(t, t.b ? ab.dmg * SHOCK_VS_BUILDINGS : ab.dmg, e); }
             else if (!this.enemy(e, t) && !t.b) {
               if (ab.kind === 'haste') t.hasteT = until;
               else if (ab.kind === 'rage') t.rageT = until;
@@ -762,7 +775,9 @@ export class Sim {
     const s = {
       k: this.tick, w: this.winner,
       p: this.players.map(p => [Math.floor(p.res), p.pop, Math.min(p.cap, MAXCAP), p.alive ? 1 : 0, Math.ceil(p.heroT), Math.floor(p.wood), p.lvl,
-        p.lvl > LEVELS.length ? 100 : Math.floor((p.xp - (LEVELS[p.lvl - 2] || 0)) / (LEVELS[p.lvl - 1] - (LEVELS[p.lvl - 2] || 0)) * 100)]),
+        // [7] xp %, [8] Keeps the player may still build
+
+        p.lvl > LEVELS.length ? 100 : Math.floor((p.xp - (LEVELS[p.lvl - 2] || 0)) / (LEVELS[p.lvl - 1] - (LEVELS[p.lvl - 2] || 0)) * 100), KEEP_LIMIT - p.keeps]),
       e: [], rm: this.changed, fx: this.fx,
     };
     this.changed = []; this.fx = [];

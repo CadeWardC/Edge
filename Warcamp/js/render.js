@@ -1,6 +1,6 @@
 // What a screen knows (View, rebuilt from snapshots) and how it is drawn (Renderer).
 // The host draws from snapshots too, so single player and multiplayer share every line here.
-import { TILE as T, DEF, TYPES, COLORS, MAP_SIZE, heroMult } from './data.js';
+import { TILE as T, DEF, TYPES, COLORS, MAP_SIZE, heroMult, BUILD_RANGE } from './data.js';
 import { genMap } from './sim.js';
 
 export class View {
@@ -18,7 +18,7 @@ export class View {
   }
   apply(s) {
     this.tick = s.k; this.winner = s.w;
-    s.p.forEach((a, i) => { this.pl[i] = { res: a[0], pop: a[1], cap: a[2], alive: !!a[3], heroT: a[4], wood: a[5] || 0, lvl: a[6] || 1, xp: a[7] || 0 }; });
+    s.p.forEach((a, i) => { this.pl[i] = { res: a[0], pop: a[1], cap: a[2], alive: !!a[3], heroT: a[4], wood: a[5] || 0, lvl: a[6] || 1, xp: a[7] || 0, keeps: a[8] ?? 0 }; });
     for (const a of s.e) {
       const type = TYPES[a[1]], d = DEF[type];
       let e = this.ents.get(a[0]);
@@ -397,6 +397,11 @@ export class Renderer {
 
     if (ui.ghost) {
       const gh = ui.ghost, s = DEF[gh.type].size * T;
+      if (gh.type !== 'hq') { // where building is allowed: around each of my finished Keeps
+        g.strokeStyle = 'rgba(253,230,138,.95)'; g.lineWidth = 2.5 / c.z; g.setLineDash([10 / c.z, 7 / c.z]);
+        for (const k of v.ents.values()) if (k.type === 'hq' && k.owner === v.me && k.built) g.strokeRect(k.x - BUILD_RANGE * T, k.y - BUILD_RANGE * T, BUILD_RANGE * 2 * T, BUILD_RANGE * 2 * T);
+        g.setLineDash([]);
+      }
       g.fillStyle = gh.ok ? 'rgba(74,222,128,.4)' : 'rgba(248,113,113,.45)';
       g.strokeStyle = gh.ok ? '#4ade80' : '#f87171'; g.lineWidth = 2;
       rr(g, gh.tx * T, gh.ty * T, s, s, 5); g.fill(); g.stroke();
