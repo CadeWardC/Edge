@@ -330,7 +330,9 @@ function closeNet() {
 //   over  the map fills the screen and the controls float over it
 //   lite  like "over", with the panel only there when something is selected and no mini-map
 // Any of them can be folded (the arrow at the edge of the map) to put the panel and mini-map away.
-const LAY = (() => { try { return { lay: 'dock', left: false, nomap: false, ...JSON.parse(store.get('warcamp-layout') || '{}') }; } catch { return { lay: 'dock', left: false, nomap: false }; } })();
+// Floating controls are the default. (The key is new, so devices that only ever had the old default follow it.)
+const LAYKEY = 'warcamp-layout2';
+const LAY = (() => { try { return { lay: 'over', left: false, nomap: false, ...JSON.parse(store.get(LAYKEY) || '{}') }; } catch { return { lay: 'over', left: false, nomap: false }; } })();
 let folded = false;
 function applyLayout() {
   const g = $('game');
@@ -344,7 +346,7 @@ function applyLayout() {
   const mapOn = LAY.lay === 'lite' ? !!LAY.liteMap : !LAY.nomap;
   $('layMap').classList.toggle('on', mapOn);
   $('layMap').textContent = mapOn ? 'Mini-map: shown' : 'Mini-map: hidden';
-  store.set('warcamp-layout', JSON.stringify(LAY));
+  store.set(LAYKEY, JSON.stringify(LAY));
   R.resize();
   pads();
 }

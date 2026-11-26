@@ -382,8 +382,11 @@ export class Renderer {
   clamp() {
     // The camera may travel past each edge of the map: a little everywhere, and further where controls float over
     // the map (this.pad, in screen pixels), so that nothing on the map is ever stuck behind them.
-    const c = this.cam, W = this.view.N * T, vw = this.w / c.z, vh = this.h / c.z, m = 60, p = this.pad || { l: 0, t: 0, r: 0, b: 0 };
-    const x0 = -m - p.l / c.z, x1 = W + m + p.r / c.z - vw, y0 = -m - p.t / c.z, y1 = W + m + p.b / c.z - vh;
+    const c = this.cam, W = this.view.N * T, vw = this.w / c.z, vh = this.h / c.z, p = this.pad || { l: 0, t: 0, r: 0, b: 0 };
+    // Past each edge: a third of what is left of the screen once the controls are taken off, so a base in a
+    // corner or along the bottom can be brought well into the open.
+    const mx = Math.max(60, (vw - (p.l + p.r) / c.z) * .33), my = Math.max(60, (vh - (p.t + p.b) / c.z) * .33);
+    const x0 = -mx - p.l / c.z, x1 = W + mx + p.r / c.z - vw, y0 = -my - p.t / c.z, y1 = W + my + p.b / c.z - vh;
     c.x = x1 < x0 ? (x0 + x1) / 2 : Math.max(x0, Math.min(x1, c.x));
     c.y = y1 < y0 ? (y0 + y1) / 2 : Math.max(y0, Math.min(y1, c.y));
   }
