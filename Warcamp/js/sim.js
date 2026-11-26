@@ -1,6 +1,6 @@
 // The authoritative simulation. It has no DOM or network code: the host (or a single-player
 // game) steps it 10 times a second, feeds it commands, and ships snapshot() to every screen.
-import { TILE as T, DEF, TI, MAXCAP, HEROES, HERO_RESPAWN } from './data.js';
+import { TILE as T, DEF, TI, MAXCAP, MAP_SIZE, HEROES, HERO_RESPAWN, LEVELS, heroMult } from './data.js';
 
 export const DT = 0.1;
 // How close a worker must be to a wall to build or unload. A worker on the tile beside the wall is 16 away;
@@ -17,8 +17,8 @@ export function rng(a) {
   };
 }
 
-// One quadrant is generated from the seed and mirrored four ways, so every corner is equal.
-// Terrain: 0 grass, 1 water, 2 tree, 3 crystal.
+// One quarter of the map is generated from the seed and mirrored four ways, so every player's corner is equal.
+// The base sits at a different spot in its quarter each game. Terrain: 0 grass, 1 water, 2 tree, 3 crystal.
 export function genMap(seed, N) {
   const r = rng(seed), Q = N >> 1, q = new Uint8Array(Q * Q), ri = n => (r() * n) | 0;
   const set = (x, y, t) => { if (x >= 0 && y >= 0 && x < Q && y < Q) q[y * Q + x] = t; };
@@ -29,16 +29,24 @@ export function genMap(seed, N) {
       y = Math.max(0, Math.min(Q - 1, y + ri(3) - 1));
     }
   };
-  for (let i = 0; i < 8; i++) blob(2, ri(Q), ri(Q), 10 + ri(12));
-  for (let i = 0; i < 3; i++) blob(1, 5 + ri(Q - 8), 5 + ri(Q - 8), 8 + ri(10));
-  for (let i = 0; i < 2; i++) blob(3, 13 + ri(Q - 15), 13 + ri(Q - 15), 3);
+  const k = (Q * Q) / 784; // how much bigger than the original 28-tile quarter
+  const room = Math.floor(Q * 0.3) + 1;
+  const bx = 9 + ri(room), by = 9 + ri(room);
+  for (let i = 0; i < 8 * k; i++) blob(2, ri(Q), ri(Q), 10 + ri(14));
+  for (let i = 0; i < 3 * k; i++) blob(1, ri(Q), ri(Q), 8 + ri(12));
+  for (let i = 0; i < 2 * k; i++) blob(3, ri(Q), ri(Q), 3); // crystal out in the open, worth an Outpost or a new Keep
   // Clear the base, then carve roads so every base can always reach every other.
-  for (let y = 0; y < Q; y++) for (let x = 0; x < Q; x++) if (Math.hypot(x - 7, y - 7) < 6) q[y * Q + x] = 0;
-  for (let i = 7; i < Q; i++) { set(i, 7, 0); set(i, 8, 0); set(7, i, 0); set(8, i, 0); set(i, i, 0); set(i - 1, i, 0); }
-  // Guaranteed starting resources, and a contested deposit near the middle.
-  for (const [x, y] of [[12, 4], [13, 4], [14, 4], [12, 5], [13, 5], [14, 5]]) set(x, y, 3);
-  for (const [x, y] of [[3, 19], [4, 19], [3, 20], [4, 20]]) set(x, y, 3); // a second deposit a short walk away
-  for (let x = 2; x <= 6; x++) { set(x, 13, 2); set(x, 14, 2); }
+  for (let y = 0; y < Q; y++) for (let x = 0; x < Q; x++) if (Math.hypot(x - bx, y - by) < 6.5) q[y * Q + x] = 0;
+  for (let x = bx; x < Q; x++) { set(x, by, 0); set(x, by + 1, 0); }
+  for (let y = by; y < Q; y++) { set(bx, y, 0); set(bx + 1, y, 0); }
+  for (let x = bx, y = by; x < Q - 1 || y < Q - 1;) { // a winding road to the middle of the map
+    if (x < Q - 1 && (y >= Q - 1 || (Q - 1 - x) >= (Q - 1 - y))) x++; else y++;
+    set(x, y, 0); set(x - 1, y, 0); set(x, y - 1, 0);
+  }
+  // Guaranteed starting resources beside the base, and a contested deposit in the middle.
+  for (let x = bx + 5; x <= bx + 7; x++) { set(x, by - 3, 3); set(x, by - 2, 3); }
+  for (let x = bx - 4; x <= bx - 3; x++) { set(x, by + 11, 3); set(x, by + 12, 3); } // a second deposit a short walk away
+  for (let x = bx - 5; x <= bx - 1; x++) { set(x, by + 6, 2); set(x, by + 7, 2); }
   for (const [x, y] of [[Q - 3, Q - 6], [Q - 2, Q - 6], [Q - 1, Q - 6], [Q - 6, Q - 3], [Q - 6, Q - 2], [Q - 6, Q - 1]]) set(x, y, 3);
 
   const terrain = new Uint8Array(N * N), amt = new Uint16Array(N * N);
@@ -49,13 +57,13 @@ export function genMap(seed, N) {
       amt[my * N + mx] = v === 2 ? TREE_AMT : v === 3 ? CRYSTAL_AMT : 0;
     }
   }
-  return { terrain, amt };
+  return { terrain, amt, base: [bx, by] };
 }
 
-// Slots 0 and 1 are opposite corners, so a two-player game is always a fair diagonal.
-export function basePos(slot, N) {
-  const a = 7, b = N - 8;
-  return [[a, a], [b, b], [b, a], [a, b]][slot];
+// Slots 0 and 1 are opposite each other, so a two-player game is always a fair diagonal.
+export function basePos(slot, N, base) {
+  const [a, c] = base, b = N - 1 - a, d = N - 1 - c;
+  return [[a, c], [b, d], [b, c], [a, d]][slot];
 }
 
 const FORMATION = [];
@@ -66,8 +74,9 @@ const num = v => typeof v === 'number' && isFinite(v);
 
 export class Sim {
   constructor(cfg) {
-    const N = this.N = cfg.size || 56;
+    const N = this.N = cfg.size || MAP_SIZE;
     const m = genMap(cfg.seed, N);
+    this.base = m.base;
     this.terrain = m.terrain; this.amt = m.amt;
     this.occ = new Int32Array(N * N);
     this.ents = new Map();
@@ -78,10 +87,10 @@ export class Sim {
     this._g = new Float32Array(N * N); this._st = new Uint32Array(N * N);
     this._cl = new Uint32Array(N * N); this._par = new Int32Array(N * N); this._stamp = 0;
     this.players = cfg.players.map(p => ({
-      name: p.name, team: p.team, res: 250, wood: 250, hero: HEROES.includes(p.hero) ? p.hero : 'hero', pop: 0, cap: 0, alive: true, heroT: 0, bonus: p.bonus || 1, alert: null,
+      name: p.name, team: p.team, res: 250, wood: 250, hero: HEROES.includes(p.hero) ? p.hero : 'hero', xp: 0, lvl: 1, pop: 0, cap: 0, alive: true, heroT: 0, bonus: p.bonus || 1, alert: null,
     }));
     this.players.forEach((p, i) => {
-      const [bx, by] = basePos(i, N);
+      const [bx, by] = this.basePos(i);
       this.addBuilding('hq', i, bx - 1, by - 1, true);
       for (let j = 0; j < 3; j++) this.autoHarvest(this.spawnUnit('worker', i, (bx - 1 + j + .5) * T, (by + 2.5) * T));
       this.spawnUnit(p.hero, i, (bx + 2.5) * T, (by + 2.5) * T);
@@ -89,6 +98,8 @@ export class Sim {
   }
 
   // ---------- helpers ----------
+  basePos(slot) { return basePos(slot, this.N, this.base); }
+  maxHp(e) { const d = DEF[e.type]; return d.hero ? Math.round(d.hp * heroMult(this.players[e.owner].lvl)) : d.hp; }
   walkable(x, y) {
     const N = this.N;
     if (x < 0 || y < 0 || x >= N || y >= N) return false;
@@ -127,7 +138,8 @@ export class Sim {
     return e;
   }
   spawnUnit(type, owner, x, y) {
-    const e = { id: this.nextId++, type, owner, x, y, hp: DEF[type].hp, order: null, path: null, pi: 0, cdT: 0, carry: 0, abT: 0 };
+    const e = { id: this.nextId++, type, owner, x, y, hp: DEF[type].hp, order: null, path: null, pi: 0, cdT: 0, carry: 0 };
+    if (DEF[type].hero) { e.cds = [0, 0, 0]; e.hp = this.maxHp(e); }
     this.ents.set(e.id, e);
     return e;
   }
@@ -326,20 +338,39 @@ export class Sim {
   // ---------- combat ----------
   acquire(e, range) {
     let best = null, bd = range;
+    const siege = DEF[e.type].siege;
     for (const t of this.ents.values()) {
-      if (!this.enemy(e, t)) continue;
+      if (!this.enemy(e, t) || (siege && !t.b)) continue;
       let d = this.dist(e, t);
       if (d > range) continue;
-      if (t.b && !DEF[t.type].dmg) d += 60; // fight what fights back first
+      if (t.b && !DEF[t.type].dmg) d += DEF[t.type].wall ? 260 : 60; // fight what fights back first, walls last
       if (d < bd || !best) { bd = d; best = t; }
     }
     return best;
   }
-  hit(t, dmg) {
+  hit(t, dmg, src) {
     if (t.hp <= 0) return;
-    t.hp -= dmg;
+    t.hp -= t.wardT > this.tick ? dmg * 0.5 : dmg;
     this.players[t.owner].alert = { x: t.x, y: t.y, tick: this.tick };
-    if (t.hp <= 0) this.kill(t);
+    if (t.hp <= 0) {
+      if (src && this.enemy(src, t)) this.award(src.owner, t, !!DEF[src.type].hero);
+      this.kill(t);
+    }
+  }
+  // A kill by the hero, or by its army fighting beside it, earns the hero experience.
+  award(owner, t, direct) {
+    const P = this.players[owner];
+    if (P.lvl > LEVELS.length) return;
+    let hero = null;
+    for (const e of this.ents.values()) if (e.owner === owner && DEF[e.type].hero) { hero = e; break; }
+    if (!hero || (!direct && Math.hypot(hero.x - t.x, hero.y - t.y) > 240)) return;
+    const d = DEF[t.type], v = t.b ? (d.wall ? 1 : 8) : d.hero ? 25 : Math.max(2, Math.round(d.hp / 20));
+    P.xp += direct ? v : v * 0.6;
+    while (P.lvl <= LEVELS.length && P.xp >= LEVELS[P.lvl - 1]) {
+      P.lvl++;
+      hero.hp = this.maxHp(hero);
+      this.fx.push(['l', hero.x | 0, hero.y | 0]);
+    }
   }
   kill(e) {
     e.hp = 0;
@@ -362,16 +393,25 @@ export class Sim {
   updateUnit(e) {
     const d = DEF[e.type], o = e.order, P = this.players[e.owner], N = this.N;
     e.cdT -= DT;
-    if (d.hero) { e.abT -= DT; if (e.hp < d.hp) e.hp = Math.min(d.hp, e.hp + 2 * DT); }
+    if (d.hero) { for (let i = 0; i < 3; i++) e.cds[i] -= DT; const m = this.maxHp(e); if (e.hp < m) e.hp = Math.min(m, e.hp + 2 * DT); }
+    if (d.healer && (this.tick + e.id) % 10 === 0) { // mend the most badly hurt friend nearby
+      let best = null, need = 0;
+      for (const t of this.ents.values()) {
+        if (t.b || t === e || this.enemy(e, t)) continue;
+        const miss = this.maxHp(t) - t.hp;
+        if (miss > need && Math.hypot(t.x - e.x, t.y - e.y) < 120) { need = miss; best = t; }
+      }
+      if (best) { best.hp = Math.min(this.maxHp(best), best.hp + d.heal); this.fx.push(['q', best.x | 0, best.y | 0]); }
+    }
     const scan = (this.tick + e.id) % 5 === 0;
     if (!o) {
-      if (d.mil && scan) { const t = this.acquire(e, 200); if (t) e.order = { k: 'attack', target: t.id, auto: 1 }; }
+      if (d.mil && d.dmg && scan) { const t = this.acquire(e, Math.max(200, d.range || 0)); if (t) e.order = { k: 'attack', target: t.id, auto: 1 }; }
       return;
     }
     switch (o.k) {
       case 'move': case 'amove': {
-        if (o.k === 'amove' && scan) {
-          const t = this.acquire(e, 200);
+        if (o.k === 'amove' && d.dmg && scan) {
+          const t = this.acquire(e, Math.max(200, d.range || 0));
           if (t) { e.order = { k: 'attack', target: t.id, auto: 1, resume: o }; break; }
         }
         const r = this.follow(e);
@@ -381,15 +421,19 @@ export class Sim {
       }
       case 'attack': {
         const t = this.ents.get(o.target);
-        if (!t) { this.resume(e, o); break; }
+        if (!t || !d.dmg || (d.siege && !t.b)) { this.resume(e, o); break; }
         const dd = this.dist(e, t), reach = d.range || (t.b ? REACH : 26);
         if (dd <= reach) {
           if (e.cdT <= 0) {
             e.cdT = d.cd;
             this.fx.push(d.range ? ['a', e.x | 0, e.y | 0, t.x | 0, t.y | 0] : ['h', t.x | 0, t.y | 0]);
-            this.hit(t, d.dmg);
+            const dmg = d.dmg * (d.hero ? heroMult(P.lvl) : 1) * (e.rageT > this.tick ? 1.4 : 1), tx = t.x, ty = t.y;
+            this.hit(t, dmg, e);
+            if (d.splash) for (const u of [...this.ents.values()]) {
+              if (u !== t && !u.b && this.enemy(e, u) && Math.hypot(u.x - tx, u.y - ty) <= d.splash) this.hit(u, dmg * 0.6, e);
+            }
           }
-        } else if (o.auto && dd > 320) this.resume(e, o);
+        } else if (o.auto && dd > Math.max(320, (d.range || 0) + 80)) this.resume(e, o);
         else if (!t.b && dd < 70) {
           const s = Math.min(d.speed * DT, dd), nx = e.x + (t.x - e.x) / dd * s, ny = e.y + (t.y - e.y) / dd * s;
           if (this.walkable((nx / T) | 0, (ny / T) | 0)) { e.x = nx; e.y = ny; e.path = null; }
@@ -451,7 +495,10 @@ export class Sim {
       }
       case 'build': {
         const b = this.ents.get(o.b);
-        if (!b || b.built) { // done (or gone): back to what it was gathering before
+        if (!b || b.built) { // done (or gone): on to the next one queued, else back to what it was gathering before
+          let nb = null;
+          while (o.q && o.q.length && !nb) { const c = this.ents.get(o.q.shift()); if (c && !c.built) nb = c; }
+          if (nb) { o.b = nb.id; o.tries = 0; this.pathTo(e, nb.tx, nb.ty, nb.tx + nb.size - 1, nb.ty + nb.size - 1); break; }
           e.order = null;
           if (o.back && this.terrain[o.back[1] * N + o.back[0]] >= 2) this.orderHarvest(e, o.back[0], o.back[1]);
           else this.autoHarvest(e, o.back && o.back[2]);
@@ -476,7 +523,7 @@ export class Sim {
       e.cdT -= DT;
       if (e.cdT <= 0 && (this.tick + e.id) % 3 === 0) {
         const t = this.acquire(e, d.range);
-        if (t) { e.cdT = d.cd; this.fx.push(['a', e.x | 0, e.y | 0, t.x | 0, t.y | 0]); this.hit(t, d.dmg); }
+        if (t) { e.cdT = d.cd; this.fx.push(['a', e.x | 0, e.y | 0, t.x | 0, t.y | 0]); this.hit(t, d.dmg, e); }
       }
     }
     if (e.queue.length) {
@@ -542,7 +589,7 @@ export class Sim {
   // A player is out when their last building falls; the last team standing wins.
   checkWin() {
     const has = this.players.map(() => false);
-    for (const e of this.ents.values()) if (e.b) has[e.owner] = true;
+    for (const e of this.ents.values()) if (e.b && !DEF[e.type].wall) has[e.owner] = true; // walls alone do not keep a player in
     this.players.forEach((p, i) => {
       if (p.alive && !has[i]) {
         p.alive = false; p.heroT = 0;
@@ -576,7 +623,7 @@ export class Sim {
       case 'attack': {
         const t = this.ents.get(c.target);
         if (!t || !this.enemy({ owner: pid }, t)) return;
-        for (const e of own(c.ids)) if (!e.b) { e.order = { k: 'attack', target: t.id }; e.path = null; }
+        for (const e of own(c.ids)) if (!e.b && DEF[e.type].dmg && (t.b || !DEF[e.type].siege)) { e.order = { k: 'attack', target: t.id }; e.path = null; }
         break;
       }
       case 'harvest': {
@@ -593,7 +640,7 @@ export class Sim {
       }
       case 'build': {
         const d = DEF[c.b];
-        if (!d || !d.b || c.b === 'hq' || !num(c.tx) || !num(c.ty)) return;
+        if (!d || !d.b || !num(c.tx) || !num(c.ty)) return;
         const tx = c.tx | 0, ty = c.ty | 0;
         const wood = d.wood || 0;
         if (P.res < d.cost || P.wood < wood || (d.req && !this.hasBuilt(pid, d.req)) || !this.canPlace(c.b, tx, ty)) return;
@@ -601,7 +648,12 @@ export class Sim {
         if (!ws.length) return;
         P.res -= d.cost; P.wood -= wood;
         const b = this.addBuilding(c.b, pid, tx, ty, false);
-        for (const e of ws) { e.order = { k: 'build', b: b.id, tries: 0, back: this.wasGathering(e) }; this.pathTo(e, tx, ty, tx + d.size - 1, ty + d.size - 1); }
+        for (const e of ws) {
+          const cur = e.order && e.order.k === 'build' && this.ents.get(e.order.b);
+          if (cur && !cur.built) { (e.order.q || (e.order.q = [])).push(b.id); continue; } // busy building: queue it
+          e.order = { k: 'build', b: b.id, tries: 0, back: this.wasGathering(e) };
+          this.pathTo(e, tx, ty, tx + d.size - 1, ty + d.size - 1);
+        }
         break;
       }
       case 'assist': {
@@ -649,19 +701,33 @@ export class Sim {
         break;
       }
       case 'ability': {
-        const e = this.ents.get(c.id);
-        const ab = e && DEF[e.type].ab;
-        if (!e || e.owner !== pid || !ab || e.abT > 0) return;
-        e.abT = ab.cd;
-        this.fx.push(['s', e.x | 0, e.y | 0, ab.radius, ab.kind === 'shock' ? 0 : ab.kind === 'haste' ? 1 : 2]);
-        for (const t of [...this.ents.values()]) {
-          if (this.dist(e, t) > ab.radius) continue;
-          if (ab.kind === 'shock') { if (this.enemy(e, t)) this.hit(t, ab.dmg); }
-          else if (!this.enemy(e, t) && !t.b) {
-            if (ab.kind === 'haste') t.hasteT = this.tick + ab.secs * 10;
-            else t.hp = Math.min(DEF[t.type].hp, t.hp + ab.heal);
+        const e = this.ents.get(c.id), n = c.n | 0;
+        const ab = e && DEF[e.type].abs && DEF[e.type].abs[n];
+        if (!e || e.owner !== pid || !ab || P.lvl < ab.lvl || e.cds[n] > 0) return;
+        const until = this.tick + (ab.secs || 0) * 10;
+        if (ab.kind === 'snipe') { // one shot at the strongest enemy in reach
+          let best = null;
+          for (const t of this.ents.values()) {
+            if (t.b || !this.enemy(e, t) || this.dist(e, t) > ab.radius) continue;
+            if (!best || (DEF[t.type].hero ? 1e5 : 0) + t.hp > (DEF[best.type].hero ? 1e5 : 0) + best.hp) best = t;
+          }
+          if (!best) return;
+          this.fx.push(['a', e.x | 0, e.y | 0, best.x | 0, best.y | 0], ['s', best.x | 0, best.y | 0, 40, 0]);
+          this.hit(best, ab.dmg, e);
+        } else {
+          this.fx.push(['s', e.x | 0, e.y | 0, ab.radius, { shock: 0, haste: 1, heal: 2, rage: 3, ward: 4 }[ab.kind]]);
+          for (const t of [...this.ents.values()]) {
+            if (this.dist(e, t) > ab.radius) continue;
+            if (ab.kind === 'shock') { if (this.enemy(e, t)) this.hit(t, ab.dmg, e); }
+            else if (!this.enemy(e, t) && !t.b) {
+              if (ab.kind === 'haste') t.hasteT = until;
+              else if (ab.kind === 'rage') t.rageT = until;
+              else if (ab.kind === 'ward') t.wardT = until;
+              else { t.hp = Math.min(this.maxHp(t), t.hp + ab.heal); if (ab.secs) t.hasteT = until; }
+            }
           }
         }
+        e.cds[n] = ab.cd;
         break;
       }
       case 'stop':
@@ -674,14 +740,16 @@ export class Sim {
   snapshot() {
     const s = {
       k: this.tick, w: this.winner,
-      p: this.players.map(p => [Math.floor(p.res), p.pop, Math.min(p.cap, MAXCAP), p.alive ? 1 : 0, Math.ceil(p.heroT), Math.floor(p.wood)]),
+      p: this.players.map(p => [Math.floor(p.res), p.pop, Math.min(p.cap, MAXCAP), p.alive ? 1 : 0, Math.ceil(p.heroT), Math.floor(p.wood), p.lvl,
+        p.lvl > LEVELS.length ? 100 : Math.floor((p.xp - (LEVELS[p.lvl - 2] || 0)) / (LEVELS[p.lvl - 1] - (LEVELS[p.lvl - 2] || 0)) * 100)]),
       e: [], rm: this.changed, fx: this.fx,
     };
     this.changed = []; this.fx = [];
     for (const e of this.ents.values()) {
       const a = [e.id, TI[e.type], e.owner, Math.round(e.x), Math.round(e.y), Math.ceil(e.hp)];
       if (e.b) a.push(e.built ? 1 : 0, Math.floor((e.built ? (e.queue.length ? e.trainT / DEF[e.queue[0]].time : 0) : e.prog) * 100), e.queue.map(u => TI[u]), !e.built && this.tick - (e.wk ?? -99) > 8 ? 1 : 0);
-      else a.push(e.carry ? e.ck : 0, Math.max(0, Math.ceil(e.abT)), e.order ? 0 : 1, e.hasteT > this.tick ? 1 : 0);
+      else a.push(e.carry ? e.ck : 0, e.cds ? e.cds.map(c => Math.max(0, Math.ceil(c))) : 0, e.order ? 0 : 1,
+        (e.hasteT > this.tick ? 1 : 0) | (e.rageT > this.tick ? 2 : 0) | (e.wardT > this.tick ? 4 : 0));
       s.e.push(a);
     }
     return s;

@@ -1,11 +1,11 @@
 // What a screen knows (View, rebuilt from snapshots) and how it is drawn (Renderer).
 // The host draws from snapshots too, so single player and multiplayer share every line here.
-import { TILE as T, DEF, TYPES, COLORS } from './data.js';
+import { TILE as T, DEF, TYPES, COLORS, MAP_SIZE, heroMult } from './data.js';
 import { genMap } from './sim.js';
 
 export class View {
   constructor(cfg, me) {
-    this.N = cfg.size || 56;
+    this.N = cfg.size || MAP_SIZE;
     this.seed = cfg.seed;
     this.terrain = genMap(cfg.seed, this.N).terrain;
     this.info = cfg.players.map((p, i) => ({ name: p.name, team: p.team, color: COLORS[p.color ?? i] || COLORS[i], hero: p.hero || 'hero' }));
@@ -18,7 +18,7 @@ export class View {
   }
   apply(s) {
     this.tick = s.k; this.winner = s.w;
-    s.p.forEach((a, i) => { this.pl[i] = { res: a[0], pop: a[1], cap: a[2], alive: !!a[3], heroT: a[4], wood: a[5] || 0 }; });
+    s.p.forEach((a, i) => { this.pl[i] = { res: a[0], pop: a[1], cap: a[2], alive: !!a[3], heroT: a[4], wood: a[5] || 0, lvl: a[6] || 1, xp: a[7] || 0 }; });
     for (const a of s.e) {
       const type = TYPES[a[1]], d = DEF[type];
       let e = this.ents.get(a[0]);
@@ -30,7 +30,8 @@ export class View {
       if (a[5] < e.hp && e.owner === this.me) this.hurt = { x: a[3], y: a[4], tick: s.k };
       e.x = a[3]; e.y = a[4]; e.hp = a[5]; e.stamp = s.k;
       if (d.b) { e.built = !!a[6]; e.prog = a[7]; e.queue = a[8]; e.paused = !!a[9]; }
-      else { e.carry = a[6]; e.abT = a[7]; e.idle = a[8]; e.haste = a[9]; }
+      else { e.carry = a[6]; e.cds = a[7] || null; e.idle = a[8]; e.buff = a[9] || 0; }
+      e.max = d.hero ? Math.round(d.hp * heroMult(this.pl[e.owner].lvl)) : d.hp;
     }
     for (const [id, e] of this.ents) if (e.stamp !== s.k) this.ents.delete(id);
     for (const i of s.rm) { this.terrain[i] = 0; this.dirty.push(i); }
@@ -71,6 +72,11 @@ function drawUnit(g, e, col) {
   const t = e.type, isHero = !!DEF[t].hero, big = isHero || t === 'knight', s = big ? 1.2 : 1;
   g.save();
   g.translate(e.rx, e.ry);
+  if (e.buff & 6) { // Battle Cry glows red, Ward glows blue
+    g.strokeStyle = e.buff & 2 ? 'rgba(248,113,113,.9)' : 'rgba(147,197,253,.9)'; g.lineWidth = 1.6;
+    g.beginPath(); g.ellipse(0, 6, 12 * s, 6.5 * s, 0, 0, 7); g.stroke();
+  }
+  if (t === 'catapult') { drawCatapult(g, e, col); g.restore(); return; }
   g.fillStyle = 'rgba(0,0,0,.28)';
   g.beginPath(); g.ellipse(0, 7 * s, 8 * s, 3.5 * s, 0, 0, 7); g.fill();
   g.scale(e.face < 0 ? -s : s, s);
@@ -107,6 +113,18 @@ function drawUnit(g, e, col) {
     g.strokeStyle = '#e5e7eb'; g.lineWidth = .8; line(g, 7.2, by - 3.2, 7.2, by + 9.2);
   } else if (t === 'knight') {
     g.strokeStyle = '#e5e7eb'; line(g, 3, by + 6, 15, by - 8);
+  } else if (t === 'guard') { // tall shield, short blade
+    g.fillStyle = '#cbd5e1'; g.strokeStyle = 'rgba(0,0,0,.55)'; g.lineWidth = 1;
+    rr(g, -11, by - 2, 8, 13, 2.5); g.fill(); g.stroke();
+    g.fillStyle = col; g.fillRect(-8.5, by + 2, 3, 5);
+    g.strokeStyle = '#eef0f4'; g.lineWidth = 1.8; line(g, 6, by + 6, 8, by - 2);
+  } else if (t === 'mage') { // pointed hat and a staff
+    g.fillStyle = '#6d28d9'; g.beginPath(); g.moveTo(-5.5, by - 5); g.lineTo(0, by - 15); g.lineTo(5.5, by - 5); g.closePath(); g.fill();
+    g.strokeStyle = '#854d0e'; g.lineWidth = 1.6; line(g, 8, by + 9, 8, by - 8);
+    g.fillStyle = '#c4b5fd'; g.beginPath(); g.arc(8, by - 9.5, 2.8, 0, 7); g.fill();
+  } else if (t === 'cleric') { // white hood and a green cross
+    g.fillStyle = '#f1f5f9'; g.beginPath(); g.arc(0, by - 5, 4.8, Math.PI * .95, Math.PI * .05); g.fill();
+    g.fillStyle = '#16a34a'; g.fillRect(-1.2, by + 1.5, 2.4, 6.5); g.fillRect(-3.2, by + 3.5, 6.4, 2.4);
   } else if (isHero) {
     g.fillStyle = '#fbbf24';
     g.beginPath(); g.moveTo(-4.5, by - 6); g.lineTo(-4.5, by - 11); g.lineTo(-2, by - 8); g.lineTo(0, by - 12); g.lineTo(2, by - 8);
@@ -119,11 +137,22 @@ function drawUnit(g, e, col) {
       g.fillStyle = '#86efac'; g.beginPath(); g.arc(8, by - 10, 3, 0, 7); g.fill();
     } else { g.strokeStyle = '#fde68a'; g.lineWidth = 2.2; line(g, 6, by + 7, 11, by - 8); }
   }
-  if (e.haste) { // speed lines
+  if (e.buff & 1) { // speed lines
     g.strokeStyle = 'rgba(253,224,71,.9)'; g.lineWidth = 1.2;
     line(g, -13, by + 2, -8, by + 2); line(g, -14, by + 6, -9, by + 6);
   }
   g.restore();
+}
+
+function drawCatapult(g, e, col) {
+  g.scale(e.face < 0 ? -1 : 1, 1);
+  g.fillStyle = 'rgba(0,0,0,.28)'; g.beginPath(); g.ellipse(0, 9, 14, 4.5, 0, 0, 7); g.fill();
+  g.strokeStyle = 'rgba(0,0,0,.55)'; g.lineWidth = 1; g.lineCap = 'round';
+  g.fillStyle = '#8b5a2b'; rr(g, -12, 0, 24, 7, 2); g.fill(); g.stroke();
+  g.fillStyle = col; g.fillRect(-9, 2, 18, 3);
+  g.fillStyle = '#3f3f46'; for (const x of [-8, 8]) { g.beginPath(); g.arc(x, 8, 3.6, 0, 7); g.fill(); g.stroke(); }
+  g.strokeStyle = '#6b4423'; g.lineWidth = 3; line(g, -6, 2, 9, -13);
+  g.fillStyle = '#9ca3af'; g.strokeStyle = 'rgba(0,0,0,.55)'; g.lineWidth = 1; g.beginPath(); g.arc(10, -14, 3.6, 0, 7); g.fill(); g.stroke();
 }
 
 function drawBuilding(g, e, col) {
@@ -133,7 +162,11 @@ function drawBuilding(g, e, col) {
   g.lineWidth = 1.5; g.strokeStyle = '#5b5446';
   g.fillStyle = 'rgba(0,0,0,.25)'; rr(g, x + 4, y + 6, w - 5, w - 5, 5); g.fill();
   g.fillStyle = '#d3cab8'; rr(g, x + 2, y + 2, w - 4, w - 4, 5); g.fill(); g.stroke();
-  if (t === 'tower') {
+  if (t === 'wall') { // a stone block with a stripe of the owner's colour
+    g.fillStyle = '#9aa3ad'; rr(g, x + 1, y + 1, w - 2, w - 2, 3); g.fill(); g.stroke();
+    g.strokeStyle = 'rgba(0,0,0,.25)'; g.lineWidth = 1; line(g, x + 2, cy, x + w - 2, cy); line(g, cx, y + 2, cx, cy); line(g, x + 9, cy, x + 9, y + w - 2); line(g, x + 23, cy, x + 23, y + w - 2);
+    g.fillStyle = col; g.fillRect(x + 4, y + 4, w - 8, 4);
+  } else if (t === 'tower') {
     g.fillStyle = col; g.beginPath(); g.arc(cx, cy, 9, 0, 7); g.fill(); g.stroke();
     g.fillStyle = '#f8fafc';
     for (let i = 0; i < 4; i++) { const a = i * Math.PI / 2 + Math.PI / 4; g.fillRect(cx + Math.cos(a) * 8 - 2, cy + Math.sin(a) * 8 - 2, 4, 4); }
@@ -154,6 +187,15 @@ function drawBuilding(g, e, col) {
     } else if (t === 'barracks') {
       g.strokeStyle = '#f8fafc'; g.lineWidth = 3; g.lineCap = 'round';
       line(g, cx - 10, cy - 10, cx + 10, cy + 10); line(g, cx + 10, cy - 10, cx - 10, cy + 10);
+    } else if (t === 'workshop') { // a cog
+      g.fillStyle = '#f8fafc'; g.strokeStyle = '#5b5446'; g.lineWidth = 1.2;
+      for (let i = 0; i < 8; i++) { const a = i * Math.PI / 4; g.fillRect(cx + Math.cos(a) * 9 - 2.5, cy + Math.sin(a) * 9 - 2.5, 5, 5); }
+      g.beginPath(); g.arc(cx, cy, 8, 0, 7); g.fill(); g.stroke();
+      g.fillStyle = col; g.beginPath(); g.arc(cx, cy, 3, 0, 7); g.fill();
+    } else if (t === 'sanctum') { // a glowing orb
+      g.fillStyle = 'rgba(196,181,253,.45)'; g.beginPath(); g.arc(cx, cy, 12, 0, 7); g.fill();
+      g.fillStyle = '#7c3aed'; g.strokeStyle = '#f8fafc'; g.lineWidth = 1.5; g.beginPath(); g.arc(cx, cy, 7.5, 0, 7); g.fill(); g.stroke();
+      g.fillStyle = '#ede9fe'; g.beginPath(); g.arc(cx - 2.5, cy - 2.5, 2.2, 0, 7); g.fill();
     } else if (t === 'outpost') {
       g.fillStyle = '#7dd3fc'; g.strokeStyle = '#0c4a6e'; g.lineWidth = 1.5;
       g.beginPath(); g.moveTo(cx, cy - 11); g.lineTo(cx + 8, cy - 2); g.lineTo(cx, cy + 11); g.lineTo(cx - 8, cy - 2); g.closePath(); g.fill(); g.stroke();
@@ -188,18 +230,17 @@ export class Renderer {
   }
   setView(v) {
     this.view = v;
-    const N = v.N, c = this.tc = document.createElement('canvas');
-    c.width = c.height = N * T;
-    this.tg = c.getContext('2d');
-    for (let i = 0; i < N * N; i++) this.tile(i);
+    const N = v.N, c = this.atlas = document.createElement('canvas');
+    c.width = 32 * T; c.height = T;
+    const ag = c.getContext('2d');
+    for (let t = 0; t < 4; t++) for (let chk = 0; chk < 2; chk++) for (let k = 0; k < 4; k++) this.paint(ag, (t * 8 + chk * 4 + k) * T, 0, t, chk, [96, 3, 14, 5][k]);
     this.mc = document.createElement('canvas'); this.mc.width = this.mc.height = N;
     this.mimg = this.mc.getContext('2d').createImageData(N, N);
     v.updateFog();
   }
-  tile(i) {
-    const v = this.view, N = v.N, g = this.tg, tx = i % N, ty = (i / N) | 0, x = tx * T, y = ty * T, t = v.terrain[i];
-    const h = (tx * 73856093 ^ ty * 19349663) >>> 0;
-    g.fillStyle = (tx + ty) & 1 ? '#6aa84c' : '#65a247';
+  // One tile of ground. The map is drawn from a small sheet of these every frame, so its size costs no memory.
+  paint(g, x, y, t, chk, h) {
+    g.fillStyle = chk ? '#6aa84c' : '#65a247';
     g.fillRect(x, y, T, T);
     if (t === 0 && h % 7 === 0) { g.fillStyle = '#7dba5c'; g.fillRect(x + 6 + h % 13, y + 8 + (h >> 4) % 13, 3, 3); }
     if (t === 1) {
@@ -239,15 +280,22 @@ export class Renderer {
   draw(dt, ui) {
     const v = this.view, g = this.g, c = this.cam, d = this.dpr, N = v.N;
     if (!v) return;
-    while (v.dirty.length) this.tile(v.dirty.pop());
+    v.dirty.length = 0;
     if ((this.fogT -= dt) <= 0) { this.fogT = .2; v.updateFog(); }
     this.clamp();
     g.setTransform(1, 0, 0, 1, 0, 0);
     g.fillStyle = '#0b1220'; g.fillRect(0, 0, this.cv.width, this.cv.height);
     g.setTransform(d * c.z, 0, 0, d * c.z, -c.x * d * c.z, -c.y * d * c.z);
     const vw = this.w / c.z, vh = this.h / c.z, W = N * T;
-    const sx = Math.max(0, c.x), sy = Math.max(0, c.y), ex = Math.min(W, c.x + vw), ey = Math.min(W, c.y + vh);
-    if (ex > sx && ey > sy) g.drawImage(this.tc, sx, sy, ex - sx, ey - sy, sx, sy, ex - sx, ey - sy);
+    {
+      const x0 = Math.max(0, (c.x / T) | 0), x1 = Math.min(N - 1, ((c.x + vw) / T) | 0), y0 = Math.max(0, (c.y / T) | 0), y1 = Math.min(N - 1, ((c.y + vh) / T) | 0);
+      for (let ty = y0; ty <= y1; ty++) for (let tx = x0; tx <= x1; tx++) {
+        const i = ty * N + tx;
+        if (!v.explored[i]) continue;
+        const h = (tx * 73856093 ^ ty * 19349663) >>> 0;
+        g.drawImage(this.atlas, (v.terrain[i] * 8 + ((tx + ty) & 1) * 4 + (h & 3)) * T, 0, T, T, tx * T, ty * T, T + .6, T + .6);
+      }
+    }
 
     const k = Math.min(1, dt * 12), units = [], spect = v.spectating();
     for (const e of v.ents.values()) {
@@ -262,7 +310,7 @@ export class Renderer {
       if (!e.b) { units.push(e); continue; }
       if (ui.sel.has(e.id)) { g.strokeStyle = '#4ade80'; g.lineWidth = 2; rr(g, e.tx * T, e.ty * T, e.size * T, e.size * T, 6); g.stroke(); }
       drawBuilding(g, e, v.info[e.owner].color);
-      const max = DEF[e.type].hp;
+      const max = e.max;
       if (e.built && (e.hp < max || ui.sel.has(e.id))) bar(g, e.rx, e.ty * T - 4, e.size * T - 10, e.hp / max, '#4ade80');
       if (!e.built && e.paused && v.friendly(e)) { // nobody is building this: a pause badge
         const bx = e.rx, by = e.ry - 4;
@@ -273,14 +321,21 @@ export class Renderer {
     }
     units.sort((a, b) => a.ry - b.ry);
     for (const e of units) {
-      const big = DEF[e.type].hero || e.type === 'knight';
+      const big = DEF[e.type].hero || e.type === 'knight' || e.type === 'catapult';
       if (ui.sel.has(e.id)) {
         g.strokeStyle = '#4ade80'; g.lineWidth = 1.6;
         g.beginPath(); g.ellipse(e.rx, e.ry + 6, big ? 13 : 10, big ? 7 : 5.5, 0, 0, 7); g.stroke();
       }
       drawUnit(g, e, v.info[e.owner].color);
-      const max = DEF[e.type].hp;
-      if (e.hp < max || ui.sel.has(e.id)) bar(g, e.rx, e.ry - (big ? 27 : 19), big ? 20 : 16, e.hp / max, v.friendly(e) ? '#4ade80' : '#f87171');
+      const max = e.max;
+      if (e.hp < max || ui.sel.has(e.id) || DEF[e.type].hero) bar(g, e.rx, e.ry - (big ? 27 : 19), big ? 20 : 16, e.hp / max, v.friendly(e) ? '#4ade80' : '#f87171');
+      if (DEF[e.type].hero) { // level badge
+        const lv = v.pl[e.owner].lvl;
+        g.fillStyle = '#fbbf24'; g.strokeStyle = '#1f2937'; g.lineWidth = 1;
+        g.beginPath(); g.arc(e.rx - 16, e.ry - 26, 6, 0, 7); g.fill(); g.stroke();
+        g.fillStyle = '#1f2937'; g.font = 'bold 9px system-ui, sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
+        g.fillText(lv, e.rx - 16, e.ry - 25.5);
+      }
     }
 
     // effects
@@ -306,8 +361,18 @@ export class Renderer {
       } else if (f.k === 's') {
         if (f.t > .5) { v.fx.splice(i, 1); continue; }
         const p = f.t / .5;
-        g.strokeStyle = `rgba(${['253,224,71', '125,211,252', '134,239,172'][a[4] || 0]},${1 - p})`; g.lineWidth = 5 * (1 - p) + 1;
+        g.strokeStyle = `rgba(${['253,224,71', '125,211,252', '134,239,172', '248,113,113', '147,197,253'][a[4] || 0]},${1 - p})`; g.lineWidth = 5 * (1 - p) + 1;
         g.beginPath(); g.arc(a[1], a[2], (a[3] || 90) * p, 0, 7); g.stroke();
+      } else if (f.k === 'l') { // level up
+        if (f.t > 1.1) { v.fx.splice(i, 1); continue; }
+        const p = f.t / 1.1;
+        g.strokeStyle = `rgba(251,191,36,${1 - p})`; g.lineWidth = 3; g.beginPath(); g.arc(a[1], a[2], 12 + 40 * p, 0, 7); g.stroke();
+        g.fillStyle = `rgba(253,230,138,${1 - p * p})`; g.font = 'bold 13px system-ui, sans-serif'; g.textAlign = 'center';
+        g.fillText('LEVEL UP', a[1], a[2] - 30 - 22 * p);
+      } else if (f.k === 'q') { // healed
+        if (f.t > .5) { v.fx.splice(i, 1); continue; }
+        const p = f.t / .5, y = a[2] - 18 - 12 * p;
+        g.fillStyle = `rgba(74,222,128,${1 - p})`; g.fillRect(a[1] - 1.5, y - 5, 3, 10); g.fillRect(a[1] - 5, y - 1.5, 10, 3);
       } else if (f.k === 'm') {
         if (f.t > .4) { v.fx.splice(i, 1); continue; }
         const p = f.t / .4;
