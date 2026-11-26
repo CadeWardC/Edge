@@ -1,5 +1,5 @@
 // Menus, lobby, controls and the game loop.
-import { TILE as T, DEF, TYPES, BUILDABLE, COLORS, COLOR_NAMES, HEROES, MAP_SIZE, BUILD_RANGE, MAXCAP } from './data.js';
+import { TILE as T, DEF, TYPES, BUILDABLE, COLORS, COLOR_NAMES, HEROES, MAP_SIZE, BUILD_RANGE, MAXCAP, SURVIVAL } from './data.js';
 import { Sim } from './sim.js';
 import { AI } from './ai.js';
 import { View, Renderer, icon } from './render.js';
@@ -22,7 +22,7 @@ function show(id) {
   for (const s of ['menu', 'lobby', 'help', 'end', 'ask']) $(s).hidden = s !== id;
   $('hud').hidden = !G.view;
   $('game').classList.toggle('on', !!G.view); // the dock takes its place beside the map
-  R.resize();
+  applyLayout();
   if (id === 'menu') {
     const s = session(); $('mRejoin').hidden = !s; if (s) $('mRejoin').textContent = 'Rejoin game ' + s.code;
     const g = saved(); $('mContinue').hidden = !g;
@@ -172,7 +172,7 @@ function onJoin(c) {
 function syncLobby() {
   renderLobby();
   const slots = L.slots.map(s => ({ kind: s.kind, name: s.name, hero: s.hero, color: s.color }));
-  L.slots.forEach((s, i) => s.conn && s.conn.send({ t: 'lobby', slots, mode: L.mode, level: L.level, code: L.code, you: i }));
+  L.slots.forEach((s, i) => s.conn && s.conn.send({ t: 'lobby', slots, mode: L.mode, level: L.level, extra: L.extra || 0, code: L.code, you: i }));
 }
 function renderLobby() {
   $('lTitle').textContent = L.online ? 'Multiplayer game' : 'Single player';
@@ -191,8 +191,11 @@ function renderLobby() {
       `<button data-hero="${h}" class="${me.hero === h ? 'on' : ''}"><b>${DEF[h].name}</b><small>${DEF[h].about}</small><small><i>${DEF[h].abs[0].name}</i>: ${DEF[h].abs[0].about}</small><small>More spells at levels 2 and 4</small></button>`).join('') +
     '</div><div class="pl">Your colour</div><div class="colors">' + COLORS.map((c, i) =>
       `<button data-color="${i}" style="background:${c}" class="${me.color === i ? 'on' : ''}" aria-label="${COLOR_NAMES[i]}"${L.slots.some(o => o !== me && seated(o) && o.color === i) ? ' disabled' : ''}></button>`).join('') + '</div>';
-  $('lMode').value = L.mode; $('lLevel').value = L.level;
-  $('lMode').disabled = $('lLevel').disabled = !L.host;
+  $('lMode').value = L.mode; $('lLevel').value = L.level; $('lExtra').value = L.extra || 0;
+  $('lMode').disabled = $('lLevel').disabled = $('lExtra').disabled = !L.host;
+  $('lExtraL').hidden = L.mode !== 'coop';
+  $('lAbout').textContent = { ffa: 'Everyone for themselves.', coop: 'All the players on one side against the computers. Computers can sit in empty seats, and up to four more can be added.',
+    survival: 'Everyone on one side against endless waves, each bigger than the last, with a Warlord every fifth wave. How long can you hold?' }[L.mode];
   $('lStart').hidden = !L.host;
   $('lMsg').textContent = L.host ? '' : 'Waiting for the host to start…';
 }
@@ -213,7 +216,8 @@ $('slots').onclick = e => {
   setKind(s, order[(order.indexOf(s.kind) + 1) % order.length]);
   syncLobby();
 };
-$('lMode').onchange = () => { L.mode = $('lMode').value; syncLobby(); };
+$('lMode').onchange = () => { L.mode = $('lMode').value; if (L.mode === 'coop' && !L.extra && !L.slots.some(s => s.kind === 'ai')) L.extra = 1; syncLobby(); };
+$('lExtra').onchange = () => { L.extra = +$('lExtra').value; syncLobby(); };
 $('lLevel').onchange = () => { L.level = +$('lLevel').value; syncLobby(); };
 $('lBack').onclick = () => { closeNet(); show('menu'); };
 $('lStart').onclick = () => {
@@ -226,11 +230,21 @@ $('lStart').onclick = () => {
     conns.push(s.conn || null);
     tokens.push(ai ? null : s.token || null);
   }
-  if (ps.length < 2) { $('lMsg').textContent = 'Add a computer or wait for a player.'; return; }
+  if (ps.length < 2 && L.mode === 'ffa') { $('lMsg').textContent = 'Add a computer or wait for a player.'; return; }
+  const survival = L.mode === 'survival';
+  if (L.mode === 'coop') { // up to four more computers, on top of the four seats
+    const used = new Set(ps.map(p => p.color));
+    for (let k = 0; k < (L.extra || 0) && ps.length < 8; k++) {
+      let c = 0; while (used.has(c)) c++; used.add(c);
+      ps.push({ name: 'Computer ' + n++, ai: true, team: 1, bonus: [.85, 1, 1.25][L.level], hero: HEROES[(Math.random() * HEROES.length) | 0], color: c });
+      conns.push(null); tokens.push(null);
+    }
+  }
   const coop = L.mode === 'coop' && ps.some(p => p.ai) && ps.some(p => !p.ai);
   if (L.mode === 'coop' && !coop) { $('lMsg').textContent = 'Players vs computers needs at least one computer.'; return; }
-  ps.forEach((p, i) => { p.team = coop ? (p.ai ? 1 : 0) : i; });
-  const cfg = { seed: (Math.random() * 2 ** 31) | 0, size: MAP_SIZE, level: L.level, players: ps };
+  ps.forEach((p, i) => { p.team = survival ? 0 : coop ? (p.ai ? 1 : 0) : i; });
+  if (survival) { ps.push({ name: 'The Horde', horde: true, team: 1, tint: '#57534e' }); conns.push(null); tokens.push(null); }
+  const cfg = { seed: (Math.random() * 2 ** 31) | 0, size: MAP_SIZE, level: L.level, mode: L.mode, extra: ps.filter(p => !p.horde).length > 4, players: ps };
   G.tokens = tokens;
   conns.forEach((c, i) => c && c.send({ t: 'start', cfg, you: i }));
   startGame(cfg, 0, conns);
@@ -240,7 +254,7 @@ $('lStart').onclick = () => {
 function net(msg) { const n = $('net'); n.textContent = msg; n.hidden = !msg; }
 function clientMsg(m) {
   if (!m) return;
-  if (m.t === 'lobby' && !G.view) { L = { online: true, host: false, code: m.code, mode: m.mode, level: m.level, you: m.you, slots: m.slots }; renderLobby(); }
+  if (m.t === 'lobby' && !G.view) { L = { online: true, host: false, code: m.code, mode: m.mode, level: m.level, extra: m.extra || 0, you: m.you, slots: m.slots }; renderLobby(); }
   else if (m.t === 'start') {
     const back = !!G.rc;
     if (G.rc) { clearTimeout(G.rc.wait); G.rc = null; }
@@ -309,6 +323,53 @@ function closeNet() {
   const c = G.conn; G.conn = null; if (c) { c.onclose = null; c.close(); }
   G.room = G.conns = G.attach = G.tokens = null;
 }
+
+// ---------------------------------------------------------------- screen layouts
+// Three ways to arrange the screen, chosen in the game menu and remembered on this device:
+//   dock  the map and the controls each have their own area (nothing covers the map)
+//   over  the map fills the screen and the controls float over it
+//   lite  like "over", with the panel only there when something is selected and no mini-map
+// Any of them can be folded (the arrow at the edge of the map) to put the panel and mini-map away.
+const LAY = (() => { try { return { lay: 'dock', left: false, nomap: false, ...JSON.parse(store.get('warcamp-layout') || '{}') }; } catch { return { lay: 'dock', left: false, nomap: false }; } })();
+let folded = false;
+function applyLayout() {
+  const g = $('game');
+  for (const k of ['dock', 'over', 'lite']) g.classList.toggle('lay-' + k, LAY.lay === k);
+  g.classList.toggle('left', !!LAY.left);
+  g.classList.toggle('nomap', LAY.lay !== 'lite' && !!LAY.nomap);
+  g.classList.toggle('showmap', LAY.lay === 'lite' && !!LAY.liteMap); // Light starts without the mini-map
+  g.classList.toggle('folded', folded);
+  for (const b of document.querySelectorAll('#layouts button')) b.classList.toggle('on', b.dataset.lay === LAY.lay);
+  $('layLeft').classList.toggle('on', !!LAY.left);
+  const mapOn = LAY.lay === 'lite' ? !!LAY.liteMap : !LAY.nomap;
+  $('layMap').classList.toggle('on', mapOn);
+  $('layMap').textContent = mapOn ? 'Mini-map: shown' : 'Mini-map: hidden';
+  store.set('warcamp-layout', JSON.stringify(LAY));
+  R.resize();
+  pads();
+}
+// Where controls float over the map, let the camera travel that much further past the map's edge,
+// and keep the floating messages clear of them.
+function pads() {
+  const S = $('stage').getBoundingClientRect(), p = { l: 0, t: 0, r: 0, b: 0 };
+  if (G.view) for (const id of ['top', 'side', 'panel', 'mini']) {
+    const E = $(id).getBoundingClientRect();
+    if (!E.width || !E.height || E.right <= S.left + 1 || E.left >= S.right - 1 || E.bottom <= S.top + 1 || E.top >= S.bottom - 1) continue; // not over the map
+    // Upright, controls sit along the top and bottom; sideways, along the left and right.
+    if (S.height >= S.width) { if (E.top + E.height / 2 < S.top + S.height / 2) p.t = Math.max(p.t, E.bottom - S.top); else p.b = Math.max(p.b, S.bottom - E.top); }
+    else if (E.left + E.width / 2 > S.left + S.width / 2) p.r = Math.max(p.r, S.right - E.left);
+    else p.l = Math.max(p.l, E.right - S.left);
+  }
+  R.pad = p;
+  const st = $('stage').style;
+  // side pads only push the messages when a whole column floats there, not just the mini-map
+  st.setProperty('--pt', p.t + 'px'); st.setProperty('--pb', p.b + 'px');
+  st.setProperty('--pr', (p.r > 150 ? p.r : 0) + 'px'); st.setProperty('--pl', (p.l > 150 ? p.l : 0) + 'px');
+}
+$('layouts').onclick = e => { const b = e.target.closest('button[data-lay]'); if (!b) return; LAY.lay = b.dataset.lay; folded = false; applyLayout(); };
+$('layLeft').onclick = () => { LAY.left = !LAY.left; applyLayout(); };
+$('layMap').onclick = () => { if (LAY.lay === 'lite') LAY.liteMap = !LAY.liteMap; else LAY.nomap = !LAY.nomap; applyLayout(); };
+$('fold').onclick = () => { folded = !folded; applyLayout(); };
 
 // ---------------------------------------------------------------- handing the game to another host
 // The host's device runs the game. When the host is knocked out or leaves, the whole game is passed to another
@@ -385,7 +446,7 @@ function startGame(cfg, me, conns, save) {
     // This device is the host: it runs the simulation and sends everyone a snapshot each tick.
     const sim = G.sim = save ? Sim.restore(cfg, save.sim) : new Sim(cfg);
     // In a restored game a computer holds every other player's base until that player rejoins.
-    const ais = G.ais = cfg.players.map((p, i) => p.ai ? new AI(sim, i, cfg.level) : save && i !== me && sim.players[i].alive ? new AI(sim, i, 1) : null);
+    const ais = G.ais = cfg.players.map((p, i) => p.ai ? new AI(sim, i, cfg.level) : save && i !== me && !p.horde && sim.players[i].alive ? new AI(sim, i, 1) : null);
     if (save) {
       (save.ais || []).forEach((a, i) => { if (a && ais[i]) Object.assign(ais[i], a); });
       for (const i of sim.gone) G.view.terrain[i] = 0;
@@ -561,6 +622,11 @@ function order(wx, wy, ent) {
   if (!us.length) return;
   const ids = us.map(e => e.id), workers = us.filter(e => e.type === 'worker').map(e => e.id), rest = us.filter(e => e.type !== 'worker').map(e => e.id);
   if (ent && !v.friendly(ent)) { G.send({ t: 'attack', ids, target: ent.id }); mark(ent.rx, ent.ry, '#f87171'); return; }
+  if (ent && ent.b && ent.built && ent.owner === v.me && ent.hp < ent.max && workers.length) { // mend it
+    G.send({ t: 'repair', ids: workers, b: ent.id });
+    if (rest.length) G.send({ t: 'move', ids: rest, x: wx, y: wy });
+    mark(ent.rx, ent.ry, '#4ade80'); return;
+  }
   if (ent && ent.b && !ent.built && ent.owner === v.me && workers.length) {
     G.send({ t: 'assist', ids: workers, b: ent.id });
     if (rest.length) G.send({ t: 'move', ids: rest, x: wx, y: wy });
@@ -601,6 +667,8 @@ function tap(sx, sy, touch, add) {
   }
   const e = pick(wx, wy, touch ? 16 : 6);
   if (!touch) { if (e) selectEnt(e, add); else { G.sel.clear(); hudT = 0; } return; }
+  // With workers selected, a tap on one of my buildings that needs them (unfinished or damaged) sends them to it.
+  if (e && e.b && e.owner === G.view.me && (!e.built || e.hp < e.max) && myUnits().some(u => u.type === 'worker')) return order(wx, wy, e);
   if (e && e.owner === G.view.me) return selectEnt(e, false);
   if (myUnits().length) return order(wx, wy, e);
   if (e) selectEnt(e, false); else { G.sel.clear(); hudT = 0; }
@@ -719,7 +787,7 @@ addEventListener('keydown', e => {
 addEventListener('keyup', e => keys.delete(e.key.toLowerCase()));
 addEventListener('blur', () => keys.clear());
 addEventListener('resize', () => R.resize());
-if (window.ResizeObserver) new ResizeObserver(() => R.resize()).observe(cv); // the map area changes size with the dock
+if (window.ResizeObserver) new ResizeObserver(() => { R.resize(); pads(); }).observe(cv); // the map area changes size with the dock
 addEventListener('orientationchange', () => setTimeout(() => R.resize(), 250));
 if (window.visualViewport) visualViewport.addEventListener('resize', () => R.resize());
 // iPhone: stop the page itself from zooming or bouncing under the game.
@@ -766,6 +834,7 @@ function panelHTML() {
     if (!b.built) return h + '<div class="pb"><i id="pbar"></i></div><div class="acts">' +
       `<button data-act="resume" class="go">${b.paused ? 'Resume building' : 'Send more workers'}</button>` +
       `<button data-act="cancelb" class="warn">Cancel<small>refund</small></button></div>`;
+    if (b.hp < b.max) h += '<div class="acts"><button data-act="repair" class="go">Repair<small>send workers</small></button></div>';
     if (d.trains) {
       h += '<div class="acts">' + d.trains.map(u => btn('train:' + u, DEF[u], P.res < DEF[u].cost || P.pop >= P.cap || b.queue.length >= 5, u)).join('') + '</div>';
       if (b.queue.length) h += `<div class="d q">Training ${b.queue.map(i => pic(TYPES[i])).join('')}</div><div class="pb"><i id="pbar"></i></div>`;
@@ -830,6 +899,7 @@ function updateHud() {
   $('bDesel').disabled = !G.sel.size && !G.placing;
   const h = panelHTML();
   if (h !== lastPanel) { $('panel').innerHTML = lastPanel = h; }
+  pads();
   const sel = selected(), pd = $('pd'), pbar = $('pbar'), phb = $('phb'), pxp = $('pxp');
   if (pd && sel.length) {
     const e = sel[0];
@@ -854,10 +924,16 @@ function updateHud() {
     b.disabled = cd > 0;
     b.firstChild.textContent = cd > 0 ? `${ab.name} ${cd}s` : ab.name;
   });
+  // Survival: the wave counter, and a call when a new wave walks in
+  if (v.wave) {
+    const [n, secs] = v.wave;
+    $('waveInfo').textContent = `Wave ${n} · next in ${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, '0')}`;
+    if (v.waveNews) { announce('Wave ' + v.waveNews, '#57534e', v.waveNews % SURVIVAL.bossEvery === 0 ? 'A Warlord leads it' : 'The Horde is coming'); v.waveNews = 0; }
+  } else $('waveInfo').textContent = '';
   // tell everyone when a player has been knocked out
   while (v.news.length) {
     const i = v.news.shift(), left = v.pl.filter(p => p.alive).length;
-    if (i !== v.me) announce(`${v.info[i].name} has been wiped out`, v.info[i].color, v.winner === -1 && left > 1 ? `${left} players left` : '');
+    if (i !== v.me) announce(`${v.info[i].name} has been wiped out`, v.info[i].color, v.winner === -1 && left > 1 ? `${left - (v.wave ? 1 : 0)} players left` : '');
   }
   // alerts and the end of the game
   if (v.hurt && v.tick - v.hurt.tick < 5 && performance.now() - lastAlert > 12000) {
@@ -867,7 +943,11 @@ function updateHud() {
   if (v.winner !== -1 && !G.ended) {
     store.set(SKEY, '');
     const won = v.winner === v.team;
-    endScreen(won ? 'Victory' : 'Defeat', won ? 'Every enemy Keep, worker and hero is gone.' : v.winner === -2 ? 'Nobody is left standing.' : 'Your Keeps, workers and hero are all gone.');
+    if (v.wave) { // Survival has no victory: the score is how far you got
+      const held = Math.max(0, v.wave[0] - 1), best = Math.max(held, +store.get('warcamp-best') || 0);
+      store.set('warcamp-best', best);
+      endScreen('Overrun', `You held out for ${held} wave${held === 1 ? '' : 's'}. Your best: ${best}.`);
+    } else endScreen(won ? 'Victory' : 'Defeat', won ? 'Every enemy Keep, worker and hero is gone.' : v.winner === -2 ? 'Nobody is left standing.' : 'Your Keeps, workers and hero are all gone.');
   } else if (!P.alive && !G.elim && !G.ended) {
     G.elim = true; announce('You have been wiped out', v.info[v.me].color, 'You can keep watching');
     // A knocked-out host passes the game on straight away, so it no longer depends on their device.
@@ -881,6 +961,7 @@ $('panel').addEventListener('click', ev => {
   if (a === 'build') G.placing = { type: arg, tx: 0, ty: 0, has: false };
   else if (a === 'cancel') G.placing = null;
   else if (a === 'confirm') confirmPlace();
+  else if (a === 'repair') { const e = selected().find(e => e.b && e.owner === me); if (e) { G.send({ t: 'repair', b: e.id }); toast('Workers are on their way'); } }
   else if (a === 'resume' || a === 'cancelb' || a === 'unqueue') {
     const e = selected().find(e => e.b && e.owner === me);
     if (e) G.send({ t: a === 'cancelb' ? 'cancel' : a, b: e.id });

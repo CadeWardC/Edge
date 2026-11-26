@@ -224,3 +224,70 @@ input, select { background: var(--dock); border: 1px solid #3b4d6b; border-radiu
   #panel .acts:has(.ib) > button:not(.ib) { flex: 0 0 calc(20% - 4px); font-size: 9.5px; padding: 2px 0; }
 }
 #panel button[data-act="cancelb"] small, #panel button[data-act="unqueue"] small { display: block; margin: 0; }
+
+/* ---------- Survival wave counter, and the fold button ---------- */
+#heroInfo { top: calc(var(--pt, 0px) + 6px); left: calc(var(--pl, 0px) + 8px); }
+#toast { top: calc(var(--pt, 0px) + 34px); }
+#news { top: calc(var(--pt, 0px) + 72px); }
+#waveInfo { position: absolute; top: calc(var(--pt, 0px) + 6px); right: calc(var(--pr, 0px) + 8px); padding: 3px 9px; border-radius: 12px; background: #450a0acc; color: #fecaca; font-size: 12px; font-weight: 600; pointer-events: none; }
+#waveInfo:empty { display: none; }
+#fold { position: absolute; z-index: 3; width: 44px; height: 22px; min-height: 0; padding: 0; display: none; align-items: center; justify-content: center;
+  background: #0f1a2ed9; border: 1px solid var(--line); border-radius: 11px 11px 0 0; border-bottom: 0; color: var(--dim); }
+#game.on #fold { display: flex; }
+#fold svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; transition: transform .2s; }
+#game.folded #fold svg { transform: rotate(180deg); }
+@media (orientation: portrait) { #fold { left: 50%; bottom: calc(var(--pb, 0px)); transform: translateX(-50%); } }
+@media (orientation: landscape) {
+  #fold { right: var(--pr, 0px); top: 50%; width: 22px; height: 44px; border-radius: 11px 0 0 11px; border: 1px solid var(--line); border-right: 0; transform: translateY(-50%); }
+  #fold svg { transform: rotate(-90deg); } #game.folded #fold svg { transform: rotate(90deg); }
+  #game.left #fold { right: auto; left: var(--pl, 0px); border-radius: 0 11px 11px 0; border: 1px solid var(--line); border-left: 0; }
+  #game.left #fold svg { transform: rotate(90deg); } #game.left.folded #fold svg { transform: rotate(-90deg); }
+}
+
+/* ---------- layouts ----------
+   Dock (default): the rules above. The map and the controls each have their own area.
+   Overlay: the map fills the screen and the controls float over it; the camera can travel past the map's
+            edges by the size of the controls, so nothing is ever stuck behind them.
+   Light:   like Overlay, with the selection panel only there when something is selected and no mini-map.
+   Folded:  any layout with the panel and mini-map put away (the arrow at the edge of the map). */
+#game.nomap #mini, #game.lay-lite:not(.showmap) #mini { display: none; }
+@media (orientation: portrait) { #game.on.lay-dock.nomap:not(.folded) #panel { grid-column: 1 / -1; border-left: 0; } }
+@media (orientation: landscape) {
+  #game.on.lay-dock.left:not(.folded) { grid-template: "top stage" auto "side stage" auto "panel stage" minmax(0, 1fr) "mini stage" auto / 216px minmax(0, 1fr); }
+  #game.on.lay-dock.left:not(.folded) #stage { border-right: 0; border-left: 1px solid var(--line); }
+}
+@media (orientation: landscape) and (max-height: 559px) { #game.on.lay-dock.left:not(.folded) { grid-template-columns: 232px minmax(0, 1fr); } }
+@media (orientation: landscape) and (min-height: 560px) { #game.on.lay-dock.left:not(.folded) { grid-template-columns: 280px minmax(0, 1fr); } }
+
+#game.on:is(.lay-over, .lay-lite, .folded) { grid-template: "stage" minmax(0, 1fr) / minmax(0, 1fr); }
+#game.on:is(.lay-over, .lay-lite, .folded) #stage { border: 0; }
+#game.on:is(.lay-over, .lay-lite, .folded) :is(#top, #side, #panel, #mini) { position: absolute; grid-area: auto; z-index: 2; background: #0f1a2ee0; border: 1px solid var(--line); border-radius: 12px; margin: 0; }
+#game.on:is(.lay-over, .lay-lite, .folded) #panel:empty { display: none; }
+#game.on.folded :is(#panel, #mini) { display: none; }
+@media (orientation: portrait) {
+  #game.on:is(.lay-over, .lay-lite, .folded) #top { top: calc(env(safe-area-inset-top) + 4px); left: 4px; right: auto; padding: 5px 9px; grid-column: auto; max-width: calc(100% - 214px); font-size: 12.5px; gap: 7px; }
+  #game.on:is(.lay-over, .lay-lite, .folded) #side { top: calc(env(safe-area-inset-top) + 4px); right: 4px; justify-self: auto; }
+  #game.on:is(.lay-over, .lay-lite) #mini { left: 6px; bottom: calc(env(safe-area-inset-bottom) + 6px); width: 96px; height: 96px; }
+  #game.on:is(.lay-over, .lay-lite) #panel { left: 108px; right: 6px; bottom: calc(env(safe-area-inset-bottom) + 6px); max-height: 124px; border: 1px solid var(--line); }
+  #game.on.lay-over.nomap #panel, #game.on.lay-lite:not(.showmap) #panel { left: 6px; }
+}
+@media (orientation: landscape) {
+  #game.on:is(.lay-over, .lay-lite, .folded) #top { top: 4px; right: calc(env(safe-area-inset-right) + 4px); padding: 5px 9px; font-size: 12.5px; gap: 7px; }
+  #game.on:is(.lay-over, .lay-lite, .folded) #side { top: 36px; right: calc(env(safe-area-inset-right) + 4px); width: 210px; }
+  #game.on:is(.lay-over, .lay-lite) #panel { top: 84px; right: calc(env(safe-area-inset-right) + 4px); width: 210px; max-height: calc(100% - 92px); border: 1px solid var(--line); }
+  #game.on:is(.lay-over, .lay-lite) #mini { left: calc(env(safe-area-inset-left) + 6px); bottom: 6px; width: 92px; height: 92px; }
+  #game.on.left:is(.lay-over, .lay-lite, .folded) :is(#top, #side, #panel) { right: auto; left: calc(env(safe-area-inset-left) + 4px); }
+  #game.on.left:is(.lay-over, .lay-lite) #mini { left: auto; right: calc(env(safe-area-inset-right) + 6px); }
+}
+/* Light: icons only in the button row. */
+#game.on.lay-lite #side span { display: none; }
+#game.on.lay-lite #side button { height: 34px; min-height: 34px; }
+#game.on.lay-lite #side { width: auto; }
+
+/* the layout picker in the game menu */
+.lay { display: flex; flex-direction: column; gap: 6px; padding: 8px; border: 1px solid var(--line); border-radius: 12px; background: var(--card); }
+.lay button { padding: 7px 6px; font-size: 13px; text-align: center; min-width: 0; }
+.lay button small { display: block; color: var(--dim); font-size: 10.5px; margin: 1px 0 0; }
+.lay button.on { background: #1d4ed8; border-color: #93c5fd; }
+.lay button.on small { color: #dbeafe; }
+@media (orientation: portrait) { #layLeft { display: none; } }

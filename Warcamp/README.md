@@ -11,11 +11,13 @@ their workers and kill their hero.
   from kills and unlock two more spells.
 - Eight kinds of troops (Soldier, Archer, Guard, Rider, Mage, Cleric, Catapult, plus Workers) from two buildings, up to
   60 units, walls, and extra Keeps on a large map where the starting spots change every game.
-- **Multiplayer** for 2 to 4 people on their own devices, with computers in the empty seats if wanted:
-  free for all, or everyone against the computers.
+- **Multiplayer** for 2 to 4 people on their own devices, in three modes: free for all; everyone against the
+  computers (which can fill empty seats, plus up to four more); and **Survival**, everyone on one side against
+  endless, growing waves with a Warlord every fifth wave.
 - **Touch first**, and it also plays with mouse and keyboard.
-- The map has its own area; the controls sit in a dock below it (phone upright) or beside it (sideways) and never
-  cover the battlefield. Hits, heals and damaged buildings are shown to every player.
+- Three screen layouts to choose from in the game menu (Dock, Overlay, Light), a button to put the controls away,
+  and a left-handed option. In Dock the controls never cover the battlefield; in the others the map fills the screen
+  and the camera can travel past its edge so nothing is stuck behind the controls. Hits, heals and damaged buildings are shown to every player.
 - **Offline**: after the first visit the game is cached and single player works with no connection.
 
 The roadmap towards a full campaign game with three worlds and six factions is in [PLAN.md](PLAN.md).

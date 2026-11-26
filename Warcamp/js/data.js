@@ -5,7 +5,7 @@ export const MAP_SIZE = 112; // tiles per side
 
 // The order is the wire format: add new types at the end only.
 export const TYPES = ['worker', 'soldier', 'archer', 'knight', 'hero', 'hq', 'house', 'barracks', 'stable', 'tower', 'outpost', 'ranger', 'sage',
-  'guard', 'mage', 'cleric', 'catapult', 'workshop', 'sanctum', 'wall'];
+  'guard', 'mage', 'cleric', 'catapult', 'workshop', 'sanctum', 'wall', 'boss'];
 export const TI = Object.fromEntries(TYPES.map((t, i) => [t, i]));
 
 // range 0 = melee. Speeds and ranges are in pixels (32 px = 1 tile), times in seconds.
@@ -19,6 +19,9 @@ export const DEF = {
   mage:     { name: 'Mage',     hp: 60,  speed: 62,  dmg: 14, range: 140, cd: 1.7, cost: 110, time: 14, sight: 7, r: 8,  mil: 1, splash: 42, info: 'Each blast hurts every enemy near the target' },
   cleric:   { name: 'Cleric',   hp: 70,  speed: 64,  dmg: 0,  range: 0,   cd: 1,   cost: 90,  time: 12, sight: 6, r: 8,  mil: 1, healer: 1, heal: 9, info: 'Cannot fight: heals wounded troops nearby' },
   catapult: { name: 'Catapult', hp: 130, speed: 40,  dmg: 70, range: 270, cd: 3.2, cost: 150, time: 18, sight: 8, r: 12, mil: 1, siege: 1, info: 'Smashes buildings from far away: cannot hit troops' },
+
+  // The Horde's champion in Survival: one arrives with every fifth wave.
+  boss:     { name: 'Warlord',  hp: 1700, speed: 54,  dmg: 44, range: 0,   cd: 1.4, cost: 0,   time: 0,  sight: 8, r: 16, mil: 1, splash: 48, boss: 1, info: 'Huge, and every swing hits a whole group' },
 
   // Heroes: each player picks one. It costs nothing, comes back at a Keep after falling, and levels up from kills.
   hero:     { name: 'Warden', hp: 420, speed: 82, dmg: 24, range: 0,   cd: 1, cost: 0, time: 0, sight: 8, r: 11, mil: 1, hero: 1, about: 'Tough fighter up close',
@@ -63,3 +66,15 @@ export const BUILD_RANGE = 16;
 // How many Keeps a player may build in one game, on top of the one they start with.
 export const KEEP_LIMIT = 2;
 export const heroMult = lvl => 1 + LEVEL_BONUS * ((lvl || 1) - 1);
+
+// Survival: everyone on one side against The Horde. Waves never stop; each is bigger than the last.
+export const SURVIVAL = {
+  first: 90,            // seconds before the first wave
+  gap: n => Math.max(45, 75 - n),                                   // seconds between waves
+  size: (n, players, hard) => Math.round((3 + n * 1.9) * (0.55 + 0.45 * players) * hard),
+  strength: (n, hard) => (1 + Math.max(0, n - 5) * 0.08) * (0.85 + 0.15 * hard), // health and damage multiplier
+  bossEvery: 5,
+  limit: 90,            // most Horde units on the map at once
+  unlock: [['soldier', 1], ['archer', 2], ['guard', 3], ['knight', 4], ['mage', 6], ['catapult', 8]],
+  hard: [0.75, 1, 1.35], // by difficulty: easy, normal, hard
+};
