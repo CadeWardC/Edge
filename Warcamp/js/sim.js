@@ -1,6 +1,6 @@
 // The authoritative simulation. It has no DOM or network code: the host (or a single-player
 // game) steps it 10 times a second, feeds it commands, and ships snapshot() to every screen.
-import { TILE as T, DEF, TI, MAXCAP, ABILITY, HERO_RESPAWN } from './data.js';
+import { TILE as T, DEF, TI, MAXCAP, HEROES, HERO_RESPAWN } from './data.js';
 
 export const DT = 0.1;
 // How close a worker must be to a wall to build or unload. A worker on the tile beside the wall is 16 away;
@@ -73,17 +73,18 @@ export class Sim {
     this.ents = new Map();
     this.nextId = 1; this.tick = 0; this.winner = -1;
     this.changed = []; this.fx = [];
+    this.gone = []; // every resource tile used up so far, for a player who rejoins
     this.bad = new Set(); // resource tiles found unreachable; cleared whenever the terrain changes
     this._g = new Float32Array(N * N); this._st = new Uint32Array(N * N);
     this._cl = new Uint32Array(N * N); this._par = new Int32Array(N * N); this._stamp = 0;
     this.players = cfg.players.map(p => ({
-      name: p.name, team: p.team, res: 250, pop: 0, cap: 0, alive: true, heroT: 0, bonus: p.bonus || 1, alert: null,
+      name: p.name, team: p.team, res: 250, wood: 250, hero: HEROES.includes(p.hero) ? p.hero : 'hero', pop: 0, cap: 0, alive: true, heroT: 0, bonus: p.bonus || 1, alert: null,
     }));
     this.players.forEach((p, i) => {
       const [bx, by] = basePos(i, N);
       this.addBuilding('hq', i, bx - 1, by - 1, true);
       for (let j = 0; j < 3; j++) this.autoHarvest(this.spawnUnit('worker', i, (bx - 1 + j + .5) * T, (by + 2.5) * T));
-      this.spawnUnit('hero', i, (bx + 2.5) * T, (by + 2.5) * T);
+      this.spawnUnit(p.hero, i, (bx + 2.5) * T, (by + 2.5) * T);
     });
   }
 
@@ -115,6 +116,14 @@ export class Sim {
     if (built && d.cap) this.players[owner].cap += d.cap;
     this.ents.set(e.id, e);
     if (this.bad) this.bad.clear();
+    // Anyone standing where the building now is gets moved to the nearest free ground.
+    for (const u of this.ents.values()) {
+      if (u.b || u.x < tx * T || u.y < ty * T || u.x >= (tx + s) * T || u.y >= (ty + s) * T) continue;
+      const spot = this.nearFree(this.tileOf(u.x), this.tileOf(u.y));
+      if (!spot) continue;
+      u.x = (spot[0] + .5) * T; u.y = (spot[1] + .5) * T;
+      this.repath(u);
+    }
     return e;
   }
   spawnUnit(type, owner, x, y) {
@@ -148,10 +157,41 @@ export class Sim {
     }
     return best || (kind ? this.nearestRes(tx, ty, 0, R) : null);
   }
-  autoHarvest(e) {
-    const r = this.nearestRes(this.tileOf(e.x), this.tileOf(e.y), 3);
+  // The nearest walkable tile to (tx, ty), searching outward ring by ring.
+  nearFree(tx, ty) {
+    for (let r = 1; r < 12; r++) {
+      let best = null, bd = 1e9;
+      for (let y = ty - r; y <= ty + r; y++) for (let x = tx - r; x <= tx + r; x++) {
+        if (Math.max(Math.abs(x - tx), Math.abs(y - ty)) !== r || !this.walkable(x, y)) continue;
+        const d = (x - tx) ** 2 + (y - ty) ** 2;
+        if (d < bd) { bd = d; best = [x, y]; }
+      }
+      if (best) return best;
+    }
+    return null;
+  }
+  // Work out a fresh path for whatever the unit was doing (after it has been moved).
+  repath(e) {
+    const o = e.order;
+    e.path = null;
+    if (!o) return;
+    if (o.k === 'move' || o.k === 'amove') this.pathPoint(e, o.x, o.y);
+    else if (o.k === 'harvest') {
+      if (o.ph === 1) o.ph = 0;
+      const h = o.ph === 2 && this.ents.get(o.d);
+      if (h) this.pathTo(e, h.tx, h.ty, h.tx + h.size - 1, h.ty + h.size - 1); else this.pathTo(e, o.tx, o.ty, o.tx, o.ty);
+    } else if (o.k === 'build') {
+      const b = this.ents.get(o.b);
+      if (b) this.pathTo(e, b.tx, b.ty, b.tx + b.size - 1, b.ty + b.size - 1);
+    }
+  }
+  // Send a worker to gather: whatever its side is shortest of, unless a kind is given.
+  autoHarvest(e, kind) {
+    const P = this.players[e.owner];
+    const r = this.nearestRes(this.tileOf(e.x), this.tileOf(e.y), kind || (P.wood < P.res ? 2 : 3));
     if (r) this.orderHarvest(e, r[0], r[1]);
   }
+  wasGathering(e) { const o = e.order; return o && o.k === 'harvest' ? [o.tx, o.ty, o.kind] : o && o.k === 'build' ? o.back : null; }
   orderHarvest(e, tx, ty) {
     e.order = { k: 'harvest', tx, ty, kind: this.terrain[ty * this.N + tx], ph: 0, tries: 0 };
     this.pathTo(e, tx, ty, tx, ty);
@@ -271,7 +311,7 @@ export class Sim {
   follow(e) {
     const p = e.path;
     if (!p || e.pi >= p.length) return 1;
-    let step = DEF[e.type].speed * DT;
+    let step = DEF[e.type].speed * DT * (e.hasteT > this.tick ? 1.5 : 1);
     while (step > 0 && e.pi < p.length) {
       const wx = p[e.pi], wy = p[e.pi + 1];
       if (!this.walkable((wx / T) | 0, (wy / T) | 0)) { e.path = null; return 2; }
@@ -310,7 +350,7 @@ export class Sim {
       for (let y = e.ty; y < e.ty + e.size; y++) for (let x = e.tx; x < e.tx + e.size; x++) this.occ[y * this.N + x] = 0;
       this.bad.clear();
       if (e.built && DEF[e.type].cap) P.cap -= DEF[e.type].cap;
-    } else if (e.type === 'hero') P.heroT = HERO_RESPAWN;
+    } else if (DEF[e.type].hero) P.heroT = HERO_RESPAWN;
   }
   resume(e, o) {
     e.path = null;
@@ -322,7 +362,7 @@ export class Sim {
   updateUnit(e) {
     const d = DEF[e.type], o = e.order, P = this.players[e.owner], N = this.N;
     e.cdT -= DT;
-    if (e.type === 'hero') { e.abT -= DT; if (e.hp < d.hp) e.hp = Math.min(d.hp, e.hp + 2 * DT); }
+    if (d.hero) { e.abT -= DT; if (e.hp < d.hp) e.hp = Math.min(d.hp, e.hp + 2 * DT); }
     const scan = (this.tick + e.id) % 5 === 0;
     if (!o) {
       if (d.mil && scan) { const t = this.acquire(e, 200); if (t) e.order = { k: 'attack', target: t.id, auto: 1 }; }
@@ -342,7 +382,7 @@ export class Sim {
       case 'attack': {
         const t = this.ents.get(o.target);
         if (!t) { this.resume(e, o); break; }
-        const dd = this.dist(e, t), reach = d.range || 26;
+        const dd = this.dist(e, t), reach = d.range || (t.b ? REACH : 26);
         if (dd <= reach) {
           if (e.cdT <= 0) {
             e.cdT = d.cd;
@@ -388,8 +428,8 @@ export class Sim {
           const i = o.ty * N + o.tx;
           if (this.terrain[i] < 2) { o.ph = 0; break; }
           const take = Math.min(CARRY, this.amt[i]);
-          this.amt[i] -= take; e.carry = take;
-          if (this.amt[i] <= 0) { this.terrain[i] = 0; this.changed.push(i); this.bad.clear(); }
+          this.amt[i] -= take; e.carry = take; e.ck = this.terrain[i];
+          if (this.amt[i] <= 0) { this.terrain[i] = 0; this.changed.push(i); this.gone.push(i); this.bad.clear(); }
           o.ph = 2; o.d = 0; o.tries = 0;
         } else { // carry it home
           let hq = this.ents.get(o.d);
@@ -400,7 +440,8 @@ export class Sim {
             this.pathTo(e, hq.tx, hq.ty, hq.tx + hq.size - 1, hq.ty + hq.size - 1);
           }
           if (this.dist(e, hq) <= REACH) {
-            P.res += e.carry * P.bonus; e.carry = 0; o.ph = 0; o.tries = 0;
+            if (e.ck === 2) P.wood += e.carry * P.bonus; else P.res += e.carry * P.bonus;
+            e.carry = 0; o.ph = 0; o.tries = 0;
             this.pathTo(e, o.tx, o.ty, o.tx, o.ty);
           } else if (this.follow(e)) {
             if (++o.tries > 4) e.order = null; else this.pathTo(e, hq.tx, hq.ty, hq.tx + hq.size - 1, hq.ty + hq.size - 1);
@@ -410,7 +451,12 @@ export class Sim {
       }
       case 'build': {
         const b = this.ents.get(o.b);
-        if (!b || b.built) { e.order = null; this.autoHarvest(e); break; }
+        if (!b || b.built) { // done (or gone): back to what it was gathering before
+          e.order = null;
+          if (o.back && this.terrain[o.back[1] * N + o.back[0]] >= 2) this.orderHarvest(e, o.back[0], o.back[1]);
+          else this.autoHarvest(e, o.back && o.back[2]);
+          break;
+        }
         const bd = DEF[b.type];
         if (this.dist(e, b) <= REACH) {
           b.prog += DT / bd.time; b.wk = this.tick;
@@ -452,7 +498,7 @@ export class Sim {
     for (const p of this.players) p.pop = 0;
     for (const e of this.ents.values()) {
       if (e.b) this.players[e.owner].pop += e.queue.length;
-      else if (e.type !== 'hero') this.players[e.owner].pop++;
+      else if (!DEF[e.type].hero) this.players[e.owner].pop++;
     }
     for (const e of this.ents.values()) {
       if (e.hp <= 0) continue;
@@ -483,7 +529,7 @@ export class Sim {
       let hq = null;
       for (const e of this.ents.values()) if (e.type === 'hq' && e.owner === i && e.built) { hq = e; break; }
       const s = hq && this.freeSpot(hq);
-      if (s) this.spawnUnit('hero', i, (s[0] + .5) * T, (s[1] + .5) * T);
+      if (s) this.spawnUnit(p.hero, i, (s[0] + .5) * T, (s[1] + .5) * T);
       else if (p.alive) p.heroT = 5;
     });
     if (this.tick % 10 === 0) this.checkWin();
@@ -549,19 +595,20 @@ export class Sim {
         const d = DEF[c.b];
         if (!d || !d.b || c.b === 'hq' || !num(c.tx) || !num(c.ty)) return;
         const tx = c.tx | 0, ty = c.ty | 0;
-        if (P.res < d.cost || (d.req && !this.hasBuilt(pid, d.req)) || !this.canPlace(c.b, tx, ty)) return;
+        const wood = d.wood || 0;
+        if (P.res < d.cost || P.wood < wood || (d.req && !this.hasBuilt(pid, d.req)) || !this.canPlace(c.b, tx, ty)) return;
         const ws = own(c.ids).filter(e => e.type === 'worker');
         if (!ws.length) return;
-        P.res -= d.cost;
+        P.res -= d.cost; P.wood -= wood;
         const b = this.addBuilding(c.b, pid, tx, ty, false);
-        for (const e of ws) { e.order = { k: 'build', b: b.id, tries: 0 }; this.pathTo(e, tx, ty, tx + d.size - 1, ty + d.size - 1); }
+        for (const e of ws) { e.order = { k: 'build', b: b.id, tries: 0, back: this.wasGathering(e) }; this.pathTo(e, tx, ty, tx + d.size - 1, ty + d.size - 1); }
         break;
       }
       case 'assist': {
         const b = this.ents.get(c.b);
         if (!b || !b.b || b.built || b.owner !== pid) return;
         for (const e of own(c.ids)) if (e.type === 'worker') {
-          e.order = { k: 'build', b: b.id, tries: 0 };
+          e.order = { k: 'build', b: b.id, tries: 0, back: this.wasGathering(e) };
           this.pathTo(e, b.tx, b.ty, b.tx + b.size - 1, b.ty + b.size - 1);
         }
         break;
@@ -573,7 +620,7 @@ export class Sim {
         for (const e of this.ents.values()) if (e.owner === pid && e.type === 'worker' && !(e.order && e.order.k === 'build')) ws.push(e);
         ws.sort((p, q) => (p.order ? 1e6 : 0) + this.dist(p, b) - (q.order ? 1e6 : 0) - this.dist(q, b)); // idle workers first
         for (const e of ws.slice(0, 2)) {
-          e.order = { k: 'build', b: b.id, tries: 0 };
+          e.order = { k: 'build', b: b.id, tries: 0, back: this.wasGathering(e) };
           this.pathTo(e, b.tx, b.ty, b.tx + b.size - 1, b.ty + b.size - 1);
         }
         break;
@@ -581,7 +628,7 @@ export class Sim {
       case 'cancel': { // tear down an unfinished building and get the crystal back
         const b = this.ents.get(c.b);
         if (!b || !b.b || b.built || b.owner !== pid) return;
-        P.res += DEF[b.type].cost;
+        P.res += DEF[b.type].cost; P.wood += DEF[b.type].wood || 0;
         this.kill(b);
         break;
       }
@@ -596,17 +643,25 @@ export class Sim {
       case 'train': {
         const b = this.ents.get(c.b), d = DEF[c.u];
         if (!b || b.owner !== pid || !b.built || !d || !(DEF[b.type].trains || []).includes(c.u)) return;
-        if (b.queue.length >= 5 || P.res < d.cost || P.pop >= P.cap) return;
+        if (b.queue.length >= 5 || P.res < d.cost || P.pop >= Math.min(P.cap, MAXCAP)) return;
         P.res -= d.cost; P.pop++;
         b.queue.push(c.u);
         break;
       }
       case 'ability': {
         const e = this.ents.get(c.id);
-        if (!e || e.owner !== pid || e.type !== 'hero' || e.abT > 0) return;
-        e.abT = ABILITY.cd;
-        this.fx.push(['s', e.x | 0, e.y | 0]);
-        for (const t of [...this.ents.values()]) if (this.enemy(e, t) && this.dist(e, t) <= ABILITY.radius) this.hit(t, ABILITY.dmg);
+        const ab = e && DEF[e.type].ab;
+        if (!e || e.owner !== pid || !ab || e.abT > 0) return;
+        e.abT = ab.cd;
+        this.fx.push(['s', e.x | 0, e.y | 0, ab.radius, ab.kind === 'shock' ? 0 : ab.kind === 'haste' ? 1 : 2]);
+        for (const t of [...this.ents.values()]) {
+          if (this.dist(e, t) > ab.radius) continue;
+          if (ab.kind === 'shock') { if (this.enemy(e, t)) this.hit(t, ab.dmg); }
+          else if (!this.enemy(e, t) && !t.b) {
+            if (ab.kind === 'haste') t.hasteT = this.tick + ab.secs * 10;
+            else t.hp = Math.min(DEF[t.type].hp, t.hp + ab.heal);
+          }
+        }
         break;
       }
       case 'stop':
@@ -619,14 +674,14 @@ export class Sim {
   snapshot() {
     const s = {
       k: this.tick, w: this.winner,
-      p: this.players.map(p => [Math.floor(p.res), p.pop, Math.min(p.cap, MAXCAP), p.alive ? 1 : 0, Math.ceil(p.heroT)]),
+      p: this.players.map(p => [Math.floor(p.res), p.pop, Math.min(p.cap, MAXCAP), p.alive ? 1 : 0, Math.ceil(p.heroT), Math.floor(p.wood)]),
       e: [], rm: this.changed, fx: this.fx,
     };
     this.changed = []; this.fx = [];
     for (const e of this.ents.values()) {
       const a = [e.id, TI[e.type], e.owner, Math.round(e.x), Math.round(e.y), Math.ceil(e.hp)];
       if (e.b) a.push(e.built ? 1 : 0, Math.floor((e.built ? (e.queue.length ? e.trainT / DEF[e.queue[0]].time : 0) : e.prog) * 100), e.queue.map(u => TI[u]), !e.built && this.tick - (e.wk ?? -99) > 8 ? 1 : 0);
-      else a.push(e.carry ? 1 : 0, Math.max(0, Math.ceil(e.abT)), e.order ? 0 : 1);
+      else a.push(e.carry ? e.ck : 0, Math.max(0, Math.ceil(e.abT)), e.order ? 0 : 1, e.hasteT > this.tick ? 1 : 0);
       s.e.push(a);
     }
     return s;

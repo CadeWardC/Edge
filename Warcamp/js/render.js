@@ -6,8 +6,9 @@ import { genMap } from './sim.js';
 export class View {
   constructor(cfg, me) {
     this.N = cfg.size || 56;
+    this.seed = cfg.seed;
     this.terrain = genMap(cfg.seed, this.N).terrain;
-    this.info = cfg.players.map((p, i) => ({ name: p.name, team: p.team, color: COLORS[i] }));
+    this.info = cfg.players.map((p, i) => ({ name: p.name, team: p.team, color: COLORS[p.color ?? i] || COLORS[i], hero: p.hero || 'hero' }));
     this.me = me; this.team = this.info[me].team;
     this.pl = this.info.map(() => ({ res: 0, pop: 0, cap: 0, alive: true, heroT: 0 }));
     this.ents = new Map(); this.fx = []; this.dirty = [];
@@ -17,7 +18,7 @@ export class View {
   }
   apply(s) {
     this.tick = s.k; this.winner = s.w;
-    s.p.forEach((a, i) => { this.pl[i] = { res: a[0], pop: a[1], cap: a[2], alive: !!a[3], heroT: a[4] }; });
+    s.p.forEach((a, i) => { this.pl[i] = { res: a[0], pop: a[1], cap: a[2], alive: !!a[3], heroT: a[4], wood: a[5] || 0 }; });
     for (const a of s.e) {
       const type = TYPES[a[1]], d = DEF[type];
       let e = this.ents.get(a[0]);
@@ -29,7 +30,7 @@ export class View {
       if (a[5] < e.hp && e.owner === this.me) this.hurt = { x: a[3], y: a[4], tick: s.k };
       e.x = a[3]; e.y = a[4]; e.hp = a[5]; e.stamp = s.k;
       if (d.b) { e.built = !!a[6]; e.prog = a[7]; e.queue = a[8]; e.paused = !!a[9]; }
-      else { e.carry = a[6]; e.abT = a[7]; e.idle = a[8]; }
+      else { e.carry = a[6]; e.abT = a[7]; e.idle = a[8]; e.haste = a[9]; }
     }
     for (const [id, e] of this.ents) if (e.stamp !== s.k) this.ents.delete(id);
     for (const i of s.rm) { this.terrain[i] = 0; this.dirty.push(i); }
@@ -67,7 +68,7 @@ function rr(g, x, y, w, h, r) {
 const line = (g, x1, y1, x2, y2) => { g.beginPath(); g.moveTo(x1, y1); g.lineTo(x2, y2); g.stroke(); };
 
 function drawUnit(g, e, col) {
-  const t = e.type, big = t === 'hero' || t === 'knight', s = big ? 1.2 : 1;
+  const t = e.type, isHero = !!DEF[t].hero, big = isHero || t === 'knight', s = big ? 1.2 : 1;
   g.save();
   g.translate(e.rx, e.ry);
   g.fillStyle = 'rgba(0,0,0,.28)';
@@ -85,7 +86,7 @@ function drawUnit(g, e, col) {
     g.fillStyle = '#33343c';
     g.fillRect(-4, by + 8, 3, 4); g.fillRect(1, by + 8, 3, 4);
   }
-  if (t === 'hero') { g.fillStyle = '#7c2d12'; rr(g, -7, by + 1, 6, 11, 2); g.fill(); }
+  if (isHero) { g.fillStyle = t === 'ranger' ? '#14532d' : t === 'sage' ? '#e2e8f0' : '#7c2d12'; rr(g, -7, by + 1, 6, 11, 2); g.fill(); }
   g.fillStyle = col;
   rr(g, -5, by, 10, 9, 2); g.fill(); g.stroke();
   g.fillStyle = t === 'soldier' || t === 'knight' ? '#b4bac4' : '#f1cf9d';
@@ -95,7 +96,7 @@ function drawUnit(g, e, col) {
     g.fillStyle = '#8b5a2b'; g.beginPath(); g.arc(0, by - 5, 4.4, Math.PI, 0); g.fill();
     g.strokeStyle = '#5b3a1c'; line(g, 5, by + 7, 9, by - 3);
     g.strokeStyle = '#cfd3da'; line(g, 6, by - 4, 12, by - 2);
-    if (e.carry) { g.fillStyle = '#7dd3fc'; g.strokeStyle = 'rgba(0,0,0,.55)'; g.lineWidth = 1; rr(g, -10, by + 1, 6, 6, 1.5); g.fill(); g.stroke(); }
+    if (e.carry) { g.fillStyle = e.carry === 2 ? '#a16207' : '#7dd3fc'; g.strokeStyle = 'rgba(0,0,0,.55)'; g.lineWidth = 1; rr(g, -10, by + 1, 6, 6, 1.5); g.fill(); g.stroke(); }
   } else if (t === 'soldier') {
     g.strokeStyle = '#eef0f4'; line(g, 6, by + 6, 10, by - 6);
     g.fillStyle = '#f8fafc'; g.strokeStyle = 'rgba(0,0,0,.55)'; g.lineWidth = 1;
@@ -106,11 +107,21 @@ function drawUnit(g, e, col) {
     g.strokeStyle = '#e5e7eb'; g.lineWidth = .8; line(g, 7.2, by - 3.2, 7.2, by + 9.2);
   } else if (t === 'knight') {
     g.strokeStyle = '#e5e7eb'; line(g, 3, by + 6, 15, by - 8);
-  } else if (t === 'hero') {
+  } else if (isHero) {
     g.fillStyle = '#fbbf24';
     g.beginPath(); g.moveTo(-4.5, by - 6); g.lineTo(-4.5, by - 11); g.lineTo(-2, by - 8); g.lineTo(0, by - 12); g.lineTo(2, by - 8);
     g.lineTo(4.5, by - 11); g.lineTo(4.5, by - 6); g.closePath(); g.fill();
-    g.strokeStyle = '#fde68a'; g.lineWidth = 2.2; line(g, 6, by + 7, 11, by - 8);
+    if (t === 'ranger') { // long bow
+      g.strokeStyle = '#854d0e'; g.lineWidth = 1.8; g.beginPath(); g.arc(5, by + 2, 9, -1.15, 1.15); g.stroke();
+      g.strokeStyle = '#fde68a'; g.lineWidth = .9; line(g, 8.7, by - 6.2, 8.7, by + 10.2);
+    } else if (t === 'sage') { // staff with a glowing tip
+      g.strokeStyle = '#854d0e'; g.lineWidth = 1.8; line(g, 8, by + 9, 8, by - 9);
+      g.fillStyle = '#86efac'; g.beginPath(); g.arc(8, by - 10, 3, 0, 7); g.fill();
+    } else { g.strokeStyle = '#fde68a'; g.lineWidth = 2.2; line(g, 6, by + 7, 11, by - 8); }
+  }
+  if (e.haste) { // speed lines
+    g.strokeStyle = 'rgba(253,224,71,.9)'; g.lineWidth = 1.2;
+    line(g, -13, by + 2, -8, by + 2); line(g, -14, by + 6, -9, by + 6);
   }
   g.restore();
 }
@@ -262,7 +273,7 @@ export class Renderer {
     }
     units.sort((a, b) => a.ry - b.ry);
     for (const e of units) {
-      const big = e.type === 'hero' || e.type === 'knight';
+      const big = DEF[e.type].hero || e.type === 'knight';
       if (ui.sel.has(e.id)) {
         g.strokeStyle = '#4ade80'; g.lineWidth = 1.6;
         g.beginPath(); g.ellipse(e.rx, e.ry + 6, big ? 13 : 10, big ? 7 : 5.5, 0, 0, 7); g.stroke();
@@ -295,8 +306,8 @@ export class Renderer {
       } else if (f.k === 's') {
         if (f.t > .5) { v.fx.splice(i, 1); continue; }
         const p = f.t / .5;
-        g.strokeStyle = `rgba(253,224,71,${1 - p})`; g.lineWidth = 5 * (1 - p) + 1;
-        g.beginPath(); g.arc(a[1], a[2], 90 * p, 0, 7); g.stroke();
+        g.strokeStyle = `rgba(${['253,224,71', '125,211,252', '134,239,172'][a[4] || 0]},${1 - p})`; g.lineWidth = 5 * (1 - p) + 1;
+        g.beginPath(); g.arc(a[1], a[2], (a[3] || 90) * p, 0, 7); g.stroke();
       } else if (f.k === 'm') {
         if (f.t > .4) { v.fx.splice(i, 1); continue; }
         const p = f.t / .4;
