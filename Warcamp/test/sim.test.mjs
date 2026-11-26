@@ -3,7 +3,7 @@
 import { Sim, genMap } from '../js/sim.js';
 import { AI } from '../js/ai.js';
 import { MAPS, makeMap } from '../js/maps.js';
-import { NOMAD } from '../js/data.js';
+import { NOMAD, DEF as DEFS } from '../js/data.js';
 
 let failed = 0;
 const check = (ok, msg) => { if (!ok) { failed++; console.error('FAIL', msg); } else console.log('ok  ', msg); };
@@ -313,7 +313,7 @@ for (const seed of [1, 2, 3, 4, 5, 6]) {
   const a = new Sim(cfg), aisA = a.players.map((_, i) => new AI(a, i, 1));
   const stepAll = (s, ais, n) => { let last; for (let i = 0; i < n; i++) { for (const x of ais) x.update(); s.step(); last = s.snapshot(); } return JSON.stringify(last); };
   stepAll(a, aisA, 2500);
-  const text = JSON.stringify({ sim: a.save(), ais: aisA.map(x => ({ att: x.att, wave: x.wave })) });
+  const text = JSON.stringify({ sim: a.save(), ais: aisA.map(x => x.state()) });
   const back = JSON.parse(text), b = Sim.restore(cfg, back.sim), aisB = b.players.map((_, i) => Object.assign(new AI(b, i, 1), back.ais[i]));
   const sa = stepAll(a, aisA, 1500), sb = stepAll(b, aisB, 1500);
   check(sa === sb && a.ents.size > 30, `a game saved at tick 2500 and restored matches the original 1500 ticks later (${a.ents.size} entities, ${(text.length / 1024).toFixed(0)} kB saved)`);
@@ -688,6 +688,62 @@ for (const { id } of MAPS) {
   check(!hq.rally && w3.order && w3.order.k === 'harvest', 'a rally point on the building itself clears it, and workers go back to gathering on their own');
   s.command(0, { t: 'rally', b: w.id, x: 5, y: 5 }); s.command(0, { t: 'rally', b: hq.id, x: NaN, y: 5 }); s.command(0, { t: 'rally', b: hq.id, x: 1e12, y: -9 });
   check(hq.rally && hq.rally[0] < s.N * 32 && hq.rally[1] === 0, 'bad rally orders are ignored or kept on the map');
+}
+
+// ---------------------------------------------------------------- the computer's strategy
+{
+  const duo = (seed, map) => new Sim({ seed, map, players: [{ name: 'a', team: 0 }, { name: 'b', team: 1 }] });
+  const mil = (s, p) => [...s.ents.values()].filter(e => e.owner === p && ['soldier', 'archer', 'knight', 'guard', 'mage', 'catapult'].includes(e.type));
+  // It sets out as one group, not one soldier at a time.
+  {
+    const s = duo(8), ai = new AI(s, 1, 1);
+    const mend = () => { for (const e of s.ents.values()) if (e.owner === 0 && e.b) e.hp = DEFS[e.type].hp; };
+    while (!ai.att && s.tick < 9000) { mend(); ai.update(); s.step(); s.snapshot(); }
+    const army = mil(s, 1), cx = army.reduce((a, u) => a + u.x, 0) / army.length, cy = army.reduce((a, u) => a + u.y, 0) / army.length;
+    const close = army.filter(u => Math.hypot(u.x - cx, u.y - cy) < 6 * 32).length, hq = [...s.ents.values()].find(e => e.type === 'hq' && e.owner === 1);
+    check(ai.att && army.length >= 6 && close >= army.length * .75 && Math.hypot(cx - hq.x, cy - hq.y) / 32 < 14, `the computer gathers its army in front of its base and attacks as one group (${close} of ${army.length} troops standing together when it sets out)`);
+    // ...and later troops follow in batches: nobody walks to the front alone
+    let alone = 0, sent = 0;
+    for (let t = 0; t < 2400 && s.winner === -1; t++) {
+      mend(); ai.update(); s.step(); s.snapshot();
+      if (t % 50 || !ai.att) continue;
+      const out = mil(s, 1).filter(u => Math.hypot(u.x - hq.x, u.y - hq.y) > 16 * 32 && u.order && u.order.k === 'amove');
+      for (const u of out) { sent++; if (!mil(s, 1).some(v => v !== u && Math.hypot(v.x - u.x, v.y - u.y) < 8 * 32)) alone++; }
+    }
+    check(sent > 10 && alone / sent < .15, `reinforcements march in groups (${alone} of ${sent} sightings of a soldier on the road alone)`);
+  }
+  // It trains against what the enemy has: Guards when it faces Riders.
+  {
+    const guards = riders => {
+      const s = duo(5), ai = new AI(s, 1, 1);
+      const mend = () => { for (const e of s.ents.values()) if (e.owner === 0 && e.b) e.hp = DEFS[e.type].hp; };
+      const [bx, by] = s.basePos(0);
+      if (riders) for (let i = 0; i < 10; i++) { const u = s.spawnUnit('knight', 0, (bx + 3 + i % 4) * 32, (by + 4 + (i >> 2)) * 32); u.order = { k: 'move', x: u.x, y: u.y, tries: 0 }; }
+      for (let t = 0; t < 4200; t++) { mend(); ai.update(); s.step(); s.snapshot(); for (const e of s.ents.values()) if (e.owner === 0 && e.type === 'knight') { e.hp = 160; if (!e.order) e.order = { k: 'move', x: e.x, y: e.y, tries: 1 }; } }
+      const all = [...s.ents.values()].filter(e => e.owner === 1);
+      return [all.filter(e => e.type === 'guard').length, all.filter(e => e.type === 'knight').length];
+    };
+    const plain = guards(false), vs = guards(true);
+    check(vs[0] > plain[0] && vs[0] > vs[1], `facing Riders, the computer trains more Guards (${vs[0]}, with ${vs[1]} Riders of its own) than it otherwise would (${plain[0]})`);
+  }
+  // In Survival it holds its ground instead of marching off across the map after the Horde.
+  {
+    const s = new Sim({ seed: 21, mode: 'survival', center: true, extra: true, players: [{ name: 'A', team: 0, ai: true }, { name: 'The Horde', team: 1, horde: true }] }), ai = new AI(s, 0, 1);
+    const hq = [...s.ents.values()].find(e => e.type === 'hq');
+    let furthest = 0, kills = 0;
+    while (s.wave < 4 && s.winner === -1 && s.tick < 6000) { ai.update(); s.step(); s.snapshot(); for (const u of mil(s, 0)) furthest = Math.max(furthest, Math.hypot(u.x - hq.x, u.y - hq.y) / 32); }
+    check(s.wave >= 3 && s.winner === -1 && furthest < 40, `a computer in Survival fights near its Keep (never more than ${furthest.toFixed(0)} tiles out in ${s.wave - 1} waves)`);
+  }
+  // The levels are really different: Hard beats Easy.
+  {
+    let hard = 0, games = 0;
+    for (const [seed, map] of [[3, 'classic'], [4, 'island'], [5, 'rivers'], [6, 'forest']]) for (const seat of [0, 1]) {
+      const s = duo(seed, map), ais = [0, 1].map(i => new AI(s, i, i === seat ? 2 : 0));
+      while (s.winner === -1 && s.tick < 40000) { for (const a of ais) a.update(); s.step(); s.snapshot(); }
+      games++; if (s.winner === seat) hard++;
+    }
+    check(hard >= games - 1, `a Hard computer beats an Easy one (${hard} of ${games} games, from either seat, on every map)`);
+  }
 }
 
 if (failed) { console.error(`${failed} check(s) failed`); process.exit(1); }

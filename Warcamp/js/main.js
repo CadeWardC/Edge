@@ -421,7 +421,7 @@ async function handover() {
   if (!order.length) return null;
   G.moving = true;
   clearInterval(G.timer); G.timer = 0; // freeze, so the copy that is sent is the final word
-  const state = { cfg, tokens: G.tokens, ais: G.ais.map((a, i) => a && cfg.players[i].ai ? { att: a.att, wave: a.wave } : null), sim: sim.save() };
+  const state = { cfg, tokens: G.tokens, ais: G.ais.map((a, i) => a && cfg.players[i].ai ? a.state() : null), sim: sim.save() };
   for (const i of order) {
     const c = conns[i];
     if (!c) continue;
@@ -536,7 +536,7 @@ function startGame(cfg, me, conns, save) {
       if (sim.winner !== -1 || G.lost) return store.set(SAVE, ''); // over, or over for the only person playing
       try {
         store.set(SAVE, JSON.stringify({ at: Date.now(), cfg, me, code: L && L.online ? L.code : '', tokens: G.tokens || [],
-          ais: ais.map((a, i) => a && cfg.players[i].ai ? { att: a.att, wave: a.wave } : null), sim: sim.save() }));
+          ais: ais.map((a, i) => a && cfg.players[i].ai ? a.state() : null), sim: sim.save() }));
       } catch { /* storage full or blocked: play on without saving */ }
     };
     G.conns = conns;
