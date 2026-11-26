@@ -433,7 +433,7 @@ export class Sim {
             // a shot in flight (0 arrow, 1 magic bolt, 2 boulder) or a blade landing
             this.fx.push(d.range ? ['a', e.x | 0, e.y | 0, t.x | 0, t.y | 0, e.type === 'mage' || e.type === 'sage' ? 1 : d.siege ? 2 : 0] : ['h', t.x | 0, t.y | 0]);
             const dmg = d.dmg * (d.hero ? heroMult(P.lvl) : 1) * (e.mul || 1) * (e.rageT > this.tick ? RAGE_BONUS : 1), tx = t.x, ty = t.y;
-            this.hit(t, dmg, e);
+            this.hit(t, dmg * ((d.vs && d.vs[t.type]) || 1), e); // some troops are made to beat others: a Guard against a Rider
             if (d.splash) for (const u of [...this.ents.values()]) {
               if (u !== t && !u.b && this.enemy(e, u) && Math.hypot(u.x - tx, u.y - ty) <= d.splash) this.hit(u, dmg * 0.6, e);
             }
@@ -530,6 +530,16 @@ export class Sim {
       }
     }
   }
+  // A new unit heads for its building's rally point. A worker sent to a tree or a crystal starts gathering it.
+  toRally(n, [x, y]) {
+    const tx = this.tileOf(x), ty = this.tileOf(y);
+    if (n.type === 'worker' && this.terrain[ty * this.N + tx] >= 2) {
+      const r = this.openNeighbor(tx, ty) ? [tx, ty] : this.nearestRes(tx, ty, this.terrain[ty * this.N + tx]);
+      if (r) return this.orderHarvest(n, r[0], r[1]);
+    }
+    n.order = { k: 'move', x, y, tries: 0 };
+    this.pathPoint(n, x, y);
+  }
   updateBuilding(e) {
     if (!e.built) return;
     const d = DEF[e.type];
@@ -548,7 +558,8 @@ export class Sim {
         if (s) {
           const n = this.spawnUnit(u, e.owner, (s[0] + .5) * T, (s[1] + .5) * T);
           e.queue.shift(); e.trainT = 0;
-          if (u === 'worker') this.autoHarvest(n);
+          if (e.rally) this.toRally(n, e.rally);
+          else if (u === 'worker') this.autoHarvest(n);
         } else e.trainT = need;
       }
     }
@@ -776,6 +787,13 @@ export class Sim {
         this.kill(b);
         break;
       }
+      case 'rally': { // where a building's new units go. A point on the building itself clears it.
+        const b = this.ents.get(c.b);
+        if (!b || !b.b || b.owner !== pid || !DEF[b.type].trains || !num(c.x) || !num(c.y)) return;
+        const x = Math.max(0, Math.min(lim, c.x)) | 0, y = Math.max(0, Math.min(lim, c.y)) | 0;
+        if (Math.max(Math.abs(x - b.x), Math.abs(y - b.y)) <= b.size * T / 2) delete b.rally; else b.rally = [x, y];
+        break;
+      }
       case 'unqueue': { // drop the last unit waiting in a building's queue
         const b = this.ents.get(c.b);
         if (!b || !b.b || b.owner !== pid || !b.queue.length) return;
@@ -878,7 +896,7 @@ export class Sim {
     this.changed = []; this.fx = [];
     for (const e of this.ents.values()) {
       const a = [e.id, TI[e.type], e.owner, Math.round(e.x), Math.round(e.y), Math.ceil(e.hp)];
-      if (e.b) a.push(e.built ? 1 : 0, Math.floor((e.built ? (e.queue.length ? e.trainT / DEF[e.queue[0]].time : 0) : e.prog) * 100), e.queue.map(u => TI[u]), !e.built && this.tick - (e.wk ?? -99) > 8 ? 1 : 0);
+      if (e.b) a.push(e.built ? 1 : 0, Math.floor((e.built ? (e.queue.length ? e.trainT / DEF[e.queue[0]].time : 0) : e.prog) * 100), e.queue.map(u => TI[u]), !e.built && this.tick - (e.wk ?? -99) > 8 ? 1 : 0, e.rally || 0);
       else a.push(e.carry ? e.ck : 0, e.cds ? e.cds.map(c => Math.max(0, Math.ceil(c))) : 0, e.order ? 0 : 1,
         (e.hasteT > this.tick ? 1 : 0) | (e.rageT > this.tick ? 2 : 0) | (e.wardT > this.tick ? 4 : 0), e.mul ? Math.round(e.mul * 100) : 0);
       s.e.push(a);

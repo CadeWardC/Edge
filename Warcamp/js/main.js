@@ -518,7 +518,7 @@ function startGame(cfg, me, conns, save) {
   G.view = new View(cfg, me);
   R.setView(G.view);
   R.cam.z = Math.min(innerWidth, innerHeight) < 500 ? .8 : 1;
-  G.sel.clear(); G.placing = null; G.box = null; G.boxMode = false; G.amove = false; G.disband = 0; G.moving = false; G.cfg = cfg; G.ended = false; G.elim = false; G.lost = false; G.needCenter = true;
+  G.sel.clear(); G.placing = null; G.box = null; G.boxMode = false; G.amove = false; G.rally = false; G.disband = 0; G.moving = false; G.cfg = cfg; G.ended = false; G.elim = false; G.lost = false; G.needCenter = true;
   G.record = G.record0 = +store.get(NKEY) || 0;
   G.lastSnap = performance.now();
   $('news').textContent = '';
@@ -701,9 +701,20 @@ function confirmPlace() {
 function mark(x, y, col) { if (G.touch) buzz(8); G.view.fx.push({ k: 'm', a: ['m', x, y, col], t: 0 }); }
 
 // What a tap (or right-click) on the world means for the units that are selected.
+// The selected building that trains units, if it is mine.
+const maker = () => selected().find(e => e.b && e.built && e.owner === G.view.me && DEF[e.type].trains);
+// Set where that building's new units go (a point on the building itself clears it).
+function rallyTo(wx, wy) {
+  const b = maker();
+  G.rally = false; hudT = 0;
+  if (!b) return false;
+  G.send({ t: 'rally', b: b.id, x: wx, y: wy });
+  mark(wx, wy, '#fde68a');
+  return true;
+}
 function order(wx, wy, ent) {
   const v = G.view, us = myUnits();
-  if (!us.length) return;
+  if (!us.length) { rallyTo(wx, wy); return; } // right-click with a Barracks selected: its rally point
   const ids = us.map(e => e.id), workers = us.filter(e => e.type === 'worker').map(e => e.id), rest = us.filter(e => e.type !== 'worker').map(e => e.id);
   if (ent && !v.friendly(ent)) { G.send({ t: 'attack', ids, target: ent.id }); mark(ent.rx, ent.ry, '#f87171'); return; }
   if (ent && ent.b && ent.built && ent.owner === v.me && ent.hp < ent.max && workers.length) { // mend it
@@ -749,6 +760,7 @@ function tap(sx, sy, touch, add) {
     else { p.tx = tx; p.ty = ty; p.has = true; hudT = 0; }
     return;
   }
+  if (G.rally) { rallyTo(wx, wy); return; } // "Rally point" was tapped: this tap says where
   const e = pick(wx, wy, touch ? 16 : 6);
   if (!touch) { if (e) selectEnt(e, add); else { G.sel.clear(); hudT = 0; } return; }
   // With workers selected, a tap on one of my buildings that needs them (unfinished or damaged) sends them to it.
@@ -960,21 +972,22 @@ function panelHTML() {
   const sel = selected();
   if (!sel.length) return '';
   const mine = sel.filter(e => e.owner === me);
-  if (!mine.length) return `<div class="t">${DEF[sel[0].type].name} · ${esc(v.info[sel[0].owner].name)}</div><div class="d" id="pd"></div>`;
+  // The panel names what is selected and shows its health on the same line: no descriptions while playing (they are in How to play).
+  if (!mine.length) return `<div class="t">${DEF[sel[0].type].name} · ${esc(v.info[sel[0].owner].name)}<span id="pd"></span></div>`;
   const b = mine.find(e => e.b);
   if (b) {
     const d = DEF[b.type];
-    let h = `<div class="t">${d.name}</div><div class="d" id="pd"></div>`;
+    let h = `<div class="t">${d.name}<span id="pd"></span></div>`;
     if (!b.built) return h + '<div class="pb"><i id="pbar"></i></div><div class="acts">' +
       `<button data-act="resume" class="go">${b.paused ? 'Resume building' : 'Send more workers'}</button>` +
-      `<button data-act="cancelb" class="warn">Cancel<small>refund</small></button></div>`;
-    if (b.hp < b.max) h += '<div class="acts"><button data-act="repair" class="go">Repair<small>send workers</small></button></div>';
-    if (d.trains) {
-      h += '<div class="acts">' + d.trains.map(u => btn('train:' + u, DEF[u], P.res < DEF[u].cost || P.pop >= P.cap || b.queue.length >= 5, u)).join('') + '</div>';
-      if (b.queue.length) h += `<div class="d q">Training ${b.queue.map(i => pic(TYPES[i])).join('')}</div><div class="pb"><i id="pbar"></i></div>`;
-      if (b.queue.length) h = h.replace('</div><div class="d q">Training', '<button data-act="unqueue" class="warn">Cancel last<small>refund</small></button></div><div class="d q">Training');
-    }
-    return h;
+      `<button data-act="cancelb" class="warn">Cancel</button></div>`;
+    // what is being trained, and how far along the first one is, share one thin line
+    if (b.queue.length) h += `<div class="d q">${b.queue.map(i => pic(TYPES[i])).join('')}<div class="pb"><i id="pbar"></i></div></div>`;
+    const acts = (b.hp < b.max ? '<button data-act="repair" class="go">Repair</button>' : '') +
+      (d.trains ? d.trains.map(u => btn('train:' + u, DEF[u], P.res < DEF[u].cost || P.pop >= P.cap || b.queue.length >= 5, u)).join('') : '') +
+      (d.trains ? `<button data-act="rally" class="${G.rally ? 'on' : ''}">${G.rally ? 'Tap where' : b.rally ? 'Rally point ✓' : 'Rally point'}</button>` : '') +
+      (b.queue.length ? '<button data-act="unqueue" class="warn">Cancel last</button>' : '');
+    return acts ? h + '<div class="acts">' + acts + '</div>' : h;
   }
   const count = {};
   for (const e of mine) count[e.type] = (count[e.type] || 0) + 1;
@@ -984,7 +997,7 @@ function panelHTML() {
     h = `<div class="t">${pic(kinds[0])}${mine.length} ${DEF[kinds[0]].name}s</div>`;
   } else if (mine.length === 1) {
     const e = mine[0], d = DEF[e.type];
-    h = `<div class="t">${pic(e.type)}${d.name}${d.hero ? ` · Level ${P.lvl}` : ''}</div><div class="d">${d.info || d.about || ''}</div>`;
+    h = `<div class="t">${pic(e.type)}${d.name}</div>`;
   } else {
     // One chip per kind of unit: tap a chip to keep only that kind selected.
     h = `<div class="chips"><span class="n">${mine.length} units</span>` +
@@ -993,18 +1006,19 @@ function panelHTML() {
   h += '<div class="bars"><div class="hpl"><span id="pd"></span><div class="pb hp"><i id="phb"></i></div></div>' +
     (hero ? `<div class="hpl"><span>${P.lvl >= 5 ? 'Top level' : 'Lv ' + P.lvl}</span><div class="pb xp"><i id="pxp"></i></div></div>` : '') + '</div>';
   h += '<div class="acts">';
-  if (hero) h += DEF[hero.type].abs.map((ab, n) => P.lvl >= ab.lvl
-    ? `<button data-act="ability:${n}" id="pab${n}" class="go spell" title="${ab.about}">${ab.name}<small>${ab.about}</small></button>`
-    : `<button disabled class="spell">${ab.name}<small>unlocks at level ${ab.lvl}</small></button>`).join('');
+  // spells the hero has first; the ones still locked go to the end of the row, out of the way
+  const abs = hero ? DEF[hero.type].abs : [];
+  h += abs.map((ab, n) => P.lvl >= ab.lvl ? `<button data-act="ability:${n}" id="pab${n}" class="go spell" title="${ab.about}">${ab.name}</button>` : '').join('');
+  const locked = abs.map(ab => P.lvl >= ab.lvl ? '' : `<button disabled class="spell">${ab.name} · Lv ${ab.lvl}</button>`).join('');
   if (count.worker) {
     const has = t => [...ents().values()].some(e => e.owner === me && e.type === t && e.built);
     h += BUILDABLE.map(t => btn('build:' + t, t === 'hq' ? { ...DEF.hq, name: `Keep ×${P.keeps}` } : t === 'tower' ? { ...DEF.tower, name: 'Tower' } : DEF[t], P.res < DEF[t].cost || P.wood < (DEF[t].wood || 0) || (DEF[t].req && !has(DEF[t].req)) || (t === 'hq' && P.keeps < 1), t)).join('');
   }
-  if (fighters) h += `<button data-act="amove" class="${G.amove ? 'on' : ''}">Attack-move<small>${G.amove ? 'now tap where to go' : 'fight on the way'}</small></button>`;
+  if (fighters) h += `<button data-act="amove" class="${G.amove ? 'on' : ''}">${G.amove ? 'Tap where to go' : 'Attack-move'}</button>`;
   h += '<button data-act="stop">Stop</button>';
   const n = mine.filter(e => !DEF[e.type].hero).length, armed = G.disband && performance.now() - G.disband < 4000;
-  if (n) h += `<button data-act="disband" class="warn${armed ? ' on' : ''}">${armed ? 'Tap again' : 'Disband'}<small>${armed ? `to remove ${n} unit${n > 1 ? 's' : ''} for good` : 'remove for good'}</small></button>`;
-  return h + '</div>';
+  if (n) h += `<button data-act="disband" class="warn${armed ? ' on' : ''}">${armed ? `Remove ${n} for good?` : 'Disband'}</button>`;
+  return h + locked + '</div>';
 }
 // A line across the top of the screen for news that everyone should see.
 function announce(text, color, note) {
@@ -1080,7 +1094,7 @@ function updateHud() {
     }
     else if (e.b && !e.built) pd.textContent = e.owner !== v.me ? `Under construction ${e.prog}%` : e.paused ? `Paused at ${e.prog}%: no worker is building it` : `Under construction ${e.prog}%`;
     else if (e.b && e.owner === v.me && DEF[e.type].trains && P.pop >= P.cap) pd.textContent = P.cap >= MAXCAP ? 'Unit limit reached.' : 'Unit limit reached: build a Cottage.';
-    else pd.textContent = (e.b && e.owner === v.me && DEF[e.type].info ? DEF[e.type].info + '. ' : '') + `Health ${e.hp}/${e.max}`;
+    else pd.textContent = `♥ ${e.hp}/${e.max}`;
     if (pbar) pbar.style.width = (e.prog || 0) + '%';
   }
   if (pxp) pxp.style.width = P.xp + '%';
@@ -1148,6 +1162,7 @@ $('panel').addEventListener('click', ev => {
   else if (a === 'ability') { for (const e of myUnits()) if (DEF[e.type].hero) G.send({ t: 'ability', id: e.id, n: +arg }); }
   else if (a === 'stop') { G.send({ t: 'stop', ids: myUnits().map(e => e.id) }); G.amove = false; }
   else if (a === 'amove') G.amove = !G.amove;
+  else if (a === 'rally') { G.rally = !G.rally; if (G.rally) toast('Tap where new units should go. Tap the building itself to clear it.'); }
   else if (a === 'disband') {
     if (G.disband && performance.now() - G.disband < 4000) { G.send({ t: 'disband', ids: myUnits().filter(e => !DEF[e.type].hero).map(e => e.id) }); G.disband = 0; }
     else { G.disband = performance.now(); setTimeout(() => { hudT = 0; }, 4100); }
@@ -1174,6 +1189,7 @@ function frame(now) {
       if (at) { R.center(at.x, at.y); G.needCenter = false; }
     }
     for (const id of G.sel) { const e = v.ents.get(id); if (!e || !visible(e)) { G.sel.delete(id); hudT = 0; } }
+    if (G.rally && !maker()) { G.rally = false; hudT = 0; }
     if (G.placing && !myUnits().some(e => e.type === 'worker')) { G.placing = null; hudT = 0; }
     let ghost = null;
     const p = G.placing;

@@ -40,7 +40,7 @@ export class View {
       if (a[5] < e.hp && e.owner === this.me) this.hurt = { x: a[3], y: a[4], tick: s.k };
       if (a[5] < e.hp) e.hurtT = performance.now();
       e.x = a[3]; e.y = a[4]; e.hp = a[5]; e.stamp = s.k;
-      if (d.b) { e.built = !!a[6]; e.prog = a[7]; e.queue = a[8]; e.paused = !!a[9]; }
+      if (d.b) { e.built = !!a[6]; e.prog = a[7]; e.queue = a[8]; e.paused = !!a[9]; e.rally = a[10] || null; }
       else { e.carry = a[6]; e.cds = a[7] || null; e.idle = a[8]; e.buff = a[9] || 0; }
       e.max = Math.round(d.hp * (d.hero ? heroMult(this.pl[e.owner].lvl) : 1) * (!d.b && a[10] ? a[10] / 100 : 1));
     }
@@ -466,6 +466,12 @@ export class Renderer {
       wounds(g, e, now);
       if (clock - e.hurtT < 110) { g.fillStyle = 'rgba(255,255,255,.35)'; rr(g, e.tx * T + 3, e.ty * T + 3, e.size * T - 6, e.size * T - 6, 5); g.fill(); }
       if (ui.sel.has(e.id) && DEF[e.type].range) reach(g, e.rx, e.ry, DEF[e.type].range, c.z);
+      if (ui.sel.has(e.id) && e.rally && e.owner === v.me) { // where its new units go: a dashed line to a small flag
+        const [fx, fy] = e.rally;
+        g.strokeStyle = 'rgba(253,230,138,.9)'; g.lineWidth = 2 / c.z; g.setLineDash([8 / c.z, 6 / c.z]); line(g, e.rx, e.ry, fx, fy); g.setLineDash([]);
+        g.strokeStyle = '#1f2937'; g.lineWidth = 2; line(g, fx, fy + 4, fx, fy - 20);
+        g.fillStyle = '#fde68a'; g.lineWidth = 1; g.beginPath(); g.moveTo(fx, fy - 20); g.lineTo(fx + 14, fy - 15); g.lineTo(fx, fy - 10); g.closePath(); g.fill(); g.stroke();
+      }
       const max = e.max;
       if (e.built && (e.hp < max || ui.sel.has(e.id))) bar(g, e.rx, e.ty * T - 4, e.size * T - 10, e.hp / max, '#4ade80');
       if (!e.built && e.paused && v.friendly(e)) { // nobody is building this: a pause badge

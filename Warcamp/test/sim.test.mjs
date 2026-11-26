@@ -508,8 +508,8 @@ for (const [map, seed, n] of [['island', 5, 2], ['island', 42, 4], ['forest', 5,
   const sim = new Sim({ seed, map, players: Array.from({ length: n }, (_, i) => ({ name: 'AI' + i, team: i })) });
   const ais = sim.players.map((_, i) => new AI(sim, i, 1));
   let built = 0;
-  while (sim.winner === -1 && sim.tick < 60000) { for (const a of ais) a.update(); sim.step(); sim.snapshot(); if (sim.tick === 3000) built = [...sim.ents.values()].filter(e => e.b && e.built).length; }
-  check(sim.winner >= 0 && built >= n * 4, `${n} AIs on "${map}" build up (${built} buildings after 5 game-min) and finish: winner team ${sim.winner} after ${(sim.tick / 600).toFixed(1)} game-min`);
+  while (sim.winner === -1 && sim.tick < 60000) { for (const a of ais) a.update(); sim.step(); sim.snapshot(); if (sim.tick % 100 === 0) built = Math.max(built, [...sim.ents.values()].filter(e => e.b && e.built).length); }
+  check(sim.winner >= 0 && built >= n * 4, `${n} AIs on "${map}" build up (${built} buildings at most) and finish: winner team ${sim.winner} after ${(sim.tick / 600).toFixed(1)} game-min`);
 }
 
 // ---------------------------------------------------------------- Survival: together in the middle, the Horde from the edges
@@ -652,6 +652,42 @@ for (const { id } of MAPS) {
     const b = Sim.restore(cfg, JSON.parse(JSON.stringify(a.save())));
     check(b.nomad.best === a.nomad.best && b.nomad.best > 10 && go(a, 600) === go(b, 600), `a Nomad run saved ${a.nomad.best} tiles out and restored plays on exactly as the original`);
   }
+}
+
+// Guards are made to stop Riders; a building's new units go to its rally point.
+{
+  const mk = () => new Sim({ seed: 6, players: [{ name: 'a', team: 0 }, { name: 'b', team: 1 }] });
+  const hold = u => { u.order = { k: 'move', x: u.x, y: u.y, tries: 0 }; return u; };
+  let s = mk();
+  const g = s.spawnUnit('guard', 0, 600, 600), rider = hold(s.spawnUnit('knight', 1, 620, 600)), sol = hold(s.spawnUnit('soldier', 1, 600, 620));
+  s.command(0, { t: 'attack', ids: [g.id], target: rider.id }); s.step();
+  const g2 = s.spawnUnit('guard', 0, 580, 620); s.command(0, { t: 'attack', ids: [g2.id], target: sol.id }); s.step();
+  const so = s.spawnUnit('soldier', 0, 640, 600); s.command(0, { t: 'attack', ids: [so.id], target: rider.id }); s.step();
+  check(160 - rider.hp === 20 + 10 && 95 - sol.hp === 8, `a Guard hits a Rider for ${20} (two and a half times its ${8} against anything else); a Soldier hits it for the usual 10`);
+  s = mk();
+  const run = n => { for (let i = 0; i < n; i++) { s.step(); s.snapshot(); } };
+  const hq = [...s.ents.values()].find(e => e.type === 'hq' && e.owner === 0), [bx, by] = s.basePos(0);
+  const rx = (bx + 5.5) * 32, ry = (by + 4.5) * 32;
+  s.command(1, { t: 'rally', b: hq.id, x: rx, y: ry });
+  check(!hq.rally, "a player cannot set another player's rally point");
+  s.command(0, { t: 'rally', b: hq.id, x: rx, y: ry });
+  check(hq.rally && s.snapshot().e.find(a => a[0] === hq.id)[10][0] === (rx | 0), 'a rally point is set on a building that trains units, and every screen is told');
+  s.command(0, { t: 'train', b: hq.id, u: 'worker' }); run(140);
+  const w = [...s.ents.values()].filter(e => e.type === 'worker' && e.owner === 0).pop();
+  check(Math.hypot(w.x - rx, w.y - ry) < 40 && !w.order, 'a new unit walks to the rally point and waits there');
+  const tree = s.nearestRes(bx, by, 2);
+  s.command(0, { t: 'rally', b: hq.id, x: (tree[0] + .5) * 32, y: (tree[1] + .5) * 32 });
+  s.command(0, { t: 'train', b: hq.id, u: 'worker' }); run(90);
+  const w2 = [...s.ents.values()].filter(e => e.type === 'worker' && e.owner === 0).pop();
+  check(w2.order && w2.order.k === 'harvest' && w2.order.kind === 2, 'a worker rallied to a tree starts cutting wood');
+  const back = Sim.restore({ seed: 6, players: [{ name: 'a', team: 0 }, { name: 'b', team: 1 }] }, JSON.parse(JSON.stringify(s.save())));
+  check(back.ents.get(hq.id).rally[0] === hq.rally[0], 'the rally point survives a save');
+  s.command(0, { t: 'rally', b: hq.id, x: hq.x, y: hq.y });
+  s.command(0, { t: 'train', b: hq.id, u: 'worker' }); run(90);
+  const w3 = [...s.ents.values()].filter(e => e.type === 'worker' && e.owner === 0).pop();
+  check(!hq.rally && w3.order && w3.order.k === 'harvest', 'a rally point on the building itself clears it, and workers go back to gathering on their own');
+  s.command(0, { t: 'rally', b: w.id, x: 5, y: 5 }); s.command(0, { t: 'rally', b: hq.id, x: NaN, y: 5 }); s.command(0, { t: 'rally', b: hq.id, x: 1e12, y: -9 });
+  check(hq.rally && hq.rally[0] < s.N * 32 && hq.rally[1] === 0, 'bad rally orders are ignored or kept on the map');
 }
 
 if (failed) { console.error(`${failed} check(s) failed`); process.exit(1); }

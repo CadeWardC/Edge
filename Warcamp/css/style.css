@@ -569,3 +569,10 @@ h1.brand { padding: 0 0 14px; text-align: center; }
 #menu .links button { background: none !important; border: 0; padding: 6px 4px; min-height: 0; font-size: 13px; color: #b7c6de; text-decoration: underline; text-underline-offset: 3px; text-shadow: 0 1px 4px #000; box-shadow: none; }
 #menu .hint { font-size: 12px; }
 #menu #mVer { opacity: .6; }
+
+/* ---------- the selection panel, kept short: a name with its health, then the buttons ---------- */
+#panel .t #pd { margin-left: 8px; font-weight: 400; font-size: 12px; color: var(--dim); }
+#panel .hpl #pd { margin: 0; }
+#panel .d.q { gap: 3px; }
+#panel .d.q .pb { margin-left: 6px; }
+#panel button.spell { white-space: nowrap; }

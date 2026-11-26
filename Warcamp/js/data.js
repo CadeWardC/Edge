@@ -9,12 +9,12 @@ export const TYPES = ['worker', 'soldier', 'archer', 'knight', 'hero', 'hq', 'ho
 export const TI = Object.fromEntries(TYPES.map((t, i) => [t, i]));
 
 // range 0 = melee. Speeds and ranges are in pixels (32 px = 1 tile), times in seconds.
-// cost is crystal, wood is wood. `info` is the one line shown when the unit is selected.
+// cost is crystal, wood is wood. `vs` multiplies the damage dealt to the kinds it names. `info` is a one-line description.
 export const DEF = {
   worker:   { name: 'Worker',   hp: 40,  speed: 72,  dmg: 4,  range: 0,   cd: 1,   cost: 50,  time: 8,  sight: 6, r: 8,  info: 'Gathers and builds' },
   soldier:  { name: 'Soldier',  hp: 95,  speed: 66,  dmg: 10, range: 0,   cd: 1,   cost: 60,  time: 9,  sight: 6, r: 9,  mil: 1, info: 'Solid fighter up close' },
   archer:   { name: 'Archer',   hp: 55,  speed: 66,  dmg: 8,  range: 150, cd: 1.2, cost: 70,  time: 10, sight: 7, r: 8,  mil: 1, info: 'Shoots from range, fragile' },
-  guard:    { name: 'Guard',    hp: 230, speed: 56,  dmg: 8,  range: 0,   cd: 1.1, cost: 90,  time: 12, sight: 6, r: 10, mil: 1, info: 'Slow wall of armour: soaks up damage' },
+  guard:    { name: 'Guard',    hp: 230, speed: 56,  dmg: 8,  range: 0,   cd: 1.1, cost: 90,  time: 12, sight: 6, r: 10, mil: 1, vs: { knight: 2.5 }, info: 'Slow wall of armour: soaks up damage, and stops Riders' },
   knight:   { name: 'Rider',    hp: 160, speed: 108, dmg: 16, range: 0,   cd: 1.2, cost: 120, time: 14, sight: 7, r: 11, mil: 1, info: 'Fast and hits hard' },
   mage:     { name: 'Mage',     hp: 60,  speed: 62,  dmg: 14, range: 140, cd: 1.7, cost: 110, time: 14, sight: 7, r: 8,  mil: 1, splash: 42, info: 'Each blast hurts every enemy near the target' },
   cleric:   { name: 'Cleric',   hp: 70,  speed: 64,  dmg: 0,  range: 0,   cd: 1,   cost: 90,  time: 12, sight: 6, r: 8,  mil: 1, healer: 1, heal: 9, info: 'Cannot fight: heals wounded troops nearby' },
