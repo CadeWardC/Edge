@@ -179,7 +179,7 @@ function syncLobby() {
 function renderLobby() {
   $('lTitle').textContent = L.online ? 'Multiplayer game' : 'Single player';
   $('lCode').hidden = !L.online;
-  $('lCode').innerHTML = `Room code<b>${esc(L.code)}</b>${L.host ? 'Friends type this code and tap Join.' : ''}`;
+  $('lCode').innerHTML = `Room code<b>${esc(L.code)}</b><button id="lCopy">${copied === L.code ? 'Copied' : 'Copy code'}</button>${L.host ? '<span>Friends type this code and tap Join.</span>' : ''}`;
   const label = { ai: 'Computer', open: 'Waiting for a player…', closed: 'Closed' };
   $('slots').innerHTML = L.slots.map((s, i) => {
     const text = s.kind === 'human' ? esc(s.name) + (i === L.you ? ' (you)' : '') : label[s.kind];
@@ -207,6 +207,24 @@ function renderLobby() {
   $('lStart').hidden = !L.host;
   $('lMsg').textContent = L.host ? '' : 'Waiting for the host to start…';
 }
+// Tap the room code, or the button under it, to copy it.
+let copied = '';
+$('lCode').onclick = async e => {
+  if (!L || !L.code || !e.target.closest('b, button')) return;
+  const code = L.code;
+  try { await navigator.clipboard.writeText(code); }
+  catch { // no clipboard access here (an old browser, or a page not served over HTTPS): the old way
+    const t = document.createElement('textarea');
+    t.value = code; t.setAttribute('readonly', ''); t.style.cssText = 'position:fixed;top:0;left:0;opacity:0';
+    document.body.appendChild(t); t.select();
+    let ok = false; try { ok = document.execCommand('copy'); } catch { /* not allowed either */ }
+    t.remove();
+    if (!ok) { $('lMsg').textContent = 'Could not copy: the code is ' + code + '.'; return; }
+  }
+  copied = code; buzz(8);
+  if ($('lCopy')) $('lCopy').textContent = 'Copied';
+  setTimeout(() => { copied = ''; if ($('lCopy')) $('lCopy').textContent = 'Copy code'; }, 2000);
+};
 $('pick').onclick = e => {
   const b = e.target.closest('button');
   const me = L && L.slots[L.you];
