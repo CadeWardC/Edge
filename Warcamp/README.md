@@ -9,8 +9,8 @@ their workers and kill their hero.
 - **Single player** against 1 to 3 computers (easy, normal or hard).
 - Pick one of three **heroes** (Warden, Ranger, Sage) and one of eight **colours** before each game. Heroes level up
   from kills and unlock two more spells.
-- Eight kinds of troops (Soldier, Archer, Guard, Rider, Mage, Cleric, Catapult, plus Workers), walls, and extra Keeps
-  on a large map where the starting spots change every game.
+- Eight kinds of troops (Soldier, Archer, Guard, Rider, Mage, Cleric, Catapult, plus Workers) from two buildings, up to
+  60 units, walls, and extra Keeps on a large map where the starting spots change every game.
 - **Multiplayer** for 2 to 4 people on their own devices, with computers in the empty seats if wanted:
   free for all, or everyone against the computers.
 - **Touch first**, and it also plays with mouse and keyboard.
@@ -62,7 +62,9 @@ The host's device runs the game and the other devices connect straight to it (We
 - If the host swipes away, the game freezes for everyone and carries on when the host returns.
 - A game you host, or play alone, is saved every few seconds. If the app is closed or the page reloaded, the menu
   shows **Continue your game**; for a hosted game it reopens the same room so the others get back in.
-- Leaving through the menu ends the game.
+- If the host is knocked out or leaves, the game is passed to another player's device, which becomes the host; the
+  others rejoin it on their own. Leaving a game you play alone ends it.
+- The menu also has **Give up**: you are out, the others play on, and you can stay to watch.
 
 ## Controls
 

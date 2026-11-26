@@ -1,6 +1,6 @@
 // Shared game data: every number that defines a unit, building, hero or spell lives here.
 export const TILE = 32;
-export const MAXCAP = 40;
+export const MAXCAP = 60;
 export const MAP_SIZE = 112; // tiles per side
 
 // The order is the wire format: add new types at the end only.
@@ -37,15 +37,17 @@ export const DEF = {
   hq:       { name: 'Keep',       b: 1, size: 3, hp: 1400, cost: 450, wood: 550, time: 45, sight: 8, cap: 10, trains: ['worker'], drop: 1, info: 'A base: trains workers, takes crystal and wood, and lets you build around it' },
   house:    { name: 'Cottage',    b: 1, size: 2, hp: 320,  cost: 0,   wood: 80,  time: 12, sight: 4, cap: 5, info: 'Room for 5 more units' },
   outpost:  { name: 'Outpost',    b: 1, size: 2, hp: 450,  cost: 0,   wood: 100, time: 14, sight: 6, drop: 1, info: 'Workers drop crystal and wood here' },
-  barracks: { name: 'Barracks',   b: 1, size: 2, hp: 650,  cost: 0,   wood: 150, time: 20, sight: 5, trains: ['soldier', 'archer', 'guard'] },
+  // Two buildings make every fighter: the Barracks the troops of the line, the Arsenal the specialists.
+  barracks: { name: 'Barracks',   b: 1, size: 2, hp: 700,  cost: 0,   wood: 150, time: 20, sight: 5, trains: ['soldier', 'archer', 'guard', 'knight'], info: 'Trains Soldiers, Archers, Guards and Riders' },
   stable:   { name: 'Stable',     b: 1, size: 2, hp: 650,  cost: 80,  wood: 150, time: 22, sight: 5, trains: ['knight'], req: 'barracks' },
-  workshop: { name: 'Workshop',   b: 1, size: 2, hp: 600,  cost: 60,  wood: 180, time: 22, sight: 5, trains: ['catapult'], req: 'barracks' },
+  workshop: { name: 'Arsenal',    b: 1, size: 2, hp: 650,  cost: 100, wood: 200, time: 24, sight: 5, trains: ['mage', 'cleric', 'catapult'], req: 'barracks', info: 'Trains Mages, Clerics and Catapults' },
   sanctum:  { name: 'Sanctum',    b: 1, size: 2, hp: 550,  cost: 100, wood: 160, time: 22, sight: 5, trains: ['mage', 'cleric'], req: 'barracks' },
-  tower:    { name: 'Watchtower', b: 1, size: 1, hp: 420,  cost: 50,  wood: 80,  time: 15, sight: 8, dmg: 12, range: 190, cd: 1 },
+  tower:    { name: 'Watchtower', b: 1, size: 1, hp: 420,  cost: 50,  wood: 80,  time: 15, sight: 8, dmg: 12, range: 190, cd: 1, info: 'Shoots enemies inside the dashed ring' },
   wall:     { name: 'Wall',       b: 1, size: 1, hp: 550,  cost: 0,   wood: 15,  time: 4,  sight: 2, wall: 1, info: 'Blocks the way. Walls alone do not keep you in the game' },
 };
 
-export const BUILDABLE = ['house', 'outpost', 'barracks', 'stable', 'workshop', 'sanctum', 'tower', 'wall', 'hq'];
+// Stable and Sanctum are no longer built (the Barracks and the Arsenal took over their troops); the types stay for old saves.
+export const BUILDABLE = ['house', 'outpost', 'barracks', 'workshop', 'tower', 'wall', 'hq'];
 export const COLORS = ['#e5484d', '#3b82f6', '#f5b301', '#a855f7', '#22a45d', '#f97316', '#14b8a6', '#ec4899'];
 export const COLOR_NAMES = ['Red', 'Blue', 'Gold', 'Violet', 'Green', 'Orange', 'Teal', 'Pink'];
 export const HEROES = ['hero', 'ranger', 'sage'];

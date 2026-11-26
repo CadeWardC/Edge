@@ -1,8 +1,8 @@
 // Menus, lobby, controls and the game loop.
-import { TILE as T, DEF, TYPES, BUILDABLE, COLORS, COLOR_NAMES, HEROES, MAP_SIZE, BUILD_RANGE } from './data.js';
+import { TILE as T, DEF, TYPES, BUILDABLE, COLORS, COLOR_NAMES, HEROES, MAP_SIZE, BUILD_RANGE, MAXCAP } from './data.js';
 import { Sim } from './sim.js';
 import { AI } from './ai.js';
-import { View, Renderer } from './render.js';
+import { View, Renderer, icon } from './render.js';
 import { hostRoom, joinRoom, makeCode } from './net.js';
 
 const $ = id => document.getElementById(id);
@@ -152,7 +152,7 @@ function onJoin(c) {
     const full = () => { c.send({ t: 'full' }); setTimeout(() => c.close(), 300); };
     if (G.view) { // a game is running: only someone who was in it may come back
       const pid = token && G.tokens ? G.tokens.indexOf(token) : -1;
-      if (pid < 1 || !G.attach) return full();
+      if (pid < 0 || pid === G.view.me || !G.attach) return full();
       return G.attach(c, pid);
     }
     const s = L.slots.find(s => s.kind === 'open');
@@ -251,6 +251,13 @@ function clientMsg(m) {
     if (back || m.resume) toast('You are back in the game');
   }
   else if (m.t === 'snap') { G.lastSnap = performance.now(); if (G.view) G.view.apply(m.s); }
+  else if (m.t === 'takeover') takeover(m.state);
+  else if (m.t === 'moved' && typeof m.code === 'string') { // the game has a new host: go and knock there
+    L.code = m.code;
+    store.set(SKEY, JSON.stringify({ code: L.code, token: TOKEN, at: Date.now() }));
+    if (G.rc) { clearTimeout(G.rc.wait); G.rc = null; }
+    reconnect('The host changed. Joining the new one…');
+  }
   else if (m.t === 'bye') {
     store.set(SKEY, '');
     closeNet();
@@ -272,12 +279,12 @@ function clientClosed(c) {
 }
 // The connection dropped (the app was swiped away, the network blinked, the host stepped out):
 // keep knocking on the room until the host lets this player back in.
-function reconnect() {
+function reconnect(why) {
   if (G.rc || !G.view || G.ended || G.conns) return;
   const rc = G.rc = { since: performance.now(), wait: 0 };
   const drop = () => { const x = G.conn; G.conn = null; if (x) { x.onclose = null; x.ondata = null; try { x.close(); } catch { /* already gone */ } } };
   drop();
-  net('Connection lost. Getting you back in…');
+  net(why || 'Connection lost. Getting you back in…');
   const attempt = async () => {
     if (G.rc !== rc) return;
     if (performance.now() - rc.since > 5 * 60e3) { G.rc = null; net(''); endScreen('Disconnected', 'Could not get back to the game.'); return; }
@@ -301,12 +308,74 @@ function closeNet() {
   G.room = G.conns = G.attach = G.tokens = null;
 }
 
+// ---------------------------------------------------------------- handing the game to another host
+// The host's device runs the game. When the host is knocked out or leaves, the whole game is passed to another
+// player's device, which opens a new room; everyone else is told the new code and rejoins there by themselves.
+async function handover() {
+  if (!G.conns || G.moving || !G.sim || G.sim.winner !== -1) return null;
+  const sim = G.sim, cfg = G.cfg, conns = G.conns;
+  // the players still in the game first
+  const order = cfg.players.map((_, i) => i).filter(i => conns[i]).sort((a, b) => sim.players[b].alive - sim.players[a].alive);
+  if (!order.length) return null;
+  G.moving = true;
+  clearInterval(G.timer); G.timer = 0; // freeze, so the copy that is sent is the final word
+  const state = { cfg, tokens: G.tokens, ais: G.ais.map((a, i) => a && cfg.players[i].ai ? { att: a.att, wave: a.wave } : null), sim: sim.save() };
+  for (const i of order) {
+    const c = conns[i];
+    if (!c) continue;
+    const code = await new Promise(res => {
+      const t = setTimeout(() => res(null), 9000);
+      G.onReady = (from, m) => { if (from === i && typeof m.code === 'string') { clearTimeout(t); res(m.code); } };
+      c.send({ t: 'takeover', state });
+    });
+    G.onReady = null;
+    if (!code) continue; // that device did not manage: try the next player
+    conns.forEach((o, j) => { if (o && j !== i) o.send({ t: 'moved', code }); });
+    store.set(SAVE, '');
+    return { code, name: cfg.players[i].name };
+  }
+  G.moving = false;
+  if (!G.timer && G.tick) G.timer = setInterval(G.tick, 50); // nobody could take it: carry on hosting
+  return null;
+}
+// Stop hosting and follow the game on its new host, as a player like any other.
+function follow(to) {
+  const conns = G.conns, room = G.room;
+  G.conns = G.room = G.attach = G.sim = G.ais = G.tick = null;
+  setTimeout(() => { if (conns) for (const c of conns) c && c.close(); if (room) room.close(); }, 1500); // let "moved" go out first
+  L = { online: true, host: false, code: to.code, mode: 'ffa', level: G.cfg.level, you: -1, slots: [] };
+  G.send = c => G.conn && G.conn.send({ t: 'cmd', c });
+  G.lastSnap = performance.now();
+  reconnect(to.name + ' is now the host. Joining…');
+}
+// This device has been asked to become the host.
+async function takeover(st) {
+  const me = st && Array.isArray(st.tokens) ? st.tokens.indexOf(TOKEN) : -1;
+  if (me < 0 || !st.cfg || !st.sim || G.conns) return;
+  let room = null, code = '';
+  for (let n = 0; n < 3 && !room; n++) { code = makeCode(); try { room = await hostRoom(code); } catch { room = null; } }
+  const old = G.conn;
+  if (!room || !old) return; // the old host will ask someone else
+  old.send({ t: 'ready', code });
+  setTimeout(() => { old.onclose = null; old.ondata = null; old.close(); }, 1500);
+  G.conn = null;
+  if (G.rc) { clearTimeout(G.rc.wait); G.rc = null; }
+  net('');
+  const seen = G.view && G.view.seed === st.cfg.seed ? G.view.explored : null, cam = { ...R.cam }, sel = [...G.sel];
+  G.room = room; room.onconn = onJoin; G.tokens = st.tokens;
+  L = { online: true, host: true, code, mode: 'ffa', level: st.cfg.level, you: 0, slots: [] };
+  store.set(SKEY, '');
+  startGame(st.cfg, me, st.cfg.players.map(() => null), st);
+  if (seen) { G.view.explored.set(seen); Object.assign(R.cam, cam); G.needCenter = false; for (const id of sel) G.sel.add(id); }
+  toast('You are now the host: keep the game open');
+}
+
 // ---------------------------------------------------------------- starting and ending a game
 function startGame(cfg, me, conns, save) {
   G.view = new View(cfg, me);
   R.setView(G.view);
   R.cam.z = Math.min(innerWidth, innerHeight) < 500 ? .8 : 1;
-  G.sel.clear(); G.placing = null; G.box = null; G.boxMode = false; G.amove = false; G.ended = false; G.elim = false; G.needCenter = true;
+  G.sel.clear(); G.placing = null; G.box = null; G.boxMode = false; G.amove = false; G.disband = 0; G.moving = false; G.cfg = cfg; G.ended = false; G.elim = false; G.needCenter = true;
   G.lastSnap = performance.now();
   $('bBox').classList.remove('on');
   if (conns) {
@@ -327,9 +396,12 @@ function startGame(cfg, me, conns, save) {
     };
     G.conns = conns;
     const hook = (c, i) => {
-      c.ondata = m => { if (m && m.t === 'cmd') { try { sim.command(i, m.c); } catch { /* ignore bad input */ } } };
+      c.ondata = m => {
+        if (m && m.t === 'cmd') { try { sim.command(i, m.c); } catch { /* ignore bad input */ } }
+        else if (m && m.t === 'ready' && G.onReady) G.onReady(i, m);
+      };
       c.onclose = () => {
-        if (conns[i] !== c) return;
+        if (conns[i] !== c || G.moving) return; // while the game is being handed over, players leaving this host is expected
         conns[i] = null;
         // A computer keeps the base alive until the player comes back.
         if (sim.players[i].alive && sim.winner === -1) { ais[i] = new AI(sim, i, 1); toast(cfg.players[i].name + ' dropped out: a computer is holding their base'); }
@@ -349,7 +421,7 @@ function startGame(cfg, me, conns, save) {
     const emit = () => { const s = sim.snapshot(); G.view.apply(s); for (const c of conns) c && c.send({ t: 'snap', s }); };
     emit();
     let last = performance.now(), acc = 0, done = false;
-    G.timer = setInterval(() => {
+    G.tick = () => {
       const now = performance.now();
       acc += Math.min(500, now - last) * SPEED; last = now;
       for (let n = 0; acc >= 100 && !done; n++) {
@@ -361,7 +433,8 @@ function startGame(cfg, me, conns, save) {
         done = sim.winner !== -1;
         if (done || sim.tick % 50 === 0) keep();
       }
-    }, 50);
+    };
+    G.timer = setInterval(G.tick, 50);
   } else {
     G.send = c => G.conn && G.conn.send({ t: 'cmd', c });
   }
@@ -412,11 +485,26 @@ $('eWatch').onclick = () => show(null);
 $('eMenu').onclick = quit;
 $('menuBtn').onclick = () => {
   if (G.ended) return quit();
-  $('askMsg').textContent = G.conns && G.conns.some(c => c) ? 'You are the host: the game ends for everyone.' : G.conn ? 'A computer will take over your base.' : 'This game will be lost.';
+  const out = !G.view.pl[G.view.me].alive, others = G.conns && G.conns.some(c => c);
+  $('askGive').hidden = out;
+  $('askMsg').textContent = others ? 'Another player takes over as host.' : G.conn ? (out ? 'The others play on.' : 'A computer takes over your base.') : 'This game will be lost.';
   show('ask');
 };
 $('askNo').onclick = () => show(null);
-$('askYes').onclick = quit;
+$('askGive').onclick = () => { G.send({ t: 'giveup' }); show(null); };
+$('askYes').onclick = async () => {
+  if (G.conns && G.conns.some(c => c) && !G.ended) { // hosting for others: pass the game on before going
+    show(null); net('Handing the game to another player…');
+    const to = await handover();
+    net('');
+    if (to) { // let the news of the new host go out before hanging up
+      const conns = G.conns, room = G.room;
+      G.conns = G.room = null;
+      setTimeout(() => { for (const c of conns) c && c.close(); if (room) room.close(); }, 1500);
+    }
+  }
+  quit();
+};
 
 // ---------------------------------------------------------------- selection and orders
 const ents = () => G.view.ents;
@@ -654,7 +742,8 @@ $('bBox').onclick = () => { G.boxMode = !G.boxMode; $('bBox').classList.toggle('
 $('bDesel').onclick = () => { G.sel.clear(); G.placing = null; hudT = 0; };
 
 const price = d => (d.wood ? `<small class="w">▮ ${d.wood}</small>` : '') + (d.cost ? `<small>◆ ${d.cost}</small>` : '');
-const btn = (act, d, off) => `<button data-act="${act}"${off ? ' disabled' : ''}>${d.name}<span>${price(d)}</span></button>`;
+const pic = t => `<img src="${icon(t, G.view.info[G.view.me].color)}" alt="">`;
+const btn = (act, d, off, t) => `<button data-act="${act}" class="ib"${off ? ' disabled' : ''}>${pic(t)}<span class="l">${d.name}<span>${price(d)}</span></span></button>`;
 function panelHTML() {
   const v = G.view, me = v.me, P = v.pl[me];
   if (G.placing) {
@@ -674,9 +763,9 @@ function panelHTML() {
       `<button data-act="resume" class="go">${b.paused ? 'Resume building' : 'Send more workers'}</button>` +
       `<button data-act="cancelb" class="warn">Cancel<small>refund</small></button></div>`;
     if (d.trains) {
-      h += '<div class="acts">' + d.trains.map(u => btn('train:' + u, DEF[u], P.res < DEF[u].cost || P.pop >= P.cap || b.queue.length >= 5)).join('') + '</div>';
-      if (b.queue.length) h += `<div class="d">Training: ${b.queue.map(i => DEF[TYPES[i]].name).join(', ')}</div><div class="pb"><i id="pbar"></i></div>`;
-      if (b.queue.length) h = h.replace('</div><div class="d">Training', '<button data-act="unqueue" class="warn">Cancel last<small>refund</small></button></div><div class="d">Training');
+      h += '<div class="acts">' + d.trains.map(u => btn('train:' + u, DEF[u], P.res < DEF[u].cost || P.pop >= P.cap || b.queue.length >= 5, u)).join('') + '</div>';
+      if (b.queue.length) h += `<div class="d q">Training ${b.queue.map(i => pic(TYPES[i])).join('')}</div><div class="pb"><i id="pbar"></i></div>`;
+      if (b.queue.length) h = h.replace('</div><div class="d q">Training', '<button data-act="unqueue" class="warn">Cancel last<small>refund</small></button></div><div class="d q">Training');
     }
     return h;
   }
@@ -686,11 +775,11 @@ function panelHTML() {
   let h;
   if (mine.length === 1) {
     const e = mine[0], d = DEF[e.type];
-    h = `<div class="t">${d.name}${d.hero ? ` · Level ${P.lvl}` : ''}</div><div class="d">${d.info || d.about || ''}</div>`;
+    h = `<div class="t">${pic(e.type)}${d.name}${d.hero ? ` · Level ${P.lvl}` : ''}</div><div class="d">${d.info || d.about || ''}</div>`;
   } else {
     // One chip per kind of unit: tap a chip to keep only that kind selected.
     h = `<div class="chips"><span class="n">${mine.length} units</span>` +
-      kinds.map(t => `<button data-act="only:${t}" class="chip${DEF[t].hero ? ' hero' : ''}"><i></i>${DEF[t].name}${count[t] > 1 ? `<b>${count[t]}</b>` : ''}</button>`).join('') + '</div>';
+      kinds.map(t => `<button data-act="only:${t}" class="chip${DEF[t].hero ? ' hero' : ''}">${pic(t)}${DEF[t].name}${count[t] > 1 ? `<b>${count[t]}</b>` : ''}</button>`).join('') + '</div>';
   }
   h += '<div class="bars"><div class="hpl"><span id="pd"></span><div class="pb hp"><i id="phb"></i></div></div>' +
     (hero ? `<div class="hpl"><span>${P.lvl >= 5 ? 'Top level' : 'Lv ' + P.lvl}</span><div class="pb xp"><i id="pxp"></i></div></div>` : '') + '</div>';
@@ -700,10 +789,13 @@ function panelHTML() {
     : `<button disabled class="spell">${ab.name}<small>unlocks at level ${ab.lvl}</small></button>`).join('');
   if (count.worker) {
     const has = t => [...ents().values()].some(e => e.owner === me && e.type === t && e.built);
-    h += BUILDABLE.map(t => btn('build:' + t, t === 'hq' ? { ...DEF.hq, name: `Keep (${P.keeps} left)` } : DEF[t], P.res < DEF[t].cost || P.wood < (DEF[t].wood || 0) || (DEF[t].req && !has(DEF[t].req)) || (t === 'hq' && P.keeps < 1))).join('');
+    h += BUILDABLE.map(t => btn('build:' + t, t === 'hq' ? { ...DEF.hq, name: `Keep (${P.keeps} left)` } : DEF[t], P.res < DEF[t].cost || P.wood < (DEF[t].wood || 0) || (DEF[t].req && !has(DEF[t].req)) || (t === 'hq' && P.keeps < 1), t)).join('');
   }
   if (fighters) h += `<button data-act="amove" class="${G.amove ? 'on' : ''}">Attack-move<small>${G.amove ? 'now tap where to go' : 'fight on the way'}</small></button>`;
-  return h + '<button data-act="stop">Stop</button></div>';
+  h += '<button data-act="stop">Stop</button>';
+  const n = mine.filter(e => !DEF[e.type].hero).length, armed = G.disband && performance.now() - G.disband < 4000;
+  if (n) h += `<button data-act="disband" class="warn${armed ? ' on' : ''}">${armed ? 'Tap again' : 'Disband'}<small>${armed ? `to remove ${n} unit${n > 1 ? 's' : ''} for good` : 'remove for good'}</small></button>`;
+  return h + '</div>';
 }
 let hudT = 0, lastPanel = null, lastAlert = 0;
 function updateHud() {
@@ -734,7 +826,7 @@ function updateHud() {
       phb.style.background = hp / max > .5 ? '#4ade80' : hp / max > .25 ? '#fbbf24' : '#f87171';
     }
     else if (e.b && !e.built) pd.textContent = e.owner !== v.me ? `Under construction ${e.prog}%` : e.paused ? `Paused at ${e.prog}%: no worker is building it` : `Under construction ${e.prog}%`;
-    else if (e.b && e.owner === v.me && DEF[e.type].trains && P.pop >= P.cap) pd.textContent = P.cap >= 40 ? 'Unit limit reached.' : 'Unit limit reached: build a Cottage.';
+    else if (e.b && e.owner === v.me && DEF[e.type].trains && P.pop >= P.cap) pd.textContent = P.cap >= MAXCAP ? 'Unit limit reached.' : 'Unit limit reached: build a Cottage.';
     else pd.textContent = (e.b && e.owner === v.me && DEF[e.type].info ? DEF[e.type].info + '. ' : '') + `Health ${e.hp}/${e.max}`;
     if (pbar) pbar.style.width = (e.prog || 0) + '%';
   }
@@ -756,7 +848,11 @@ function updateHud() {
     store.set(SKEY, '');
     const won = v.winner === v.team;
     endScreen(won ? 'Victory' : 'Defeat', won ? 'Every enemy Keep, worker and hero is gone.' : v.winner === -2 ? 'Nobody is left standing.' : 'Your Keeps, workers and hero are all gone.');
-  } else if (!P.alive && !G.elim && !G.ended) { G.elim = true; toast('You are out: no Keep, no workers, no hero. You can keep watching.'); }
+  } else if (!P.alive && !G.elim && !G.ended) {
+    G.elim = true; toast('You are out: no Keep, no workers, no hero. You can keep watching.');
+    // A knocked-out host passes the game on straight away, so it no longer depends on their device.
+    if (G.conns && G.conns.some(c => c)) handover().then(to => { if (to) follow(to); });
+  }
 }
 $('panel').addEventListener('click', ev => {
   const b = ev.target.closest('button[data-act]');
@@ -774,6 +870,10 @@ $('panel').addEventListener('click', ev => {
   else if (a === 'ability') { for (const e of myUnits()) if (DEF[e.type].hero) G.send({ t: 'ability', id: e.id, n: +arg }); }
   else if (a === 'stop') { G.send({ t: 'stop', ids: myUnits().map(e => e.id) }); G.amove = false; }
   else if (a === 'amove') G.amove = !G.amove;
+  else if (a === 'disband') {
+    if (G.disband && performance.now() - G.disband < 4000) { G.send({ t: 'disband', ids: myUnits().filter(e => !DEF[e.type].hero).map(e => e.id) }); G.disband = 0; }
+    else { G.disband = performance.now(); setTimeout(() => { hudT = 0; }, 4100); }
+  }
   else if (a === 'only') { for (const e of selected()) if (e.type !== arg) G.sel.delete(e.id); }
   hudT = 0;
 });
