@@ -11,13 +11,16 @@ export class View {
     this.info = cfg.players.map((p, i) => ({ name: p.name, team: p.team, color: COLORS[p.color ?? i] || COLORS[i], hero: p.hero || 'hero' }));
     this.me = me; this.team = this.info[me].team;
     this.pl = this.info.map(() => ({ res: 0, pop: 0, cap: 0, alive: true, heroT: 0 }));
-    this.ents = new Map(); this.fx = []; this.dirty = [];
+    this.ents = new Map(); this.fx = []; this.dirty = []; this.news = []; this.got = false;
     this.tick = 0; this.winner = -1; this.hurt = null;
     this.explored = new Uint8Array(this.N * this.N);
     this.visible = new Uint8Array(this.N * this.N);
   }
   apply(s) {
     this.tick = s.k; this.winner = s.w;
+    // who has just been knocked out (not on the first snapshot, which only says how things already stand)
+    if (this.got) s.p.forEach((a, i) => { if (this.pl[i].alive && !a[3]) this.news.push(i); });
+    this.got = true;
     s.p.forEach((a, i) => { this.pl[i] = { res: a[0], pop: a[1], cap: a[2], alive: !!a[3], heroT: a[4], wood: a[5] || 0, lvl: a[6] || 1, xp: a[7] || 0, keeps: a[8] ?? 0 }; });
     for (const a of s.e) {
       const type = TYPES[a[1]], d = DEF[type];

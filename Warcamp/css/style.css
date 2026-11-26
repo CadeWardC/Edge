@@ -237,3 +237,15 @@ button.rejoin { background: #b45309; border-color: #f59e0b; }
 #ask .card button small { display: block; color: #9fb0c9; font-size: 12px; font-weight: 400; margin-top: 2px; }
 @media (orientation: landscape) and (max-height: 480px) { #panel button.ib img { width: 30px; height: 30px; } #panel button[data-act="disband"] small { display: none; } }
 @media (orientation: landscape) and (max-height: 480px) { #panel button { min-height: 44px; } #panel button.chip { min-height: 28px; } }
+
+/* ---------- news for everyone: a player has been knocked out ---------- */
+#news { position: absolute; top: max(84px, calc(env(safe-area-inset-top) + 78px)); left: 50%; transform: translateX(-50%); display: flex; flex-direction: column; gap: 6px;
+  align-items: center; pointer-events: none !important; max-width: 92%; }
+#news div { display: flex; align-items: center; gap: 8px; background: #101b2ff2; border: 1px solid #f87171; border-radius: 22px; padding: 8px 16px 8px 10px;
+  font-size: 15px; box-shadow: 0 4px 14px #0008; transition: opacity .5s; white-space: nowrap; animation: newsIn .35s ease-out; }
+#news div.out { opacity: 0; }
+#news i { width: 16px; height: 16px; border-radius: 5px; flex: none; }
+#news span { color: #9fb0c9; font-size: 13px; }
+@keyframes newsIn { from { transform: translateY(-10px); opacity: 0; } to { transform: none; opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { #news div { animation: none; } }
+@media (orientation: landscape) and (max-height: 480px) { #news { top: max(50px, calc(env(safe-area-inset-top) + 44px)); } #news div { padding: 5px 12px 5px 8px; font-size: 14px; } }
