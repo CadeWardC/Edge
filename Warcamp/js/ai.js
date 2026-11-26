@@ -48,10 +48,8 @@ export class AI {
       let want = null;
       if (me.cap - me.pop <= 2 && me.cap < MAXCAP) want = 'house';
       else if (!racks.length && workers.length >= 4) want = 'barracks';
-      else if (!g('stable').length && racks.length && me.res >= 260) want = 'stable';
       else if (g('tower').length < 2 && army.length >= 4 && me.res >= 320) want = 'tower';
-      else if (!g('workshop').length && g('stable').length && me.res >= 300) want = 'workshop';
-      else if (!g('sanctum').length && g('workshop').length && me.res >= 350) want = 'sanctum';
+      else if (!g('workshop').length && racks.some(b => b.built) && army.length >= 5 && me.res >= 300) want = 'workshop';
       else if (racks.length < 2 && me.res >= 500) want = 'barracks';
       let at = [hq.tx + 1, hq.ty + 1];
       if (!want && g('outpost').length < 2 && workers.length >= 6 && me.res >= 180) {
@@ -68,11 +66,13 @@ export class AI {
     }
 
     for (const b of racks) {
-      if (b.built && b.queue.length < 2) cmd({ t: 'train', b: b.id, u: g('archer').length < g('soldier').length * 0.7 ? 'archer' : g('guard').length < g('soldier').length * 0.4 ? 'guard' : 'soldier' });
+      if (!b.built || b.queue.length >= 2) continue;
+      const n = t => g(t).length, sol = n('soldier');
+      cmd({ t: 'train', b: b.id, u: n('archer') < sol * 0.7 ? 'archer' : n('knight') < sol * 0.5 && me.res >= 200 ? 'knight' : n('guard') < sol * 0.4 ? 'guard' : 'soldier' });
     }
-    for (const b of g('stable')) if (b.built && b.queue.length < 1) cmd({ t: 'train', b: b.id, u: 'knight' });
-    for (const b of g('workshop')) if (b.built && !b.queue.length && g('catapult').length < 2) cmd({ t: 'train', b: b.id, u: 'catapult' });
-    for (const b of g('sanctum')) if (b.built && !b.queue.length && g('mage').length < 4) cmd({ t: 'train', b: b.id, u: 'mage' });
+    for (const b of g('workshop')) {
+      if (b.built && !b.queue.length) cmd({ t: 'train', b: b.id, u: g('mage').length < 4 ? 'mage' : g('catapult').length < 2 ? 'catapult' : 'mage' });
+    }
 
     const hero = HEROES.flatMap(g)[0];
     const force = hero ? [...army, hero] : army;

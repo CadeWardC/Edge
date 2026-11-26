@@ -208,9 +208,37 @@ function drawBuilding(g, e, col) {
   g.restore();
   if (!e.built) bar(g, cx, y + w - 7, w - 12, e.prog / 100, '#fbbf24');
 }
+// How far something can shoot: a dashed ring.
+function reach(g, x, y, radius, z) {
+  g.save();
+  g.fillStyle = 'rgba(248,113,113,.07)'; g.strokeStyle = 'rgba(252,165,165,.9)'; g.lineWidth = 2 / z; g.setLineDash([9 / z, 6 / z]);
+  g.beginPath(); g.arc(x, y, radius, 0, 7); g.fill(); g.stroke();
+  g.restore();
+}
 function bar(g, cx, y, w, f, col) {
   g.fillStyle = 'rgba(0,0,0,.65)'; g.fillRect(cx - w / 2 - 1, y - 1, w + 2, 5);
   g.fillStyle = col; g.fillRect(cx - w / 2, y, Math.max(0, w * Math.min(1, f)), 3);
+}
+
+// A small picture of a unit or building in a player's colour, for buttons and chips.
+const icons = new Map();
+export function icon(type, color) {
+  const key = type + color;
+  if (icons.has(key)) return icons.get(key);
+  const c = document.createElement('canvas'), d = DEF[type];
+  c.width = c.height = 72;
+  const g = c.getContext('2d');
+  if (d.b) {
+    const k = 60 / (d.size * T);
+    g.translate(6, 6); g.scale(k, k);
+    drawBuilding(g, { type, tx: 0, ty: 0, size: d.size, built: true, prog: 100 }, color);
+  } else {
+    g.translate(36, type === 'knight' || type === 'catapult' ? 46 : 42); g.scale(2.3, 2.3);
+    drawUnit(g, { type, rx: 0, ry: 0, face: 1, buff: 0, carry: 0 }, color);
+  }
+  const url = c.toDataURL();
+  icons.set(key, url);
+  return url;
 }
 
 const MINI = ['#5f9e45', '#3d86c6', '#2f6b3a', '#7dd3fc'];
@@ -310,6 +338,7 @@ export class Renderer {
       if (!e.b) { units.push(e); continue; }
       if (ui.sel.has(e.id)) { g.strokeStyle = '#4ade80'; g.lineWidth = 2; rr(g, e.tx * T, e.ty * T, e.size * T, e.size * T, 6); g.stroke(); }
       drawBuilding(g, e, v.info[e.owner].color);
+      if (ui.sel.has(e.id) && DEF[e.type].range) reach(g, e.rx, e.ry, DEF[e.type].range, c.z);
       const max = e.max;
       if (e.built && (e.hp < max || ui.sel.has(e.id))) bar(g, e.rx, e.ty * T - 4, e.size * T - 10, e.hp / max, '#4ade80');
       if (!e.built && e.paused && v.friendly(e)) { // nobody is building this: a pause badge
@@ -405,6 +434,7 @@ export class Renderer {
       g.fillStyle = gh.ok ? 'rgba(74,222,128,.4)' : 'rgba(248,113,113,.45)';
       g.strokeStyle = gh.ok ? '#4ade80' : '#f87171'; g.lineWidth = 2;
       rr(g, gh.tx * T, gh.ty * T, s, s, 5); g.fill(); g.stroke();
+      if (DEF[gh.type].range) reach(g, gh.tx * T + s / 2, gh.ty * T + s / 2, DEF[gh.type].range, c.z); // a tower shows what it would cover
     }
     if (ui.box) {
       g.setTransform(d, 0, 0, d, 0, 0);

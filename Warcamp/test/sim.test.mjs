@@ -317,5 +317,33 @@ for (const seed of [1, 2, 3, 4, 5, 6]) {
   check(sa === sb && a.ents.size > 30, `a game saved at tick 2500 and restored matches the original 1500 ticks later (${a.ents.size} entities, ${(text.length / 1024).toFixed(0)} kB saved)`);
 }
 
+// 60 units, disbanding, giving up, and the two troop buildings.
+{
+  const s = new Sim({ seed: 12, players: [{ name: 'a', team: 0 }, { name: 'b', team: 1 }, { name: 'c', team: 2 }] });
+  const run = n => { for (let i = 0; i < n; i++) { s.step(); s.snapshot(); } };
+  const P = s.players[0], hq = [...s.ents.values()].find(e => e.type === 'hq' && e.owner === 0);
+  P.cap = 200; P.res = 1e5;
+  for (let i = 0; i < 75; i++) { s.command(0, { t: 'train', b: hq.id, u: 'worker' }); run(82); }
+  check(P.pop === 60 && s.snapshot().p[0][2] === 60, `the unit limit is 60 (trained to ${P.pop})`);
+  const ws = [...s.ents.values()].filter(e => e.type === 'worker' && e.owner === 0), hero = [...s.ents.values()].find(e => e.owner === 0 && e.type === 'hero');
+  s.command(0, { t: 'disband', ids: [...ws.slice(0, 20).map(w => w.id), hero.id, hq.id] }); run(2);
+  check(P.pop === 40 && s.ents.has(hero.id) && s.ents.has(hq.id), 'disbanding removes the chosen troops and frees their housing; the hero and buildings stay');
+  const foe = [...s.ents.values()].find(e => e.type === 'worker' && e.owner === 1);
+  s.command(0, { t: 'disband', ids: [foe.id] });
+  check(s.ents.has(foe.id), "a player cannot disband someone else's units");
+  P.wood = 5000;
+  const b = t => { const site = s.findSite(t, hq.tx + 1, hq.ty + 1); s.command(0, { t: 'build', ids: ws.slice(20, 30).map(w => w.id), b: t, tx: site[0], ty: site[1] }); return [...s.ents.values()].find(e => e.type === t && e.owner === 0); };
+  check(!b('stable') && !b('sanctum'), 'the Stable and the Sanctum can no longer be built');
+  const rax = b('barracks'); run(300);
+  const ars = b('workshop'); run(300);
+  for (const u of ['soldier', 'archer', 'guard', 'knight']) s.command(0, { t: 'train', b: rax.id, u });
+  for (const u of ['mage', 'cleric', 'catapult']) s.command(0, { t: 'train', b: ars.id, u });
+  check(rax.built && ars.built && rax.queue.length === 4 && ars.queue.length === 3, 'the Barracks trains Soldiers, Archers, Guards and Riders; the Arsenal trains Mages, Clerics and Catapults');
+  s.command(1, { t: 'giveup' }); run(2);
+  check(!s.players[1].alive && ![...s.ents.values()].some(e => e.owner === 1) && s.winner === -1, 'giving up knocks that player out and the game goes on for the others');
+  s.command(2, { t: 'giveup' }); run(2);
+  check(s.winner === 0, 'when the last opponent gives up, the remaining player wins');
+}
+
 if (failed) { console.error(`${failed} check(s) failed`); process.exit(1); }
 console.log('all checks passed');

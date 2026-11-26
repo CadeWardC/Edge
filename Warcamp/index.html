@@ -86,7 +86,8 @@
       <li>Buildings must go up near one of your finished Keeps (the dashed line shows where). A Keep can go anywhere, and you may build two more in a game.</li>
       <li><b>Workers</b> gather <b>crystal</b> (◆) from crystals and <b>wood</b> (▮) from trees, and carry it to your Keep. Units cost crystal, buildings cost wood. A new worker goes for whichever you have less of; tap a tree or a crystal to send workers there.</li>
       <li><b>Cottages</b> raise your unit limit. An <b>Outpost</b> is a second place to drop crystal and wood. A new <b>Keep</b> is a whole second base. <b>Walls</b> block the way. <b>Watchtowers</b> shoot.</li>
-      <li><b>Barracks</b> train Soldiers, Archers and Guards (tough, slow). With a Barracks you can add a <b>Stable</b> (Riders: fast), a <b>Workshop</b> (Catapults: wreck buildings from far away, cannot hit troops) and a <b>Sanctum</b> (Mages: each blast hurts a whole group; Clerics: heal).</li>
+      <li>The <b>Barracks</b> trains Soldiers, Archers, Guards (tough, slow) and Riders (fast). With a Barracks you can add an <b>Arsenal</b>: Mages (each blast hurts a whole group), Clerics (heal) and Catapults (wreck buildings from far away, cannot hit troops). You can have up to 60 units.</li>
+      <li>Select a <b>Watchtower</b> to see how far it shoots. Select troops and tap <b>Disband</b> twice to send them home for good, for example if they are stuck.</li>
       <li>Your <b>hero</b> is your strongest unit and comes back at the Keep 30 seconds after falling. Pick one before the game: the <b>Warden</b> (tough fighter), the <b>Ranger</b> (fast archer) or the <b>Sage</b> (healer). It gains experience when it, or troops fighting beside it, defeat enemies. Each level makes it stronger, and levels 2 and 4 unlock new spells.</li>
     </ul>
     <h3>Touch</h3>
@@ -106,6 +107,8 @@
     <ul>
       <li>One player hosts and shares the 4-letter code; the others type it and tap Join. Empty seats can be computers.</li>
       <li>If a player's connection drops or they leave the app, a computer holds their base and the game lets them back in on its own when they return. If the app was closed completely, open it again and tap <b>Rejoin game</b>.</li>
+      <li>If the host is knocked out or leaves, another player's device takes over as host and the game carries on.</li>
+      <li>The ☰ menu has <b>Give up</b>: you are out, the others play on, and you can stay to watch.</li>
       <li>A game you play alone or host is saved as you go. If the app closes or the page reloads, tap <b>Continue your game</b>.</li>
     </ul>
     <button id="hClose" class="big">Got it</button>
@@ -114,12 +117,10 @@
 
 <div id="ask" class="screen clear" hidden>
   <div class="card">
-    <h2>Leave this game?</h2>
-    <p class="tag" id="askMsg">Your base will be lost.</p>
-    <div class="row">
-      <button id="askNo" class="big">Keep playing</button>
-      <button id="askYes">Leave</button>
-    </div>
+    <h2>Game menu</h2>
+    <button id="askNo" class="big">Keep playing</button>
+    <button id="askGive">Give up<small>You are out, and can stay to watch</small></button>
+    <button id="askYes">Leave the game<small id="askMsg">Your base will be lost.</small></button>
   </div>
 </div>
 

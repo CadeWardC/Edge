@@ -1,6 +1,6 @@
 // The authoritative simulation. It has no DOM or network code: the host (or a single-player
 // game) steps it 10 times a second, feeds it commands, and ships snapshot() to every screen.
-import { TILE as T, DEF, TI, MAXCAP, MAP_SIZE, HEROES, HERO_RESPAWN, LEVELS, heroMult, RAGE_BONUS, WARD_TAKEN, SHOCK_VS_BUILDINGS, BUILD_RANGE, KEEP_LIMIT } from './data.js';
+import { TILE as T, DEF, TI, MAXCAP, MAP_SIZE, BUILDABLE, HEROES, HERO_RESPAWN, LEVELS, heroMult, RAGE_BONUS, WARD_TAKEN, SHOCK_VS_BUILDINGS, BUILD_RANGE, KEEP_LIMIT } from './data.js';
 
 export const DT = 0.1;
 // How close a worker must be to a wall to build or unload. A worker on the tile beside the wall is 16 away;
@@ -650,7 +650,7 @@ export class Sim {
       }
       case 'build': {
         const d = DEF[c.b];
-        if (!d || !d.b || !num(c.tx) || !num(c.ty)) return;
+        if (!d || !d.b || !BUILDABLE.includes(c.b) || !num(c.tx) || !num(c.ty)) return;
         const tx = c.tx | 0, ty = c.ty | 0;
         const wood = d.wood || 0;
         if (P.res < d.cost || P.wood < wood || (d.req && !this.hasBuilt(pid, d.req)) || !this.canPlace(c.b, tx, ty)) return;
@@ -745,6 +745,14 @@ export class Sim {
       }
       case 'stop':
         for (const e of own(c.ids)) if (!e.b) { e.order = null; e.path = null; }
+        break;
+      case 'disband': // send troops home for good: the way out when units are stuck, or housing is needed
+        for (const e of own(c.ids)) if (!e.b && !DEF[e.type].hero) { this.ents.delete(e.id); e.hp = 0; this.fx.push(['d', e.x | 0, e.y | 0, 0]); }
+        break;
+      case 'giveup': // surrender: everything the player owns is gone, and they are out
+        for (const e of [...this.ents.values()]) if (e.owner === pid) this.kill(e);
+        P.heroT = 0;
+        this.checkWin();
         break;
     }
   }

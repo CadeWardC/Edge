@@ -221,3 +221,19 @@ button.rejoin { background: #b45309; border-color: #f59e0b; }
 #panel button[data-act^="build:"] small, #panel button[data-act^="train:"] small { display: inline-block; }
 #panel button[data-act^="build:"], #panel button[data-act^="train:"] { display: flex; flex-direction: column; align-items: flex-start; justify-content: center; gap: 1px; }
 #panel button[data-act^="build:"] > span, #panel button[data-act^="train:"] > span { display: flex; gap: 2px; }
+
+/* ---------- icons on buttons and chips; game menu ---------- */
+#panel button.ib { display: flex; flex-direction: row; align-items: center; gap: 6px; padding: 3px 10px 3px 4px; }
+#panel button.ib img { width: 36px; height: 36px; flex: none; }
+#panel button.ib .l { display: flex; flex-direction: column; align-items: flex-start; gap: 1px; white-space: nowrap; }
+#panel button.ib .l > span { display: flex; gap: 2px; }
+#panel button.chip { padding-left: 3px; }
+#panel button.chip img { width: 24px; height: 24px; }
+#panel .t img { width: 22px; height: 22px; vertical-align: -5px; margin-right: 4px; }
+#panel .d.q { display: flex; align-items: center; gap: 2px; }
+#panel .d.q img { width: 22px; height: 22px; }
+#panel button.warn.on { background: #b91c1c; border-color: #fca5a5; }
+#panel button[data-act="disband"] small { display: block; margin: 0; }
+#ask .card button small { display: block; color: #9fb0c9; font-size: 12px; font-weight: 400; margin-top: 2px; }
+@media (orientation: landscape) and (max-height: 480px) { #panel button.ib img { width: 30px; height: 30px; } #panel button[data-act="disband"] small { display: none; } }
+@media (orientation: landscape) and (max-height: 480px) { #panel button { min-height: 44px; } #panel button.chip { min-height: 28px; } }
