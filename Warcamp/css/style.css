@@ -1,251 +1,226 @@
+/* Warcamp. One dark palette, used everywhere. */
+:root {
+  --bg: #0b1220; --dock: #0f1a2e; --card: #16233a; --line: #2c3d5a; --btn: #223250; --btn-on: #2563eb;
+  --text: #e8edf5; --dim: #9fb0c9; --crystal: #7dd3fc; --wood: #e0b074; --gold: #fde68a; --bad: #f87171; --good: #4ade80;
+}
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
-html, body { margin: 0; height: 100%; overflow: hidden; background: #0b1220; color: #e8edf5;
+html, body { margin: 0; height: 100%; overflow: hidden; background: var(--bg); color: var(--text);
   font: 15px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; overscroll-behavior: none; }
+@supports (-webkit-touch-callout: none) { html, body { position: fixed; inset: 0; width: 100%; } .screen { -webkit-overflow-scrolling: touch; } }
 [hidden] { display: none !important; }
-#c { position: fixed; inset: 0; width: 100%; height: 100%; touch-action: none; display: block; }
 
 button, select, input { font: inherit; color: inherit; }
-button { background: #24324a; border: 1px solid #3b4d6b; border-radius: 10px; padding: 9px 14px; cursor: pointer; touch-action: manipulation; }
+button { background: var(--btn); border: 1px solid #3b4d6b; border-radius: 10px; padding: 9px 14px; cursor: pointer; touch-action: manipulation; }
 button:active { background: #31445f; }
 button:disabled { opacity: .45; cursor: default; }
-button.big { background: #2563eb; border-color: #3b82f6; font-weight: 600; padding: 12px 16px; }
+button.big { background: var(--btn-on); border-color: #3b82f6; font-weight: 600; padding: 12px 16px; }
 button.big:active { background: #1d4ed8; }
-input, select { background: #0f1a2e; border: 1px solid #3b4d6b; border-radius: 10px; padding: 9px 10px; min-width: 0; user-select: text; -webkit-user-select: text; }
+button.rejoin { background: #b45309; border-color: #f59e0b; }
+input, select { background: var(--dock); border: 1px solid #3b4d6b; border-radius: 10px; padding: 9px 10px; min-width: 0; font-size: 16px; user-select: text; -webkit-user-select: text; }
 
 /* ---------- menus ---------- */
-.screen { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; padding: 16px;
+.screen { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; overflow: auto; z-index: 10;
   padding: max(16px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) max(16px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
-  background: radial-gradient(circle at 50% 30%, #1b2b47, #0b1220 70%); overflow: auto; z-index: 10; }
-.screen.clear { background: rgba(11, 18, 32, .72); }
+  background: radial-gradient(circle at 50% 30%, #1b2b47, var(--bg) 70%); }
+.screen.clear { background: rgba(11, 18, 32, .78); }
 .card { width: min(380px, 100%); display: flex; flex-direction: column; gap: 10px; margin: auto; }
 .card.wide { width: min(560px, 100%); }
-.card h1 { margin: 0; font-size: 44px; letter-spacing: 4px; text-align: center; color: #fde68a; text-shadow: 0 3px 0 #92400e; }
+#lobby .card { width: min(460px, 100%); }
+.card h1 { margin: 0; font-size: 44px; letter-spacing: 4px; text-align: center; color: var(--gold); text-shadow: 0 3px 0 #92400e; }
 .card h2 { margin: 0; font-size: 22px; }
-.card h3 { margin: 6px 0 0; font-size: 15px; color: #fde68a; }
+.card h3 { margin: 6px 0 0; font-size: 15px; color: var(--gold); }
 .card ul { margin: 0; padding-left: 20px; }
 .card li { margin: 3px 0; }
-.tag { margin: 0 0 8px; text-align: center; color: #9fb0c9; }
+.tag { margin: 0 0 8px; text-align: center; color: var(--dim); }
 .msg { margin: 0; min-height: 1.4em; text-align: center; color: #fca5a5; }
-.card label { display: flex; align-items: center; gap: 8px; color: #9fb0c9; }
-.card label input, .card label select { flex: 1; color: #e8edf5; }
+.hint { margin: 0; text-align: center; color: var(--dim); font-size: 13px; }
+.card label { display: flex; align-items: center; gap: 8px; color: var(--dim); }
+.card label input, .card label select { flex: 1; color: var(--text); }
 .row { display: flex; gap: 8px; }
 .row > * { flex: 1; }
 .row.opts { flex-wrap: wrap; }
-.row.opts label { flex: 1 1 150px; }
+.row.opts label { flex: 1 1 130px; min-width: 0; }
+.row.opts select { min-width: 0; width: 100%; }
 #code { text-transform: uppercase; letter-spacing: 6px; text-align: center; font-weight: 700; }
-.code { margin: 0; text-align: center; color: #9fb0c9; }
-.code b { display: block; font-size: 40px; letter-spacing: 10px; color: #fde68a; padding-left: 10px; }
+.code { margin: 0; text-align: center; color: var(--dim); }
+.code b { display: block; font-size: 40px; letter-spacing: 10px; color: var(--gold); padding-left: 10px; }
 #slots { display: flex; flex-direction: column; gap: 6px; }
-.slot { display: flex; align-items: center; gap: 10px; background: #16233a; border: 1px solid #2c3d5a; border-radius: 10px; padding: 8px 10px; min-height: 46px; }
+.slot { display: flex; align-items: center; gap: 10px; background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 6px 10px; min-height: 42px; }
 .slot i { width: 18px; height: 18px; border-radius: 5px; flex: none; }
 .slot span { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.slot span small { display: block; color: var(--dim); font-size: 12px; }
+.slot.off { min-height: 36px; padding: 3px 10px; }
 .slot.off span { color: #6b7c96; }
 .slot button { padding: 5px 10px; }
-
-/* ---------- in-game HUD ---------- */
-#hud { position: fixed; inset: 0; pointer-events: none; z-index: 5; }
-#hud > * { pointer-events: auto; }
-#top { position: absolute; top: 0; left: 0; right: 0; display: flex; align-items: center; gap: 14px;
-  padding: max(6px, env(safe-area-inset-top)) max(10px, env(safe-area-inset-right)) 6px max(10px, env(safe-area-inset-left));
-  background: linear-gradient(#0b1220e6, #0b122000); font-weight: 700; pointer-events: none !important; }
-#top button { pointer-events: auto; padding: 4px 12px; font-size: 18px; }
-#res { color: #7dd3fc; } #pop { color: #fde68a; } #heroInfo { color: #fca5a5; font-weight: 500; font-size: 13px; }
-.grow { flex: 1; }
-#mini { position: absolute; left: max(8px, env(safe-area-inset-left)); bottom: max(8px, env(safe-area-inset-bottom));
-  width: 124px; height: 124px; border: 2px solid #3b4d6b; border-radius: 8px; background: #0b1220; touch-action: none; image-rendering: pixelated; }
-#side { position: absolute; right: max(8px, env(safe-area-inset-right)); top: 50%; transform: translateY(-60%); display: flex; flex-direction: column; gap: 8px; }
-#side button { width: 46px; height: 46px; padding: 0; font-size: 20px; background: #16233ae6; position: relative; }
-#side button.on { background: #2563eb; border-color: #93c5fd; }
-#idleN { position: absolute; top: -5px; right: -5px; min-width: 18px; height: 18px; border-radius: 9px; background: #dc2626; font-size: 11px; line-height: 18px; padding: 0 4px; }
-#idleN:empty { display: none; }
-#panel { position: absolute; left: calc(max(8px, env(safe-area-inset-left)) + 134px); width: fit-content; min-width: 150px;
-  max-width: calc(100% - 150px - env(safe-area-inset-left) - env(safe-area-inset-right));
-  bottom: max(8px, env(safe-area-inset-bottom)); min-height: 62px; max-height: 128px; overflow: auto;
-  background: #101b2fe6; border: 1px solid #2c3d5a; border-radius: 10px; padding: 6px 8px; display: flex; flex-direction: column; gap: 5px; }
-#panel:empty { display: none; }
-#panel .t { font-weight: 700; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-#panel .d { font-size: 12px; color: #9fb0c9; }
-#panel .acts { display: flex; gap: 6px; flex-wrap: wrap; }
-#panel button { padding: 5px 9px; font-size: 13px; line-height: 1.2; text-align: left; }
-#panel button small { display: block; color: #7dd3fc; font-size: 11px; }
-#panel .pb { height: 5px; background: #24324a; border-radius: 3px; overflow: hidden; }
-#panel .pb i { display: block; height: 100%; width: 0; background: #fbbf24; }
-#toast { position: absolute; top: max(44px, calc(env(safe-area-inset-top) + 38px)); left: 50%; transform: translateX(-50%); background: #101b2ff2;
-  border: 1px solid #3b4d6b; border-radius: 20px; padding: 6px 14px; font-size: 13px; opacity: 0; transition: opacity .25s; pointer-events: none !important; white-space: nowrap; }
-#toast.on { opacity: 1; }
-
-.hint { margin: 0; text-align: center; color: #9fb0c9; font-size: 13px; }
-#panel .acts { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
-#panel .acts::-webkit-scrollbar { display: none; }
-#panel button { flex: none; }
-
-/* ---------- phones and tablets: thumb-sized controls ---------- */
-@media (pointer: coarse) {
-  button { min-height: 44px; }
-  #panel button { min-height: 44px; padding: 6px 12px; font-size: 14px; }
-  #panel .t { font-size: 14px; }
-  #side button { width: 52px; height: 52px; font-size: 22px; }
-  #top button { min-height: 44px; min-width: 48px; }
-  .slot button { min-height: 40px; }
-  .desk { display: none; }
-}
-/* Portrait: the map and the buttons share the bottom edge, within reach of both thumbs,
-   and the selection panel takes the full width above them. */
-@media (orientation: portrait) {
-  #side { top: auto; transform: none; bottom: max(8px, env(safe-area-inset-bottom)); display: grid; grid-template-columns: repeat(2, auto); gap: 8px; }
-  #side button { width: 58px; height: 58px; }
-  #panel { left: max(8px, env(safe-area-inset-left)); right: max(8px, env(safe-area-inset-right)); width: auto; max-width: none;
-    bottom: calc(max(8px, env(safe-area-inset-bottom)) + 136px); max-height: 190px; }
-  #panel .acts { flex-wrap: wrap; }
-}
-/* Short landscape phones: a tighter menu so everything fits without scrolling. */
-@media (orientation: landscape) and (max-height: 480px) {
-  .card { gap: 7px; }
-  .card h1 { font-size: 30px; }
-  .tag { margin-bottom: 2px; }
-  #menu .card { width: min(560px, 100%); display: grid; grid-template-columns: 1fr 1fr; align-items: center; }
-  #menu .card > h1, #menu .card > .tag, #menu .card > label, #menu .card > .msg, #menu .card > .hint { grid-column: 1 / -1; }
-  #menu .card > .row { grid-column: 1 / -1; }
-  #mini { width: 108px; height: 108px; }
-  #panel { left: calc(max(8px, env(safe-area-inset-left)) + 118px); max-height: 112px;
-    max-width: calc(100% - 196px - env(safe-area-inset-left) - env(safe-area-inset-right)); }
-  #side { gap: 6px; transform: translateY(-50%); }
-  #side button { width: 48px; height: 48px; }
-}
-
-/* iPhone and iPad: Safari zooms the page when a text field with type under 16px gets focus. */
-input, select { font-size: 16px; }
-/* Installed on iOS the game runs under the status bar and round the notch: keep menus clear of both. */
-@supports (-webkit-touch-callout: none) {
-  html, body { position: fixed; inset: 0; width: 100%; }
-  .screen { -webkit-overflow-scrolling: touch; }
-}
-
-/* ---------- side bar: drawn icons with a word under each ---------- */
-#side { gap: 0; padding: 4px; background: #101b2fd9; border: 1px solid #2c3d5a; border-radius: 16px; box-shadow: 0 4px 14px #0006; }
-#side button { width: 58px; height: 54px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
-  background: transparent; border: 0; border-radius: 12px; color: #dbe5f4; }
-#side button:active { background: #24324a; }
-#side button.on { background: #2563eb; color: #fff; }
-#side button:disabled { opacity: .35; }
-#side svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
-#side span { font-size: 10.5px; font-weight: 600; letter-spacing: .2px; line-height: 1; }
-#side b { position: absolute; top: 2px; right: 4px; min-width: 17px; height: 17px; border-radius: 9px; font-size: 10.5px; line-height: 17px; padding: 0 4px; color: #fff; }
-#side b:empty { display: none; }
-#armyN { background: #2563eb; } #idleN { background: #dc2626; }
-@media (pointer: coarse) { #side button { width: 60px; height: 56px; font-size: inherit; } }
-@media (orientation: portrait) { #side { gap: 0; } #side button { width: 62px; height: 58px; } }
-@media (orientation: landscape) and (max-height: 480px) { #side { gap: 0; padding: 3px; } #side button { width: 56px; height: 50px; } }
-#panel button.warn small { color: #fca5a5; }
-#panel button.go { background: #1d4ed8; border-color: #3b82f6; }
-@media (orientation: landscape) and (max-height: 480px) { #panel { max-height: 136px; } }
-
-/* ---------- wood, pickers, reconnect banner ---------- */
-#wood { color: #e0b074; }
-#panel button small.w { color: #e0b074; }
-#panel button small { display: inline-block; margin-right: 6px; }
-#net { position: absolute; top: 40%; left: 50%; transform: translate(-50%, -50%); background: #7f1d1df2; border: 1px solid #fca5a5; border-radius: 14px;
-  padding: 12px 18px; font-weight: 600; text-align: center; max-width: 80%; pointer-events: none !important; }
-button.rejoin { background: #b45309; border-color: #f59e0b; }
-.slot span small { display: block; color: #9fb0c9; font-size: 12px; }
 #pick { display: flex; flex-direction: column; gap: 6px; }
 #pick:empty { display: none; }
-.pl { color: #9fb0c9; font-size: 13px; margin-top: 2px; }
+.pl { color: var(--dim); font-size: 13px; margin-top: 2px; }
 .heroes { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
 .heroes button { text-align: left; padding: 8px; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-.heroes button small { color: #9fb0c9; font-size: 11px; line-height: 1.25; }
-.heroes button small i { color: #fde68a; font-style: normal; }
+.heroes button small { color: var(--dim); font-size: 11px; line-height: 1.25; }
+.heroes button small i { color: var(--gold); font-style: normal; }
 .heroes button.on { background: #1d4ed8; border-color: #93c5fd; }
 .heroes button.on small { color: #dbeafe; }
 .colors { display: flex; gap: 8px; flex-wrap: wrap; }
 .colors button { width: 38px; height: 38px; min-height: 38px; padding: 0; border-radius: 50%; border: 3px solid transparent; }
-.colors button.on { border-color: #fff; box-shadow: 0 0 0 2px #0b1220 inset; }
+.colors button.on { border-color: #fff; box-shadow: 0 0 0 2px var(--bg) inset; }
 .colors button:disabled { opacity: .2; }
-#lobby .card { width: min(460px, 100%); }
-/* Lobby: Back and Start stay within reach however long the list above them is. */
-#lobby .card > .row:last-child { position: sticky; bottom: 0; padding: 10px 0 max(4px, env(safe-area-inset-bottom)); margin-top: -4px;
-  background: linear-gradient(#0b122000, #0b1220 35%); z-index: 2; }
-#lobby .slot { min-height: 42px; padding: 6px 10px; }
-#lobby .slot.off { min-height: 36px; padding: 3px 10px; }
-#lobby .slot.off button { min-height: 32px; padding: 3px 10px; }
-.row.opts label { flex: 1 1 130px; min-width: 0; }
-.row.opts select { min-width: 0; width: 100%; }
-/* Landscape: the selection panel stops short of the side bar; its buttons scroll sideways if there are many. */
+#lobby .card > .row:last-child { position: sticky; bottom: 0; padding: 10px 0 max(4px, env(safe-area-inset-bottom)); margin-top: -4px; background: linear-gradient(#0b122000, var(--bg) 35%); z-index: 2; }
+#ask .card button small { display: block; color: var(--dim); font-size: 12px; font-weight: 400; margin-top: 2px; }
+
+/* ---------- the game: a map area and a dock of controls that never overlap ---------- */
+#game { position: fixed; inset: 0; display: grid; grid-template: "stage" minmax(0, 1fr) / minmax(0, 1fr); background: var(--dock);
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); }
+#stage { grid-area: stage; position: relative; min-width: 0; min-height: 0; overflow: hidden; background: var(--bg); }
+#c { position: absolute; inset: 0; width: 100%; height: 100%; touch-action: none; display: block; }
+#hud { display: contents; }
+#top { grid-area: top; } #side { grid-area: side; } #panel { grid-area: panel; } #mini { grid-area: mini; }
+
+/* Phone held upright: a slim bar on top, the map, and a low dock with the mini-map and the selection. */
+@media (orientation: portrait) {
+  #game.on { grid-template: "top side" auto "stage stage" minmax(0, 1fr) "mini panel" 124px / 124px minmax(0, 1fr); }
+  #game.on #stage { border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+  #top { grid-column: 1 / 3; grid-row: 1; padding-right: 204px; }
+  #side { grid-column: 1 / 3; grid-row: 1; justify-self: end; }
+  #mini { width: 116px; height: 116px; margin: 4px; }
+  #panel .acts, #panel .chips { flex-wrap: nowrap; overflow-x: auto;
+    -webkit-mask-image: linear-gradient(90deg, #000 calc(100% - 26px), transparent); mask-image: linear-gradient(90deg, #000 calc(100% - 26px), transparent); padding-right: 20px; }
+}
+/* Sideways: the map on the left at full height, and one column of controls on the right. */
 @media (orientation: landscape) {
-  #panel { max-width: calc(100% - 232px - env(safe-area-inset-left) - env(safe-area-inset-right)); }
+  #game.on { grid-template: "stage top" auto "stage side" auto "stage panel" minmax(0, 1fr) "stage mini" auto / minmax(0, 1fr) 216px; }
+  #game.on #stage { border-right: 1px solid var(--line); }
+  #mini { width: 112px; height: 112px; margin: 4px auto 6px; }
+  #panel .acts, #panel .chips { flex-wrap: wrap; }
+  #panel button.ib { flex: 1 1 96px; }
+  #panel button.spell { flex: 1 1 100%; }
 }
-@media (orientation: landscape) and (max-height: 480px) {
-  #panel { max-width: calc(100% - 214px - env(safe-area-inset-left) - env(safe-area-inset-right)); }
+@media (orientation: landscape) and (min-height: 560px) {
+  #game.on { grid-template-columns: minmax(0, 1fr) 280px; }
+  #mini { width: 180px; height: 180px; }
 }
 
-/* ---------- army panel: chips, health, hero spells ---------- */
-#panel .chips { display: flex; gap: 5px; overflow-x: auto; scrollbar-width: none; }
-#panel .chips::-webkit-scrollbar { display: none; }
-#panel button.chip { display: flex; align-items: center; gap: 5px; padding: 3px 9px 3px 7px; min-height: 30px; border-radius: 15px; font-size: 12.5px; background: #1b2a44; }
-#panel button.chip i { width: 8px; height: 8px; border-radius: 50%; background: #4ade80; }
-#panel button.chip.hero i { background: #fbbf24; }
-#panel button.chip b { background: #0b1220; border-radius: 9px; padding: 0 6px; font-size: 11.5px; }
-#panel .hpl { display: flex; align-items: center; gap: 8px; font-size: 11.5px; color: #9fb0c9; white-space: nowrap; }
-#panel .hpl .pb { flex: 1; min-width: 60px; }
-#panel .pb.hp i { background: #4ade80; }
-#panel .pb.xp i { background: #a78bfa; }
-#panel button.spell { min-width: 96px; }
-#panel button.spell small { display: block; color: #dbeafe; white-space: nowrap; margin: 0; }
-#panel button.spell:disabled small { color: #9fb0c9; }
-#panel button.on { background: #b91c1c; border-color: #fca5a5; }
-#panel button.on small { color: #fee2e2; }
-#heroInfo { color: #fde68a; }
-#heroInfo.down { color: #fca5a5; }
-@media (max-width: 420px) { #heroInfo { font-size: 11.5px; } #top { gap: 9px; } }
+#top { display: flex; align-items: center; gap: 10px; padding: 6px 10px; font-weight: 700; font-size: 14px; white-space: nowrap; min-width: 0; overflow: hidden; }
+#res { color: var(--crystal); } #wood { color: var(--wood); } #pop { color: var(--gold); }
 
-/* Keep the army panel short: bars share a row, spell notes show only where there is room. */
-#panel .bars { display: flex; gap: 12px; }
-#panel .bars .hpl { flex: 1 1 0; min-width: 0; }
-#panel .chips .n { align-self: center; font-weight: 700; font-size: 13px; white-space: nowrap; margin-right: 2px; }
-#panel button[data-act="amove"] small, #panel button[data-act="stop"] small { display: block; margin: 0; }
-#panel { gap: 4px; }
-@media (orientation: portrait) { #panel { max-height: 236px; } }
-@media (orientation: landscape) and (max-height: 480px) {
-  #panel { max-height: 150px; padding: 5px 8px; }
-  #panel .d { display: none; }
-  #panel button.spell small, #panel button[data-act="amove"] small { display: none; }
-  #panel button.spell { min-width: 0; }
-  #panel button { min-height: 40px; }
-  #panel button.chip { min-height: 28px; }
-}
-/* Long button rows (nine buildings, five actions) are one row that swipes sideways, fading at the edge to show there is more. */
-@media (orientation: portrait) { #panel .acts { flex-wrap: nowrap; } }
-#panel .acts, #panel .chips { -webkit-mask-image: linear-gradient(90deg, #000 calc(100% - 28px), transparent); mask-image: linear-gradient(90deg, #000 calc(100% - 28px), transparent); padding-right: 22px; }
-#panel button small { white-space: nowrap; }
-#panel button[data-act^="build:"] small, #panel button[data-act^="train:"] small { display: inline-block; }
-#panel button[data-act^="build:"], #panel button[data-act^="train:"] { display: flex; flex-direction: column; align-items: flex-start; justify-content: center; gap: 1px; }
-#panel button[data-act^="build:"] > span, #panel button[data-act^="train:"] > span { display: flex; gap: 2px; }
+#side { display: flex; gap: 2px; padding: 2px 4px; }
+#side button { position: relative; flex: 1; min-width: 38px; height: 40px; padding: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px;
+  background: transparent; border: 0; border-radius: 9px; color: #dbe5f4; }
+#side button:active { background: var(--btn); }
+#side button.on { background: var(--btn-on); color: #fff; }
+#side button:disabled { opacity: .35; }
+#side svg { width: 19px; height: 19px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+#side span { font-size: 9.5px; font-weight: 600; line-height: 1; }
+#side b { position: absolute; top: 0; right: 0; min-width: 16px; height: 16px; border-radius: 8px; font-size: 10px; line-height: 16px; padding: 0 4px; color: #fff; }
+#side b:empty { display: none; }
+#armyN { background: var(--btn-on); } #idleN { background: #dc2626; }
 
-/* ---------- icons on buttons and chips; game menu ---------- */
-#panel button.ib { display: flex; flex-direction: row; align-items: center; gap: 6px; padding: 3px 10px 3px 4px; }
-#panel button.ib img { width: 36px; height: 36px; flex: none; }
-#panel button.ib .l { display: flex; flex-direction: column; align-items: flex-start; gap: 1px; white-space: nowrap; }
-#panel button.ib .l > span { display: flex; gap: 2px; }
-#panel button.chip { padding-left: 3px; }
-#panel button.chip img { width: 24px; height: 24px; }
+#mini { border: 1px solid var(--line); border-radius: 8px; background: var(--bg); touch-action: none; image-rendering: pixelated; }
+
+#panel { min-width: 0; min-height: 0; overflow: auto; padding: 6px 8px; display: flex; flex-direction: column; gap: 4px; border-top: 1px solid var(--line); scrollbar-width: none; }
+#panel::-webkit-scrollbar, #panel .acts::-webkit-scrollbar, #panel .chips::-webkit-scrollbar { display: none; }
+@media (orientation: portrait) { #panel { border-top: 0; border-left: 1px solid var(--line); } }
+#panel:empty::before { content: "Tap a unit or a building"; color: #6b7c96; font-size: 13px; margin: auto; }
+#panel .t { font-weight: 700; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: none; }
 #panel .t img { width: 22px; height: 22px; vertical-align: -5px; margin-right: 4px; }
+#panel .d { font-size: 12px; color: var(--dim); flex: none; }
 #panel .d.q { display: flex; align-items: center; gap: 2px; }
 #panel .d.q img { width: 22px; height: 22px; }
-#panel button.warn.on { background: #b91c1c; border-color: #fca5a5; }
-#panel button[data-act="disband"] small { display: block; margin: 0; }
-#ask .card button small { display: block; color: #9fb0c9; font-size: 12px; font-weight: 400; margin-top: 2px; }
-@media (orientation: landscape) and (max-height: 480px) { #panel button.ib img { width: 30px; height: 30px; } #panel button[data-act="disband"] small { display: none; } }
-@media (orientation: landscape) and (max-height: 480px) { #panel button { min-height: 44px; } #panel button.chip { min-height: 28px; } }
+#panel .acts, #panel .chips { display: flex; gap: 5px; flex: none; scrollbar-width: none; }
+#panel .chips .n { align-self: center; font-weight: 700; font-size: 13px; white-space: nowrap; margin-right: 2px; }
+#panel button { flex: none; padding: 5px 10px; font-size: 13px; line-height: 1.2; text-align: left; }
+#panel button small { display: inline-block; color: var(--crystal); font-size: 11px; margin-right: 5px; white-space: nowrap; }
+#panel button small.w { color: var(--wood); }
+#panel button.ib { display: flex; align-items: center; gap: 6px; padding: 3px 9px 3px 4px; }
+#panel button.ib img { width: 32px; height: 32px; flex: none; }
+#panel button.ib .l { display: flex; flex-direction: column; align-items: flex-start; gap: 1px; white-space: nowrap; }
+#panel button.ib .l > span { display: flex; gap: 2px; }
+#panel button.chip { display: flex; align-items: center; gap: 4px; padding: 2px 9px 2px 3px; min-height: 30px; border-radius: 15px; font-size: 12.5px; background: #1b2a44; }
+#panel button.chip img { width: 24px; height: 24px; }
+#panel button.chip b { background: var(--bg); border-radius: 9px; padding: 0 6px; font-size: 11.5px; }
+#panel button.go { background: #1d4ed8; border-color: #3b82f6; }
+#panel button.spell small, #panel button[data-act="amove"] small, #panel button[data-act="stop"] small, #panel button[data-act="disband"] small { display: block; margin: 0; color: #dbeafe; }
+#panel button.spell:disabled small { color: var(--dim); }
+#panel button.warn small { color: #fca5a5; }
+#panel button.on, #panel button.warn.on { background: #b91c1c; border-color: #fca5a5; }
+#panel button.on small { color: #fee2e2; }
+#panel .bars { display: flex; gap: 12px; flex: none; }
+#panel .hpl { display: flex; align-items: center; gap: 8px; font-size: 11.5px; color: var(--dim); white-space: nowrap; flex: 1 1 0; min-width: 0; }
+#panel .pb { height: 5px; background: var(--btn); border-radius: 3px; overflow: hidden; flex: 1; min-width: 40px; }
+#panel > .pb { flex: none; }
+#panel .pb i { display: block; height: 100%; width: 0; background: #fbbf24; }
+#panel .pb.hp i { background: var(--good); }
+#panel .pb.xp i { background: #a78bfa; }
+@media (pointer: coarse) { #panel button { min-height: 44px; } #panel button.chip { min-height: 30px; } .desk { display: none; } button { min-height: 44px; } #side button { min-height: 40px; } .colors button { min-height: 38px; } .slot button { min-height: 36px; } }
+/* A narrow column has no room for the small print on action buttons. */
+@media (orientation: landscape) and (max-height: 559px) { #panel .d { display: none; } #panel button.spell small, #panel button[data-act="amove"] small, #panel button[data-act="disband"] small { display: none; } #panel button.ib img { width: 28px; height: 28px; } }
 
-/* ---------- news for everyone: a player has been knocked out ---------- */
-#news { position: absolute; top: max(84px, calc(env(safe-area-inset-top) + 78px)); left: 50%; transform: translateX(-50%); display: flex; flex-direction: column; gap: 6px;
-  align-items: center; pointer-events: none !important; max-width: 92%; }
-#news div { display: flex; align-items: center; gap: 8px; background: #101b2ff2; border: 1px solid #f87171; border-radius: 22px; padding: 8px 16px 8px 10px;
-  font-size: 15px; box-shadow: 0 4px 14px #0008; transition: opacity .5s; white-space: nowrap; animation: newsIn .35s ease-out; }
+/* ---------- messages that float over the map ---------- */
+#heroInfo { position: absolute; top: 6px; left: 8px; padding: 3px 9px; border-radius: 12px; background: #0b1220b3; color: var(--gold); font-size: 12px; font-weight: 600; pointer-events: none; }
+#heroInfo:empty { display: none; }
+#heroInfo.down { color: #fca5a5; }
+#toast { position: absolute; top: 34px; left: 50%; transform: translateX(-50%); background: #101b2ff2; border: 1px solid #3b4d6b; border-radius: 20px; padding: 6px 14px; font-size: 13px;
+  opacity: 0; transition: opacity .25s; pointer-events: none; white-space: nowrap; max-width: 94%; overflow: hidden; text-overflow: ellipsis; }
+#toast.on { opacity: 1; }
+#news { position: absolute; top: 72px; left: 50%; transform: translateX(-50%); display: flex; flex-direction: column; gap: 6px; align-items: center; pointer-events: none; max-width: 94%; }
+#news div { display: flex; align-items: center; gap: 8px; background: #101b2ff2; border: 1px solid var(--bad); border-radius: 22px; padding: 7px 14px 7px 10px; font-size: 14px;
+  box-shadow: 0 4px 14px #0008; transition: opacity .5s; white-space: nowrap; animation: newsIn .35s ease-out; }
 #news div.out { opacity: 0; }
 #news i { width: 16px; height: 16px; border-radius: 5px; flex: none; }
-#news span { color: #9fb0c9; font-size: 13px; }
+#news span { color: var(--dim); font-size: 12.5px; }
 @keyframes newsIn { from { transform: translateY(-10px); opacity: 0; } to { transform: none; opacity: 1; } }
 @media (prefers-reduced-motion: reduce) { #news div { animation: none; } }
-@media (orientation: landscape) and (max-height: 480px) { #news { top: max(50px, calc(env(safe-area-inset-top) + 44px)); } #news div { padding: 5px 12px 5px 8px; font-size: 14px; } }
+#net { position: absolute; top: 45%; left: 50%; transform: translate(-50%, -50%); background: #7f1d1df2; border: 1px solid #fca5a5; border-radius: 14px; padding: 12px 18px;
+  font-weight: 600; text-align: center; max-width: 86%; pointer-events: none; }
+
+/* ---------- dock details ---------- */
+#panel .bars .hpl:first-child { flex: 3 1 0; }
+#panel .bars .hpl { flex: 2 1 0; overflow: hidden; }
+#panel button.spell small, #panel button[data-act="amove"] small { display: none; }
+@media (orientation: landscape) {
+  #mini { width: 96px; height: 96px; }
+  /* Build and train buttons become small tiles, four to a row: picture, name, price. */
+  #panel button.ib { flex: 0 0 calc(25% - 4px); min-width: 0; flex-direction: column; gap: 1px; padding: 3px 1px; text-align: center; }
+  #panel button.ib img { width: 26px; height: 26px; }
+  #panel button.ib .l { align-items: center; font-size: 9.5px; max-width: 100%; overflow: hidden; }
+  #panel button.ib .l > span { gap: 0; }
+  #panel button.ib small { font-size: 9px; margin-right: 2px; }
+  #panel button.spell { flex: 1 1 calc(50% - 4px); min-width: 0; padding: 4px 6px; font-size: 12px; }
+}
+@media (orientation: landscape) and (min-height: 560px) {
+  #mini { width: 180px; height: 180px; }
+  #panel button.ib { flex-basis: calc(33.3% - 4px); padding: 5px 2px; }
+  #panel button.ib img { width: 34px; height: 34px; }
+  #panel button.ib .l { font-size: 11.5px; }
+  #panel button.ib small { font-size: 10.5px; }
+  #panel button.spell small, #panel button[data-act="amove"] small { display: block; }
+}
+
+@media (orientation: landscape) {
+  #panel button.ib .l { width: 100%; }
+  #panel button.ib .l > span { flex-direction: column; align-items: center; line-height: 1.15; }
+  #panel button.ib small { margin: 0; }
+}
+@media (orientation: landscape) and (max-height: 559px) { #mini { width: 84px; height: 84px; margin: 2px auto 4px; } #panel { padding: 5px 6px; } }
+
+@media (orientation: landscape) and (max-height: 559px) {
+  #panel button.ib .l > span { flex-direction: row; gap: 3px; justify-content: center; }
+  #panel button.ib small { font-size: 8.5px; }
+  #panel button.ib { padding: 2px 0; min-height: 40px; }
+  #panel button.ib img { width: 24px; height: 24px; }
+}
+/* Phone held sideways: the column is short, so everything packs into small tiles and nothing needs scrolling. */
+@media (orientation: landscape) and (max-height: 559px) {
+  #game.on { grid-template-columns: minmax(0, 1fr) 232px; }
+  #panel .chips { flex-wrap: nowrap; overflow-x: auto; -webkit-mask-image: linear-gradient(90deg, #000 calc(100% - 22px), transparent); mask-image: linear-gradient(90deg, #000 calc(100% - 22px), transparent); padding-right: 18px; }
+  #panel button.ib { flex: 0 0 calc(20% - 4px); }
+  #panel .acts > button:not(.ib) { flex: 1 1 calc(33.3% - 4px); min-width: 0; padding: 2px 3px; font-size: 10.5px; line-height: 1.1; text-align: center; white-space: normal; min-height: 40px; }
+  #panel button.spell { flex: 1 1 calc(33.3% - 4px); font-size: 10.5px; }
+  #panel button[data-act="stop"] small, #panel button[data-act="cancelb"] small, #panel button[data-act="unqueue"] small { display: none; }
+  #panel .acts { gap: 4px; }
+}
+@media (orientation: landscape) and (max-height: 559px) {
+  #panel .acts:has(.ib) > button:not(.ib) { flex: 0 0 calc(20% - 4px); font-size: 9.5px; padding: 2px 0; }
+}
+#panel button[data-act="cancelb"] small, #panel button[data-act="unqueue"] small { display: block; margin: 0; }

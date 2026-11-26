@@ -358,7 +358,9 @@ export class Sim {
   }
   hit(t, dmg, src) {
     if (t.hp <= 0) return;
-    t.hp -= t.wardT > this.tick ? dmg * WARD_TAKEN : dmg;
+    const took = t.wardT > this.tick ? dmg * WARD_TAKEN : dmg;
+    t.hp -= took;
+    if (took >= 1) this.fx.push(['n', t.x | 0, t.y | 0, Math.round(took), 0]); // everyone sees how hard that hit
     this.players[t.owner].alert = { x: t.x, y: t.y, tick: this.tick };
     if (t.hp <= 0) {
       if (src && this.enemy(src, t)) this.award(src.owner, t, !!DEF[src.type].hero);
@@ -409,7 +411,7 @@ export class Sim {
         const miss = this.maxHp(t) - t.hp;
         if (miss > need && Math.hypot(t.x - e.x, t.y - e.y) < 120) { need = miss; best = t; }
       }
-      if (best) { best.hp = Math.min(this.maxHp(best), best.hp + d.heal); this.fx.push(['q', best.x | 0, best.y | 0]); }
+      if (best) { const got = Math.min(need, d.heal); best.hp += got; this.fx.push(['q', best.x | 0, best.y | 0], ['n', best.x | 0, best.y | 0, Math.round(got), 1]); }
     }
     const scan = (this.tick + e.id) % 5 === 0;
     if (!o) {
@@ -434,7 +436,8 @@ export class Sim {
         if (dd <= reach) {
           if (e.cdT <= 0) {
             e.cdT = d.cd;
-            this.fx.push(d.range ? ['a', e.x | 0, e.y | 0, t.x | 0, t.y | 0] : ['h', t.x | 0, t.y | 0]);
+            // a shot in flight (0 arrow, 1 magic bolt, 2 boulder) or a blade landing
+            this.fx.push(d.range ? ['a', e.x | 0, e.y | 0, t.x | 0, t.y | 0, e.type === 'mage' || e.type === 'sage' ? 1 : d.siege ? 2 : 0] : ['h', t.x | 0, t.y | 0]);
             const dmg = d.dmg * (d.hero ? heroMult(P.lvl) : 1) * (e.rageT > this.tick ? RAGE_BONUS : 1), tx = t.x, ty = t.y;
             this.hit(t, dmg, e);
             if (d.splash) for (const u of [...this.ents.values()]) {
@@ -531,7 +534,7 @@ export class Sim {
       e.cdT -= DT;
       if (e.cdT <= 0 && (this.tick + e.id) % 3 === 0) {
         const t = this.acquire(e, d.range);
-        if (t) { e.cdT = d.cd; this.fx.push(['a', e.x | 0, e.y | 0, t.x | 0, t.y | 0]); this.hit(t, d.dmg, e); }
+        if (t) { e.cdT = d.cd; this.fx.push(['a', e.x | 0, e.y | 0, t.x | 0, t.y | 0, 3]); this.hit(t, d.dmg, e); }
       }
     }
     if (e.queue.length) {
@@ -736,7 +739,11 @@ export class Sim {
               if (ab.kind === 'haste') t.hasteT = until;
               else if (ab.kind === 'rage') t.rageT = until;
               else if (ab.kind === 'ward') t.wardT = until;
-              else { t.hp = Math.min(this.maxHp(t), t.hp + ab.heal); if (ab.secs) t.hasteT = until; }
+              else {
+                const got = Math.min(this.maxHp(t) - t.hp, ab.heal);
+                t.hp += got; if (ab.secs) t.hasteT = until;
+                if (got >= 1) this.fx.push(['q', t.x | 0, t.y | 0], ['n', t.x | 0, t.y | 0, Math.round(got), 1]);
+              }
             }
           }
         }

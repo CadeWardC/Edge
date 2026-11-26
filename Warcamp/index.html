@@ -17,28 +17,31 @@
 <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
-<canvas id="c"></canvas>
-
-<div id="hud" hidden>
-  <div id="top">
-    <span id="res" title="Crystal: trains units">◆ 0</span>
-    <span id="wood" title="Wood: pays for buildings">▮ 0</span>
-    <span id="pop" title="Units / housing">☗ 0/0</span>
-    <span id="heroInfo"></span>
-    <span class="grow"></span>
-    <button id="menuBtn" aria-label="Menu">☰</button>
+<!-- The map has its own area (#stage); the controls sit in a dock beside or below it and never cover the map. -->
+<div id="game">
+  <div id="stage">
+    <canvas id="c"></canvas>
+    <div id="heroInfo"></div>
+    <div id="news" aria-live="polite"></div>
+    <div id="toast"></div>
+    <div id="net" hidden></div>
   </div>
-  <canvas id="mini" width="168" height="168"></canvas>
-  <div id="side">
-    <button id="bArmy" title="Select your whole army (Q)"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4l11 11M20 4L9 15M13 17l4-4M11 17l-4-4M6 20l3-3M18 20l-3-3"/></svg><span>Army</span><b id="armyN"></b></button>
-    <button id="bIdle" title="Go to an idle worker (.)"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9c5-5 11-5 16 0M12 6v15"/></svg><span>Idle</span><b id="idleN"></b></button>
-    <button id="bBox" title="Drag a box to select"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="5" width="16" height="14" rx="2" stroke-dasharray="3 2.5"/></svg><span>Box</span></button>
-    <button id="bDesel" title="Clear the selection (Esc)"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg><span>Clear</span></button>
+  <div id="hud" hidden>
+    <div id="top">
+      <span id="res" title="Crystal: trains units">◆ 0</span>
+      <span id="wood" title="Wood: pays for buildings">▮ 0</span>
+      <span id="pop" title="Units / housing">☗ 0/0</span>
+    </div>
+    <div id="side">
+      <button id="bArmy" title="Select your whole army (Q)"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4l11 11M20 4L9 15M13 17l4-4M11 17l-4-4M6 20l3-3M18 20l-3-3"/></svg><span>Army</span><b id="armyN"></b></button>
+      <button id="bIdle" title="Go to an idle worker (.)"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9c5-5 11-5 16 0M12 6v15"/></svg><span>Idle</span><b id="idleN"></b></button>
+      <button id="bBox" title="Drag a box to select"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="5" width="16" height="14" rx="2" stroke-dasharray="3 2.5"/></svg><span>Box</span></button>
+      <button id="bDesel" title="Clear the selection (Esc)"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg><span>Clear</span></button>
+      <button id="menuBtn" title="Game menu"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg><span>Menu</span></button>
+    </div>
+    <div id="panel"></div>
+    <canvas id="mini" width="168" height="168"></canvas>
   </div>
-  <div id="panel"></div>
-  <div id="news" aria-live="polite"></div>
-  <div id="toast"></div>
-  <div id="net" hidden></div>
 </div>
 
 <div id="menu" class="screen">
