@@ -58,8 +58,10 @@ The host's device runs the game and the other devices connect straight to it (We
 - The host should keep the game on screen: phones pause web pages in the background.
 - If a player's connection drops or they swipe out of the app, a computer holds their base and the game lets them
   back in on its own when they return. If the app was closed completely, opening it again shows **Rejoin game**.
-- If the host swipes away, the game freezes for everyone and carries on when the host returns. If the host closes
-  the app or leaves the game, it ends.
+- If the host swipes away, the game freezes for everyone and carries on when the host returns.
+- A game you host, or play alone, is saved every few seconds. If the app is closed or the page reloaded, the menu
+  shows **Continue your game**; for a hosted game it reopens the same room so the others get back in.
+- Leaving through the menu ends the game.
 
 ## Controls
 
@@ -85,7 +87,8 @@ No build step and no dependencies to install: plain ES modules and a canvas.
 | `js/render.js` | What a screen knows (rebuilt from snapshots), fog of war, drawing, minimap. |
 | `js/net.js` | Room codes and connections. |
 | `js/main.js` | Menus, lobby, controls, game loop. |
-| `sw.js`, `manifest.webmanifest` | Offline cache and install. Bump `VERSION` in `sw.js` when files are added or removed. |
+| `sw.js`, `manifest.webmanifest` | Offline cache and install. Add new files to the list in `sw.js`. |
+| `tools/stamp.sh` | Run by the publish workflow: gives each release its own file addresses (`main.js?v=…`), so a browser never mixes two releases. |
 
 The host steps the simulation ten times a second and sends every screen a snapshot. Other players send only
 their orders. The host draws from the same snapshots, so single player and multiplayer run the same code.
