@@ -291,3 +291,36 @@ input, select { background: var(--dock); border: 1px solid #3b4d6b; border-radiu
 .lay button.on { background: #1d4ed8; border-color: #93c5fd; }
 .lay button.on small { color: #dbeafe; }
 @media (orientation: portrait) { #layLeft { display: none; } }
+
+/* ---------- floating layouts: where things sit ----------
+   Upright: resources top-left, the mini-map under them (it can be hidden), the action buttons along the bottom
+   with the selection panel just above them.
+   Sideways: the controls in a column on the side, the mini-map top-left (it can be hidden). */
+#mapTog { position: absolute; z-index: 3; display: none; min-height: 0; height: 26px; padding: 0 10px; font-size: 11.5px; font-weight: 600; border-radius: 13px;
+  background: #0f1a2ee0; border: 1px solid var(--line); color: var(--dim); }
+#game.on:is(.lay-over, .lay-lite):not(.folded) #mapTog { display: block; }
+@media (orientation: portrait) {
+  #game.on:is(.lay-over, .lay-lite, .folded) #side { top: auto; bottom: calc(env(safe-area-inset-bottom) + 4px); left: 4px; right: 4px; }
+  #game.on:is(.lay-over, .lay-lite, .folded) #side button { flex: 1; }
+  #game.on:is(.lay-over, .lay-lite, .folded) #top { max-width: calc(100% - 8px); }
+  #game.on:is(.lay-over, .lay-lite) #panel { left: 4px; right: 4px; bottom: calc(env(safe-area-inset-bottom) + 52px); }
+  #game.on.lay-over.nomap #panel, #game.on.lay-lite:not(.showmap) #panel { left: 4px; }
+  #game.on:is(.lay-over, .lay-lite) #mini { top: calc(env(safe-area-inset-top) + 42px); bottom: auto; left: 4px; width: 100px; height: 100px; }
+  #game.on:is(.lay-over, .lay-lite) #mapTog { left: 4px; top: calc(env(safe-area-inset-top) + 146px); }
+  #game.on.mapoff:is(.lay-over, .lay-lite) #mapTog { top: calc(env(safe-area-inset-top) + 42px); }
+  #game.on:is(.lay-over, .lay-lite, .folded) #heroInfo { left: auto; right: 8px; }
+  #game.on:is(.lay-over, .lay-lite, .folded) #waveInfo { top: calc(var(--pt, 0px) + 34px); }
+  #game.on:is(.lay-over, .lay-lite, .folded) #toast { top: calc(var(--pt, 0px) + 64px); }
+  #game.on:is(.lay-over, .lay-lite, .folded) #news { top: calc(var(--pt, 0px) + 102px); }
+}
+@media (orientation: landscape) {
+  #game.on:is(.lay-over, .lay-lite) #mini { top: 4px; bottom: auto; }
+  #game.on:is(.lay-over, .lay-lite) #mapTog { left: calc(env(safe-area-inset-left) + 6px); top: 100px; }
+  #game.on.mapoff:is(.lay-over, .lay-lite) #mapTog { top: 4px; }
+  #game.on:is(.lay-over, .lay-lite) #heroInfo { left: calc(env(safe-area-inset-left) + 108px); }
+  #game.on.mapoff:is(.lay-over, .lay-lite) #heroInfo { left: calc(env(safe-area-inset-left) + 62px); }
+  #game.on.left:is(.lay-over, .lay-lite) #mapTog { left: auto; right: calc(env(safe-area-inset-right) + 6px); }
+  #game.on.left:is(.lay-over, .lay-lite) #heroInfo { left: calc(var(--pl, 0px) + 8px); }
+  #game.on.left:is(.lay-over, .lay-lite) #waveInfo { right: calc(env(safe-area-inset-right) + 108px); }
+  #game.on.left.mapoff:is(.lay-over, .lay-lite) #waveInfo { right: calc(env(safe-area-inset-right) + 62px); }
+}

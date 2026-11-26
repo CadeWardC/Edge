@@ -346,6 +346,8 @@ function applyLayout() {
   const mapOn = LAY.lay === 'lite' ? !!LAY.liteMap : !LAY.nomap;
   $('layMap').classList.toggle('on', mapOn);
   $('layMap').textContent = mapOn ? 'Mini-map: shown' : 'Mini-map: hidden';
+  g.classList.toggle('mapoff', !mapOn);
+  $('mapTog').textContent = mapOn ? 'Hide map' : 'Map';
   store.set(LAYKEY, JSON.stringify(LAY));
   R.resize();
   pads();
@@ -364,14 +366,16 @@ function pads() {
   }
   R.pad = p;
   const st = $('stage').style;
-  // side pads only push the messages when a whole column floats there, not just the mini-map
-  st.setProperty('--pt', p.t + 'px'); st.setProperty('--pb', p.b + 'px');
+  // The floating messages only need to clear the bar across the top, not the mini-map in the corner.
+  const T0 = $('top').getBoundingClientRect(), barTop = G.view && S.height >= S.width && T0.width && T0.top < S.top + S.height / 2 && T0.bottom > S.top + 1 ? T0.bottom - S.top : 0;
+  st.setProperty('--pt', (S.height >= S.width ? barTop : p.t) + 'px'); st.setProperty('--pb', p.b + 'px');
   st.setProperty('--pr', (p.r > 150 ? p.r : 0) + 'px'); st.setProperty('--pl', (p.l > 150 ? p.l : 0) + 'px');
 }
 $('layouts').onclick = e => { const b = e.target.closest('button[data-lay]'); if (!b) return; LAY.lay = b.dataset.lay; folded = false; applyLayout(); };
 $('layLeft').onclick = () => { LAY.left = !LAY.left; applyLayout(); };
 $('layMap').onclick = () => { if (LAY.lay === 'lite') LAY.liteMap = !LAY.liteMap; else LAY.nomap = !LAY.nomap; applyLayout(); };
 $('fold').onclick = () => { folded = !folded; applyLayout(); };
+$('mapTog').onclick = () => $('layMap').click();
 
 // ---------------------------------------------------------------- handing the game to another host
 // The host's device runs the game. When the host is knocked out or leaves, the whole game is passed to another
