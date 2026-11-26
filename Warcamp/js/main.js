@@ -518,7 +518,7 @@ function startGame(cfg, me, conns, save) {
   G.view = new View(cfg, me);
   R.setView(G.view);
   R.cam.z = Math.min(innerWidth, innerHeight) < 500 ? .8 : 1;
-  G.sel.clear(); G.placing = null; G.box = null; G.boxMode = false; G.amove = false; G.disband = 0; G.moving = false; G.cfg = cfg; G.ended = false; G.elim = false; G.lost = false; G.needCenter = true;
+  G.sel.clear(); G.placing = null; G.box = null; G.boxMode = false; G.amove = false; G.rally = false; G.disband = 0; G.moving = false; G.cfg = cfg; G.ended = false; G.elim = false; G.lost = false; G.needCenter = true;
   G.record = G.record0 = +store.get(NKEY) || 0;
   G.lastSnap = performance.now();
   $('news').textContent = '';
@@ -701,9 +701,20 @@ function confirmPlace() {
 function mark(x, y, col) { if (G.touch) buzz(8); G.view.fx.push({ k: 'm', a: ['m', x, y, col], t: 0 }); }
 
 // What a tap (or right-click) on the world means for the units that are selected.
+// The selected building that trains units, if it is mine.
+const maker = () => selected().find(e => e.b && e.built && e.owner === G.view.me && DEF[e.type].trains);
+// Set where that building's new units go (a point on the building itself clears it).
+function rallyTo(wx, wy) {
+  const b = maker();
+  G.rally = false; hudT = 0;
+  if (!b) return false;
+  G.send({ t: 'rally', b: b.id, x: wx, y: wy });
+  mark(wx, wy, '#fde68a');
+  return true;
+}
 function order(wx, wy, ent) {
   const v = G.view, us = myUnits();
-  if (!us.length) return;
+  if (!us.length) { rallyTo(wx, wy); return; } // right-click with a Barracks selected: its rally point
   const ids = us.map(e => e.id), workers = us.filter(e => e.type === 'worker').map(e => e.id), rest = us.filter(e => e.type !== 'worker').map(e => e.id);
   if (ent && !v.friendly(ent)) { G.send({ t: 'attack', ids, target: ent.id }); mark(ent.rx, ent.ry, '#f87171'); return; }
   if (ent && ent.b && ent.built && ent.owner === v.me && ent.hp < ent.max && workers.length) { // mend it
@@ -749,6 +760,7 @@ function tap(sx, sy, touch, add) {
     else { p.tx = tx; p.ty = ty; p.has = true; hudT = 0; }
     return;
   }
+  if (G.rally) { rallyTo(wx, wy); return; } // "Rally point" was tapped: this tap says where
   const e = pick(wx, wy, touch ? 16 : 6);
   if (!touch) { if (e) selectEnt(e, add); else { G.sel.clear(); hudT = 0; } return; }
   // With workers selected, a tap on one of my buildings that needs them (unfinished or damaged) sends them to it.
@@ -973,6 +985,7 @@ function panelHTML() {
     if (b.queue.length) h += `<div class="d q">${b.queue.map(i => pic(TYPES[i])).join('')}<div class="pb"><i id="pbar"></i></div></div>`;
     const acts = (b.hp < b.max ? '<button data-act="repair" class="go">Repair</button>' : '') +
       (d.trains ? d.trains.map(u => btn('train:' + u, DEF[u], P.res < DEF[u].cost || P.pop >= P.cap || b.queue.length >= 5, u)).join('') : '') +
+      (d.trains ? `<button data-act="rally" class="${G.rally ? 'on' : ''}">${G.rally ? 'Tap where' : b.rally ? 'Rally point ✓' : 'Rally point'}</button>` : '') +
       (b.queue.length ? '<button data-act="unqueue" class="warn">Cancel last</button>' : '');
     return acts ? h + '<div class="acts">' + acts + '</div>' : h;
   }
@@ -1149,6 +1162,7 @@ $('panel').addEventListener('click', ev => {
   else if (a === 'ability') { for (const e of myUnits()) if (DEF[e.type].hero) G.send({ t: 'ability', id: e.id, n: +arg }); }
   else if (a === 'stop') { G.send({ t: 'stop', ids: myUnits().map(e => e.id) }); G.amove = false; }
   else if (a === 'amove') G.amove = !G.amove;
+  else if (a === 'rally') { G.rally = !G.rally; if (G.rally) toast('Tap where new units should go. Tap the building itself to clear it.'); }
   else if (a === 'disband') {
     if (G.disband && performance.now() - G.disband < 4000) { G.send({ t: 'disband', ids: myUnits().filter(e => !DEF[e.type].hero).map(e => e.id) }); G.disband = 0; }
     else { G.disband = performance.now(); setTimeout(() => { hudT = 0; }, 4100); }
@@ -1175,6 +1189,7 @@ function frame(now) {
       if (at) { R.center(at.x, at.y); G.needCenter = false; }
     }
     for (const id of G.sel) { const e = v.ents.get(id); if (!e || !visible(e)) { G.sel.delete(id); hudT = 0; } }
+    if (G.rally && !maker()) { G.rally = false; hudT = 0; }
     if (G.placing && !myUnits().some(e => e.type === 'worker')) { G.placing = null; hudT = 0; }
     let ghost = null;
     const p = G.placing;
