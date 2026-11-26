@@ -1,7 +1,8 @@
 # Warcamp
 
 A real-time strategy game for 1 to 4 players that runs in the browser and installs as an app (PWA).
-Gather crystal, build a base, raise an army and destroy every enemy building.
+Gather crystal and wood, build a base and raise an army. To knock a player out, destroy all their Keeps, kill all
+their workers and kill their hero.
 
 ![Warcamp on a phone](docs/screenshot.png)
 

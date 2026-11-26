@@ -117,7 +117,7 @@ for (const seed of [1, 2, 3, 4, 5, 6]) {
     const fx = s.basePos(0)[0] - 3, fy = s.basePos(0)[1] + 11; // the second deposit
     s.players[0].res = 1000;
     if (withOutpost) {
-      const site = s.findSite('outpost', fx, fy + 1);
+      const site = s.findSite('outpost', fx, fy - 2);
       s.command(0, { t: 'build', ids: ws.map(w => w.id), b: 'outpost', tx: site[0], ty: site[1] });
       run(400);
     } else run(400);
@@ -243,33 +243,63 @@ for (const seed of [1, 2, 3, 4, 5, 6]) {
   check(!s.walkable(bx + 4, by) && s.players[0].wood === 485, 'a Wall costs 15 wood and blocks its tile');
   run(s, 80);
   const hq = [...s.ents.values()].find(e => e.type === 'hq' && e.owner === 0);
+  const mineOf = t => [...s.ents.values()].filter(e => e.owner === 0 && (t === 'hero' ? e.type === 'hero' : e.type === t));
+  s.players[0].wood = 500; s.command(0, { t: 'build', ids: [w.id], b: 'barracks', tx: bx + 4, ty: by + 3 });
   s.kill(hq); run(s, 12);
-  check(!s.players[0].alive && s.winner === 1, 'with only a Wall left standing, the player is out');
+  check(s.players[0].alive && s.winner === -1, 'losing the only Keep does not knock a player out while workers and the hero live');
+  for (const u of mineOf('worker')) s.kill(u); run(s, 12);
+  check(s.players[0].alive, 'nor does losing every worker as well, while the hero lives');
+  for (const u of mineOf('hero')) s.kill(u); run(s, 12);
+  check(!s.players[0].alive && s.winner === 1 && ![...s.ents.values()].some(e => e.owner === 0), 'Keeps gone, workers gone, hero dead: the player is out, whatever other buildings stood');
+  run(s, 400);
+  check(!mineOf('hero').length, 'a hero with no Keep to return to stays dead');
   // a second Keep
   s = mk();
-  s.players[0].wood = 500; s.players[0].res = 500;
+  s.players[0].wood = 3000; s.players[0].res = 3000;
   const ws = [...s.ents.values()].filter(e => e.type === 'worker' && e.owner === 0);
   const site = s.findSite('hq', s.basePos(0)[0] + 8, s.basePos(0)[1] + 8);
   s.command(0, { t: 'build', ids: ws.map(x => x.id), b: 'hq', tx: site[0], ty: site[1] });
-  run(s, 200);
+  run(s, 250);
   const keeps = [...s.ents.values()].filter(e => e.type === 'hq' && e.owner === 0);
   check(keeps.length === 2 && keeps.every(k => k.built) && s.players[0].cap === 20, 'workers can build a second Keep, which adds housing');
   s.command(0, { t: 'train', b: keeps[1].id, u: 'worker' }); run(s, 90);
   check([...s.ents.values()].filter(e => e.type === 'worker' && e.owner === 0).length === 4, 'the new Keep trains workers');
   s.kill(keeps[0]); run(s, 12);
   check(s.players[0].alive, 'losing the first Keep does not end the game while the second stands');
+  // range: near a Keep or not at all; Keeps go anywhere; two per game
+  const away = s.findSite('house', s.basePos(0)[0] + 30, s.basePos(0)[1] + 30), w0 = s.players[0].wood;
+  s.command(0, { t: 'build', ids: ws.map(x => x.id), b: 'house', tx: away[0], ty: away[1] });
+  check(s.players[0].wood === w0 && ![...s.ents.values()].some(e => e.type === 'house'), 'a Cottage far from any Keep is refused');
+  s.command(0, { t: 'build', ids: ws.map(x => x.id), b: 'hq', tx: away[0], ty: away[1] });
+  const k2 = [...s.ents.values()].find(e => e.type === 'hq' && e.owner === 0 && !e.built);
+  check(!!k2 && s.snapshot().p[0][8] === 0, 'a Keep can go there, and that is the second and last one allowed');
+  s.command(0, { t: 'build', ids: ws.map(x => x.id), b: 'house', tx: away[0] + 4, ty: away[1] });
+  check(![...s.ents.values()].some(e => e.type === 'house'), 'an unfinished Keep does not yet let you build around it');
+  run(s, 1500);
+  s.command(0, { t: 'build', ids: ws.map(x => x.id), b: 'house', tx: away[0] + 4, ty: away[1] });
+  check(k2.built && [...s.ents.values()].some(e => e.type === 'house'), 'once it is finished, building around it works');
+  const site3 = s.findSite('hq', s.basePos(0)[0] + 12, s.basePos(0)[1] + 2), n3 = [...s.ents.values()].filter(e => e.type === 'hq' && e.owner === 0).length;
+  s.command(0, { t: 'build', ids: ws.map(x => x.id), b: 'hq', tx: site3[0], ty: site3[1] });
+  check([...s.ents.values()].filter(e => e.type === 'hq' && e.owner === 0).length === n3, 'a third Keep is refused');
   // hero levels
   s = mk();
   const h = [...s.ents.values()].find(e => e.owner === 0 && e.type === 'hero'), P = s.players[0];
   s.command(0, { t: 'ability', id: h.id, n: 1 });
   check(h.cds[1] <= 0, 'a level 1 hero cannot cast its level 2 spell');
   for (let i = 0; i < 6; i++) { const v = s.spawnUnit('soldier', 1, h.x + 10, h.y); s.hit(v, 999, h); }
-  check(P.lvl === 2 && h.hp === Math.round(420 * 1.12), `six kills take the hero to level ${P.lvl} with more health (${h.hp})`);
+  check(P.lvl === 2 && h.hp === Math.round(420 * 1.08), `six kills take the hero to level ${P.lvl} with more health (${h.hp})`);
   const friend = s.spawnUnit('soldier', 0, h.x + 30, h.y);
   s.command(0, { t: 'ability', id: h.id, n: 1 });
   check(h.cds[1] > 0 && friend.rageT > s.tick, 'now Battle Cry works and fires up nearby troops');
   for (let i = 0; i < 60; i++) { const v = s.spawnUnit('soldier', 1, h.x + 10, h.y); s.hit(v, 999, h); }
   check(P.lvl === 5, 'levels stop at 5');
+  {
+    const squad = [0, 1, 2].map(i => s.spawnUnit('soldier', 1, h.x + 20 + i * 12, h.y + 20)), tower = s.addBuilding('tower', 1, s.tileOf(h.x) + 2, s.tileOf(h.y) - 2, true);
+    for (const u of squad) u.order = { k: 'move', x: u.x, y: u.y, tries: 0 };
+    h.cds[2] = 0; s.command(0, { t: 'ability', id: h.id, n: 2 });
+    check(squad.every(u => u.hp === 30) && tower.hp === 420 - 26, `Earthshatter hurts a squad of Soldiers (95 -> ${squad[0].hp}) without wiping it out, and barely dents a tower (420 -> ${tower.hp})`);
+    for (const u of squad) s.kill(u); s.kill(tower);
+  }
   s.kill(h); run(s, 320);
   const h2 = [...s.ents.values()].find(e => e.owner === 0 && e.type === 'hero');
   check(h2 && h2.hp === s.maxHp(h2) && s.snapshot().p[0][6] === 5, 'a fallen hero returns at the same level');
