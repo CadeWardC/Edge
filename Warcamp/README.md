@@ -15,7 +15,7 @@ their workers and kill their hero.
   computers (which can fill empty seats, plus up to four more); and **Survival**, everyone on one side against
   endless, growing waves with a Warlord every fifth wave.
 - **Touch first**, and it also plays with mouse and keyboard.
-- Three screen layouts to choose from in the game menu (Dock, Overlay, Light), a button to put the controls away,
+- The controls float over a full-screen map by default; two other layouts (Dock, Light) are in the game menu, a button to put the controls away,
   and a left-handed option. In Dock the controls never cover the battlefield; in the others the map fills the screen
   and the camera can travel past its edge so nothing is stuck behind the controls. Hits, heals and damaged buildings are shown to every player.
 - **Offline**: after the first visit the game is cached and single player works with no connection.
