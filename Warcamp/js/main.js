@@ -828,7 +828,24 @@ function fit() {
   if (h) st.setProperty('--fh', h + 'px'); else st.removeProperty('--fh');
 }
 fit(); setTimeout(fit, 300); setTimeout(fit, 1500);
-{ const ver = new URL(import.meta.url).searchParams.get('v'); if (ver) { $('mVer').textContent = 'Version ' + ver.slice(0, 7); $('mVer').hidden = false; } }
+{ const ver = new URL(import.meta.url).searchParams.get('v'); $('mVer').textContent = 'Version ' + (ver ? ver.slice(0, 7) : 'dev'); $('mVer').hidden = false; }
+// Tap the version on the menu to see how this device lays the page out: the numbers needed to chase a screen that
+// sits too high, too low or too short in the installed app.
+$('mVer').onclick = () => {
+  const box = css => { const d = document.createElement('div'); d.style.cssText = 'position:fixed;visibility:hidden;' + css; document.body.appendChild(d); const r = d.getBoundingClientRect(), c = getComputedStyle(d); const o = { top: r.top, h: r.height, pt: c.paddingTop, pb: c.paddingBottom }; d.remove(); return o; };
+  const fixed = box('top:0;bottom:0;left:0;width:0'), vh = box('top:0;left:0;width:0;height:100vh'), dvh = box('top:0;left:0;width:0;height:100dvh');
+  const safe = box('top:0;left:0;padding-top:env(safe-area-inset-top);padding-bottom:env(safe-area-inset-bottom)'), vv = window.visualViewport, g = $('menu').getBoundingClientRect();
+  const mode = ['fullscreen', 'standalone', 'browser'].find(m => matchMedia(`(display-mode: ${m})`).matches);
+  $('mDiag').textContent = [
+    `screen ${screen.width}x${screen.height}  window ${innerWidth}x${innerHeight}  page ${document.documentElement.clientWidth}x${document.documentElement.clientHeight}`,
+    `fixed box top ${fixed.top} height ${fixed.h}  100vh ${vh.h}  100dvh ${dvh.h}`,
+    `menu top ${g.top} height ${g.height}  fh ${document.documentElement.style.getPropertyValue('--fh') || 'none'}`,
+    `view ${vv ? `${vv.width}x${vv.height} top ${vv.offsetTop} page ${vv.pageTop} zoom ${vv.scale}` : 'n/a'}  scroll ${scrollX},${scrollY}`,
+    `safe top ${safe.pt} bottom ${safe.pb}  mode ${mode}  installed ${!!navigator.standalone}  ${innerHeight >= innerWidth ? 'portrait' : 'landscape'}`,
+    navigator.userAgent.replace(/^.*?\((.*?)\).*$/, '$1'),
+  ].join('\n');
+  $('mDiag').hidden = false;
+};
 addEventListener('resize', () => { fit(); R.resize(); });
 if (window.ResizeObserver) new ResizeObserver(() => { R.resize(); pads(); }).observe(cv); // the map area changes size with the dock
 addEventListener('orientationchange', () => setTimeout(() => { fit(); R.resize(); }, 250));

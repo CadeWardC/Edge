@@ -483,3 +483,5 @@ input, select { background: var(--dock); border: 1px solid #3b4d6b; border-radiu
 .stats { list-style: none; margin: 0 0 6px; padding: 0 !important; display: flex; flex-direction: column; gap: 2px; }
 .stats li { display: flex; justify-content: space-between; gap: 12px; margin: 0; padding: 5px 2px; border-bottom: 1px solid var(--line); font-size: 14px; }
 .stats li span { color: var(--dim); }
+.diag { white-space: pre-wrap; text-align: left; font: 11px/1.5 ui-monospace, Menlo, monospace; user-select: text; -webkit-user-select: text; }
+#mVer { cursor: pointer; }
