@@ -1,6 +1,6 @@
 // The authoritative simulation. It has no DOM or network code: the host (or a single-player
 // game) steps it 10 times a second, feeds it commands, and ships snapshot() to every screen.
-import { TILE as T, DEF, TI, MAXCAP, MAP_SIZE, BUILDABLE, HEROES, HERO_RESPAWN, LEVELS, heroMult, RAGE_BONUS, WARD_TAKEN, SHOCK_VS_BUILDINGS, BUILD_RANGE, KEEP_LIMIT } from './data.js';
+import { TILE as T, DEF, TI, MAXCAP, MAP_SIZE, BUILDABLE, SURVIVAL, HEROES, HERO_RESPAWN, LEVELS, heroMult, RAGE_BONUS, WARD_TAKEN, SHOCK_VS_BUILDINGS, BUILD_RANGE, KEEP_LIMIT } from './data.js';
 
 export const DT = 0.1;
 // How close a worker must be to a wall to build or unload. A worker on the tile beside the wall is 16 away;
@@ -19,7 +19,7 @@ export function rng(a) {
 
 // One quarter of the map is generated from the seed and mirrored four ways, so every player's corner is equal.
 // The base sits at a different spot in its quarter each game. Terrain: 0 grass, 1 water, 2 tree, 3 crystal.
-export function genMap(seed, N) {
+export function genMap(seed, N, extra) {
   const r = rng(seed), Q = N >> 1, q = new Uint8Array(Q * Q), ri = n => (r() * n) | 0;
   const set = (x, y, t) => { if (x >= 0 && y >= 0 && x < Q && y < Q) q[y * Q + x] = t; };
   const blob = (t, x, y, n) => {
@@ -49,6 +49,16 @@ export function genMap(seed, N) {
   for (let x = bx - 5; x <= bx - 1; x++) { set(x, by + 6, 2); set(x, by + 7, 2); }
   for (const [x, y] of [[Q - 3, Q - 6], [Q - 2, Q - 6], [Q - 1, Q - 6], [Q - 6, Q - 3], [Q - 6, Q - 2], [Q - 6, Q - 1]]) set(x, y, 3);
 
+  // With more than four players, each quarter gets a second base site nearer the middle of the map.
+  const sx = Q - 13, sy = Q - 13;
+  if (extra) {
+    for (let y = 0; y < Q; y++) for (let x = 0; x < Q; x++) if (Math.hypot(x - sx, y - sy) < 6.5) q[y * Q + x] = 0;
+    for (let x = sx; x < Q; x++) { set(x, sy, 0); set(x, sy + 1, 0); }
+    for (let y = sy; y < Q; y++) { set(sx, y, 0); set(sx + 1, y, 0); }
+    for (let x = sx - 8; x <= sx - 7; x++) for (let y = sy - 1; y <= sy + 1; y++) set(x, y, 3);
+    for (let x = sx - 2; x <= sx + 2; x++) { set(x, sy - 8, 2); set(x, sy - 9, 2); }
+  }
+
   const terrain = new Uint8Array(N * N), amt = new Uint16Array(N * N);
   for (let y = 0; y < Q; y++) for (let x = 0; x < Q; x++) {
     const v = q[y * Q + x];
@@ -57,7 +67,7 @@ export function genMap(seed, N) {
       amt[my * N + mx] = v === 2 ? TREE_AMT : v === 3 ? CRYSTAL_AMT : 0;
     }
   }
-  return { terrain, amt, base: [bx, by] };
+  return { terrain, amt, base: [bx, by], base2: [sx, sy] };
 }
 
 // Slots 0 and 1 are opposite each other, so a two-player game is always a fair diagonal.
@@ -75,8 +85,8 @@ const num = v => typeof v === 'number' && isFinite(v);
 export class Sim {
   constructor(cfg) {
     const N = this.N = cfg.size || MAP_SIZE;
-    const m = genMap(cfg.seed, N);
-    this.base = m.base;
+    const m = genMap(cfg.seed, N, cfg.extra);
+    this.base = m.base; this.base2 = m.base2;
     this.terrain = m.terrain; this.amt = m.amt;
     this.occ = new Int32Array(N * N);
     this.ents = new Map();
@@ -87,9 +97,14 @@ export class Sim {
     this._g = new Float32Array(N * N); this._st = new Uint32Array(N * N);
     this._cl = new Uint32Array(N * N); this._par = new Int32Array(N * N); this._stamp = 0;
     this.players = cfg.players.map(p => ({
-      name: p.name, team: p.team, res: 250, wood: 250, hero: HEROES.includes(p.hero) ? p.hero : 'hero', xp: 0, lvl: 1, keeps: 0, pop: 0, cap: 0, alive: true, heroT: 0, bonus: p.bonus || 1, alert: null,
+      name: p.name, team: p.team, res: 250, wood: 250, hero: HEROES.includes(p.hero) ? p.hero : 'hero', xp: 0, lvl: 1, keeps: 0, pop: 0, cap: 0, alive: true, heroT: 0, bonus: p.bonus || 1, alert: null, horde: !!p.horde,
     }));
+    // Survival: the last "player" is The Horde. It has no base; its waves walk in from the edges of the map.
+    this.hordeId = this.players.findIndex(p => p.horde);
+    this.hard = SURVIVAL.hard[cfg.level ?? 1] || 1;
+    this.wave = 0; this.waveAt = SURVIVAL.first * 10;
     this.players.forEach((p, i) => {
+      if (p.horde) return;
       const [bx, by] = this.basePos(i);
       this.addBuilding('hq', i, bx - 1, by - 1, true);
       for (let j = 0; j < 3; j++) this.autoHarvest(this.spawnUnit('worker', i, (bx - 1 + j + .5) * T, (by + 2.5) * T));
@@ -98,8 +113,8 @@ export class Sim {
   }
 
   // ---------- helpers ----------
-  basePos(slot) { return basePos(slot, this.N, this.base); }
-  maxHp(e) { const d = DEF[e.type]; return d.hero ? Math.round(d.hp * heroMult(this.players[e.owner].lvl)) : d.hp; }
+  basePos(slot) { return slot < 4 ? basePos(slot, this.N, this.base) : basePos(slot - 4, this.N, this.base2); }
+  maxHp(e) { const d = DEF[e.type]; return Math.round(d.hp * (d.hero ? heroMult(this.players[e.owner].lvl) : 1) * (e.mul || 1)); }
   walkable(x, y) {
     const N = this.N;
     if (x < 0 || y < 0 || x >= N || y >= N) return false;
@@ -211,7 +226,12 @@ export class Sim {
     const r = this.nearestRes(this.tileOf(e.x), this.tileOf(e.y), kind || (P.wood < P.res ? 2 : 3));
     if (r) this.orderHarvest(e, r[0], r[1]);
   }
-  wasGathering(e) { const o = e.order; return o && o.k === 'harvest' ? [o.tx, o.ty, o.kind] : o && o.k === 'build' ? o.back : null; }
+  wasGathering(e) { const o = e.order; return o && o.k === 'harvest' ? [o.tx, o.ty, o.kind] : o && (o.k === 'build' || o.k === 'repair') ? o.back : null; }
+  backToWork(e, o) {
+    e.order = null;
+    if (o.back && this.terrain[o.back[1] * this.N + o.back[0]] >= 2) this.orderHarvest(e, o.back[0], o.back[1]);
+    else this.autoHarvest(e, o.back && o.back[2]);
+  }
   orderHarvest(e, tx, ty) {
     e.order = { k: 'harvest', tx, ty, kind: this.terrain[ty * this.N + tx], ph: 0, tries: 0 };
     this.pathTo(e, tx, ty, tx, ty);
@@ -374,7 +394,7 @@ export class Sim {
     let hero = null;
     for (const e of this.ents.values()) if (e.owner === owner && DEF[e.type].hero) { hero = e; break; }
     if (!hero || (!direct && Math.hypot(hero.x - t.x, hero.y - t.y) > 240)) return;
-    const d = DEF[t.type], v = t.b ? (d.wall ? 1 : 8) : d.hero ? 25 : Math.max(2, Math.round(d.hp / 20));
+    const d = DEF[t.type], v = t.b ? (d.wall ? 1 : 8) : d.boss ? 45 : d.hero ? 25 : Math.max(2, Math.round(d.hp / 20));
     P.xp += direct ? v : v * 0.6;
     while (P.lvl <= LEVELS.length && P.xp >= LEVELS[P.lvl - 1]) {
       P.lvl++;
@@ -438,7 +458,7 @@ export class Sim {
             e.cdT = d.cd;
             // a shot in flight (0 arrow, 1 magic bolt, 2 boulder) or a blade landing
             this.fx.push(d.range ? ['a', e.x | 0, e.y | 0, t.x | 0, t.y | 0, e.type === 'mage' || e.type === 'sage' ? 1 : d.siege ? 2 : 0] : ['h', t.x | 0, t.y | 0]);
-            const dmg = d.dmg * (d.hero ? heroMult(P.lvl) : 1) * (e.rageT > this.tick ? RAGE_BONUS : 1), tx = t.x, ty = t.y;
+            const dmg = d.dmg * (d.hero ? heroMult(P.lvl) : 1) * (e.mul || 1) * (e.rageT > this.tick ? RAGE_BONUS : 1), tx = t.x, ty = t.y;
             this.hit(t, dmg, e);
             if (d.splash) for (const u of [...this.ents.values()]) {
               if (u !== t && !u.b && this.enemy(e, u) && Math.hypot(u.x - tx, u.y - ty) <= d.splash) this.hit(u, dmg * 0.6, e);
@@ -504,15 +524,24 @@ export class Sim {
         }
         break;
       }
+      case 'repair': { // mend a damaged building, then go back to gathering
+        const b = this.ents.get(o.b), max = b && DEF[b.type].hp;
+        if (!b || !b.built || b.hp >= max) { this.backToWork(e, o); break; }
+        if (this.dist(e, b) <= REACH) {
+          b.hp = Math.min(max, b.hp + max / (DEF[b.type].time * 2) * DT);
+          if ((this.tick + e.id) % 12 === 0) this.fx.push(['q', b.x | 0, b.y | 0]);
+        } else if (this.follow(e)) {
+          if (++o.tries > 6) e.order = null; else this.pathTo(e, b.tx, b.ty, b.tx + b.size - 1, b.ty + b.size - 1);
+        }
+        break;
+      }
       case 'build': {
         const b = this.ents.get(o.b);
         if (!b || b.built) { // done (or gone): on to the next one queued, else back to what it was gathering before
           let nb = null;
           while (o.q && o.q.length && !nb) { const c = this.ents.get(o.q.shift()); if (c && !c.built) nb = c; }
           if (nb) { o.b = nb.id; o.tries = 0; this.pathTo(e, nb.tx, nb.ty, nb.tx + nb.size - 1, nb.ty + nb.size - 1); break; }
-          e.order = null;
-          if (o.back && this.terrain[o.back[1] * N + o.back[0]] >= 2) this.orderHarvest(e, o.back[0], o.back[1]);
-          else this.autoHarvest(e, o.back && o.back[2]);
+          this.backToWork(e, o);
           break;
         }
         const bd = DEF[b.type];
@@ -590,6 +619,7 @@ export class Sim {
       if (s) this.spawnUnit(p.hero, i, (s[0] + .5) * T, (s[1] + .5) * T);
       else if (p.alive) p.heroT = 5;
     });
+    if (this.hordeId >= 0) this.runHorde();
     if (this.tick % 10 === 0) this.checkWin();
     this.tick++;
   }
@@ -597,12 +627,59 @@ export class Sim {
     const nx = e.x + dx, ny = e.y + dy;
     if (this.walkable((nx / T) | 0, (ny / T) | 0)) { e.x = nx; e.y = ny; }
   }
+  // ---------- Survival: The Horde ----------
+  runHorde() {
+    const H = this.hordeId;
+    if (this.tick >= this.waveAt) {
+      this.wave++;
+      this.spawnWave(this.wave);
+      this.waveAt = this.tick + SURVIVAL.gap(this.wave) * 10;
+    }
+    if (this.tick % 30 !== 0) return;
+    // Anything of the Horde's standing about heads for the nearest thing the players own, Keeps first.
+    let idle = null;
+    for (const e of this.ents.values()) if (e.owner === H && !e.order) (idle || (idle = [])).push(e);
+    if (!idle) return;
+    for (const e of idle) {
+      let best = null, bd = 1e9;
+      for (const t of this.ents.values()) {
+        if (t.owner === H) continue;
+        const d = Math.hypot(t.x - e.x, t.y - e.y) + (t.type === 'hq' ? 0 : t.b ? 600 : 1500);
+        if (d < bd) { bd = d; best = t; }
+      }
+      if (!best) return;
+      e.order = { k: 'amove', x: best.x, y: best.y, tries: 0 };
+      this.pathPoint(e, best.x, best.y);
+    }
+  }
+  spawnWave(n) {
+    const H = this.hordeId, N = this.N, rnd = rng(this.tick * 31 + n * 7919);
+    const players = this.players.filter(p => !p.horde && p.alive).length || 1;
+    let have = 0;
+    for (const e of this.ents.values()) if (e.owner === H) have++;
+    const count = Math.max(0, Math.min(SURVIVAL.size(n, players, this.hard), SURVIVAL.limit - have));
+    const mul = SURVIVAL.strength(n, this.hard), kinds = SURVIVAL.unlock.filter(u => n >= u[1]).map(u => u[0]);
+    // two of the gates round the edge of the map, different each wave
+    const gates = [[N >> 1, 3], [N >> 1, N - 4], [3, N >> 1], [N - 4, N >> 1], [3, 3], [N - 4, 3], [3, N - 4], [N - 4, N - 4]];
+    const pick = () => { const g = gates.splice((rnd() * gates.length) | 0, 1)[0]; return this.walkable(g[0], g[1]) ? g : this.nearFree(g[0], g[1]) || g; };
+    const at = [pick(), pick()];
+    const put = (type, m, i) => {
+      const g = at[i % 2];
+      const e = this.spawnUnit(type, H, (g[0] + .5) * T + (rnd() - .5) * 40, (g[1] + .5) * T + (rnd() - .5) * 40);
+      if (!this.walkable(this.tileOf(e.x), this.tileOf(e.y))) { e.x = (g[0] + .5) * T; e.y = (g[1] + .5) * T; }
+      e.mul = m; e.hp = this.maxHp(e);
+    };
+    for (let i = 0; i < count; i++) put(kinds[(rnd() * kinds.length) | 0], mul, i);
+    if (n % SURVIVAL.bossEvery === 0) for (let i = 0; i <= Math.floor(n / 15); i++) put('boss', (1 + (n / SURVIVAL.bossEvery - 1) * 0.5) * (0.85 + 0.15 * this.hard), i);
+  }
+
   // A player is out when their last building falls; the last team standing wins.
   checkWin() {
     // A player stays in while they have a Keep, a worker (who could build one) or a living hero.
     // To knock someone out: destroy every Keep, kill every worker, and kill the hero.
     const has = this.players.map(() => false);
     for (const e of this.ents.values()) if (e.type === 'hq' || e.type === 'worker' || DEF[e.type].hero) has[e.owner] = true;
+    if (this.hordeId >= 0) has[this.hordeId] = true; // The Horde is never beaten: Survival ends when the players fall
     this.players.forEach((p, i) => {
       if (p.alive && !has[i]) {
         p.alive = false; p.heroT = 0;
@@ -668,6 +745,21 @@ export class Sim {
           if (cur && !cur.built) { (e.order.q || (e.order.q = [])).push(b.id); continue; } // busy building: queue it
           e.order = { k: 'build', b: b.id, tries: 0, back: this.wasGathering(e) };
           this.pathTo(e, tx, ty, tx + d.size - 1, ty + d.size - 1);
+        }
+        break;
+      }
+      case 'repair': { // the workers given, or else the two nearest free ones, mend a damaged building
+        const b = this.ents.get(c.b);
+        if (!b || !b.b || !b.built || b.owner !== pid || b.hp >= DEF[b.type].hp) return;
+        let ws = own(c.ids).filter(e => e.type === 'worker');
+        if (!ws.length) {
+          for (const e of this.ents.values()) if (e.owner === pid && e.type === 'worker' && !(e.order && (e.order.k === 'build' || e.order.k === 'repair'))) ws.push(e);
+          ws.sort((p, q) => (p.order ? 1e6 : 0) + this.dist(p, b) - (q.order ? 1e6 : 0) - this.dist(q, b));
+          ws = ws.slice(0, 2);
+        }
+        for (const e of ws) {
+          e.order = { k: 'repair', b: b.id, tries: 0, back: this.wasGathering(e) };
+          this.pathTo(e, b.tx, b.ty, b.tx + b.size - 1, b.ty + b.size - 1);
         }
         break;
       }
@@ -768,7 +860,7 @@ export class Sim {
   save() {
     const N = this.N, amt = [];
     for (let i = 0; i < N * N; i++) if (this.terrain[i] >= 2 && this.amt[i] !== (this.terrain[i] === 2 ? TREE_AMT : CRYSTAL_AMT)) amt.push(i, this.amt[i]);
-    return { tick: this.tick, nextId: this.nextId, winner: this.winner, players: this.players, ents: [...this.ents.values()], gone: this.gone, amt, bad: [...this.bad] };
+    return { tick: this.tick, nextId: this.nextId, winner: this.winner, players: this.players, ents: [...this.ents.values()], gone: this.gone, amt, bad: [...this.bad], wave: this.wave, waveAt: this.waveAt };
   }
   static restore(cfg, st) {
     const s = new Sim(cfg);
@@ -777,6 +869,7 @@ export class Sim {
     for (let k = 0; k < st.amt.length; k += 2) s.amt[st.amt[k]] = st.amt[k + 1];
     s.gone = st.gone.slice(); s.bad = new Set(st.bad);
     s.players = st.players; s.tick = st.tick; s.nextId = st.nextId; s.winner = st.winner;
+    if (st.waveAt) { s.wave = st.wave; s.waveAt = st.waveAt; }
     s.changed = []; s.fx = [];
     for (const e of st.ents) {
       s.ents.set(e.id, e);
@@ -789,6 +882,7 @@ export class Sim {
   snapshot() {
     const s = {
       k: this.tick, w: this.winner,
+      wv: this.hordeId >= 0 ? [this.wave, Math.max(0, Math.ceil((this.waveAt - this.tick) / 10))] : undefined,
       p: this.players.map(p => [Math.floor(p.res), p.pop, Math.min(p.cap, MAXCAP), p.alive ? 1 : 0, Math.ceil(p.heroT), Math.floor(p.wood), p.lvl,
         // [7] xp %, [8] Keeps the player may still build
 
@@ -800,7 +894,7 @@ export class Sim {
       const a = [e.id, TI[e.type], e.owner, Math.round(e.x), Math.round(e.y), Math.ceil(e.hp)];
       if (e.b) a.push(e.built ? 1 : 0, Math.floor((e.built ? (e.queue.length ? e.trainT / DEF[e.queue[0]].time : 0) : e.prog) * 100), e.queue.map(u => TI[u]), !e.built && this.tick - (e.wk ?? -99) > 8 ? 1 : 0);
       else a.push(e.carry ? e.ck : 0, e.cds ? e.cds.map(c => Math.max(0, Math.ceil(c))) : 0, e.order ? 0 : 1,
-        (e.hasteT > this.tick ? 1 : 0) | (e.rageT > this.tick ? 2 : 0) | (e.wardT > this.tick ? 4 : 0));
+        (e.hasteT > this.tick ? 1 : 0) | (e.rageT > this.tick ? 2 : 0) | (e.wardT > this.tick ? 4 : 0), e.mul ? Math.round(e.mul * 100) : 0);
       s.e.push(a);
     }
     return s;

@@ -22,6 +22,8 @@
   <div id="stage">
     <canvas id="c"></canvas>
     <div id="heroInfo"></div>
+    <div id="waveInfo"></div>
+    <button id="fold" title="Hide or show the controls" aria-label="Hide or show the controls"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg></button>
     <div id="news" aria-live="polite"></div>
     <div id="toast"></div>
     <div id="net" hidden></div>
@@ -71,9 +73,11 @@
     <div id="slots"></div>
     <div id="pick"></div>
     <div class="row opts">
-      <label>Mode <select id="lMode"><option value="ffa">Free for all</option><option value="coop">Players vs computers</option></select></label>
-      <label>Computer <select id="lLevel"><option value="0">Easy</option><option value="1" selected>Normal</option><option value="2">Hard</option></select></label>
+      <label>Mode <select id="lMode"><option value="ffa">Free for all</option><option value="coop">Players vs computers</option><option value="survival">Survival: waves and bosses</option></select></label>
+      <label id="lExtraL">More computers <select id="lExtra"><option>0</option><option>1</option><option>2</option><option>3</option><option>4</option></select></label>
+      <label>Difficulty <select id="lLevel"><option value="0">Easy</option><option value="1" selected>Normal</option><option value="2">Hard</option></select></label>
     </div>
+    <p id="lAbout" class="hint"></p>
     <p id="lMsg" class="msg"></p>
     <div class="row">
       <button id="lBack">Back</button>
@@ -91,6 +95,8 @@
       <li><b>Workers</b> gather <b>crystal</b> (◆) from crystals and <b>wood</b> (▮) from trees, and carry it to your Keep. Units cost crystal, buildings cost wood. A new worker goes for whichever you have less of; tap a tree or a crystal to send workers there.</li>
       <li><b>Cottages</b> raise your unit limit. An <b>Outpost</b> is a second place to drop crystal and wood. A new <b>Keep</b> is a whole second base. <b>Walls</b> block the way. <b>Watchtowers</b> shoot.</li>
       <li>The <b>Barracks</b> trains Soldiers, Archers, Guards (tough, slow) and Riders (fast). With a Barracks you can add an <b>Arsenal</b>: Mages (each blast hurts a whole group), Clerics (heal) and Catapults (wreck buildings from far away, cannot hit troops). You can have up to 60 units.</li>
+      <li>Workers <b>repair</b> damaged buildings: select workers and tap the building, or select the building and tap Repair.</li>
+      <li>The ☰ menu lets you change the <b>screen layout</b>, and the small arrow at the edge of the map hides or shows the controls.</li>
       <li>Select a <b>Watchtower</b> to see how far it shoots. Select troops and tap <b>Disband</b> twice to send them home for good, for example if they are stuck.</li>
       <li>Your <b>hero</b> is your strongest unit and comes back at the Keep 30 seconds after falling. Pick one before the game: the <b>Warden</b> (tough fighter), the <b>Ranger</b> (fast archer) or the <b>Sage</b> (healer). It gains experience when it, or troops fighting beside it, defeat enemies. Each level makes it stronger, and levels 2 and 4 unlock new spells.</li>
     </ul>
@@ -111,6 +117,8 @@
     <ul>
       <li>One player hosts and shares the 4-letter code; the others type it and tap Join. Empty seats can be computers.</li>
       <li>If a player's connection drops or they leave the app, a computer holds their base and the game lets them back in on its own when they return. If the app was closed completely, open it again and tap <b>Rejoin game</b>.</li>
+      <li><b>Survival:</b> everyone is on one side against The Horde. Waves walk in from the edges of the map, each bigger and stronger than the last, with a Warlord every fifth wave. It never ends: the score is how many waves you hold.</li>
+      <li><b>Players vs computers:</b> the computers can fill empty seats, and up to four more can be added on top of the four players.</li>
       <li>If the host is knocked out or leaves, another player's device takes over as host and the game carries on.</li>
       <li>The ☰ menu has <b>Give up</b>: you are out, the others play on, and you can stay to watch.</li>
       <li>A game you play alone or host is saved as you go. If the app closes or the page reloads, tap <b>Continue your game</b>.</li>
@@ -123,6 +131,18 @@
   <div class="card">
     <h2>Game menu</h2>
     <button id="askNo" class="big">Keep playing</button>
+    <div class="lay">
+      <div class="pl">Screen layout</div>
+      <div class="row" id="layouts">
+        <button data-lay="dock">Dock<small>controls beside the map</small></button>
+        <button data-lay="over">Overlay<small>map fills the screen</small></button>
+        <button data-lay="lite">Light<small>panel only when needed</small></button>
+      </div>
+      <div class="row">
+        <button id="layLeft">Controls on the left</button>
+        <button id="layMap">Mini-map</button>
+      </div>
+    </div>
     <button id="askGive">Give up<small>You are out, and can stay to watch</small></button>
     <button id="askYes">Leave the game<small id="askMsg">Your base will be lost.</small></button>
   </div>

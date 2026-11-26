@@ -7,8 +7,9 @@ export class View {
   constructor(cfg, me) {
     this.N = cfg.size || MAP_SIZE;
     this.seed = cfg.seed;
-    this.terrain = genMap(cfg.seed, this.N).terrain;
-    this.info = cfg.players.map((p, i) => ({ name: p.name, team: p.team, color: COLORS[p.color ?? i] || COLORS[i], hero: p.hero || 'hero' }));
+    this.terrain = genMap(cfg.seed, this.N, cfg.extra).terrain;
+    this.wave = null; // Survival: [wave number, seconds to the next one]
+    this.info = cfg.players.map((p, i) => ({ name: p.name, team: p.team, color: p.tint || COLORS[p.color ?? i] || COLORS[i % COLORS.length], hero: p.hero || 'hero', horde: !!p.horde }));
     this.me = me; this.team = this.info[me].team;
     this.pl = this.info.map(() => ({ res: 0, pop: 0, cap: 0, alive: true, heroT: 0 }));
     this.ents = new Map(); this.fx = []; this.dirty = []; this.news = []; this.got = false;
@@ -18,6 +19,7 @@ export class View {
   }
   apply(s) {
     this.tick = s.k; this.winner = s.w;
+    if (s.wv) { if (this.wave && s.wv[0] > this.wave[0]) this.waveNews = s.wv[0]; this.wave = s.wv; }
     // who has just been knocked out (not on the first snapshot, which only says how things already stand)
     if (this.got) s.p.forEach((a, i) => { if (this.pl[i].alive && !a[3]) this.news.push(i); });
     this.got = true;
@@ -35,7 +37,7 @@ export class View {
       e.x = a[3]; e.y = a[4]; e.hp = a[5]; e.stamp = s.k;
       if (d.b) { e.built = !!a[6]; e.prog = a[7]; e.queue = a[8]; e.paused = !!a[9]; }
       else { e.carry = a[6]; e.cds = a[7] || null; e.idle = a[8]; e.buff = a[9] || 0; }
-      e.max = d.hero ? Math.round(d.hp * heroMult(this.pl[e.owner].lvl)) : d.hp;
+      e.max = Math.round(d.hp * (d.hero ? heroMult(this.pl[e.owner].lvl) : 1) * (!d.b && a[10] ? a[10] / 100 : 1));
     }
     for (const [id, e] of this.ents) if (e.stamp !== s.k) this.ents.delete(id);
     for (const i of s.rm) { this.terrain[i] = 0; this.dirty.push(i); }
@@ -73,7 +75,8 @@ function rr(g, x, y, w, h, r) {
 const line = (g, x1, y1, x2, y2) => { g.beginPath(); g.moveTo(x1, y1); g.lineTo(x2, y2); g.stroke(); };
 
 function drawUnit(g, e, col) {
-  const t = e.type, isHero = !!DEF[t].hero, big = isHero || t === 'knight', s = big ? 1.2 : 1;
+  const t = e.type, isHero = !!DEF[t].hero, boss = t === 'boss', big = isHero || t === 'knight', s = boss ? 1.9 : big ? 1.2 : 1;
+  if (boss) col = '#3f3a45';
   g.save();
   g.translate(e.rx, e.ry);
   if (e.buff & 6) { // Battle Cry glows red, Ward glows blue
@@ -120,6 +123,13 @@ function drawUnit(g, e, col) {
     g.strokeStyle = '#e5e7eb'; g.lineWidth = .8; line(g, 7.2, by - 3.2, 7.2, by + 9.2);
   } else if (t === 'knight') {
     g.strokeStyle = '#e5e7eb'; line(g, 3, by + 6, 15, by - 8);
+  } else if (boss) { // horns, burning eyes and a great axe
+    g.fillStyle = '#e7e5e4'; g.strokeStyle = 'rgba(20,16,12,.8)'; g.lineWidth = .8;
+    for (const sx of [-1, 1]) { g.beginPath(); g.moveTo(sx * 3, by - 7); g.quadraticCurveTo(sx * 8, by - 9, sx * 7, by - 13); g.quadraticCurveTo(sx * 5, by - 9, sx * 2, by - 8.5); g.closePath(); g.fill(); g.stroke(); }
+    g.fillStyle = '#ef4444'; g.fillRect(.6, by - 5.2, 1.8, 1.6); g.fillRect(3, by - 5.2, 1.5, 1.6);
+    g.strokeStyle = '#57534e'; g.lineWidth = 1.6; line(g, 7, by + 9, 9, by - 9);
+    g.fillStyle = '#d6d3d1'; g.strokeStyle = 'rgba(20,16,12,.8)'; g.lineWidth = .8; g.beginPath(); g.moveTo(9, by - 9); g.quadraticCurveTo(16, by - 10, 14, by - 2); g.lineTo(8.6, by - 4); g.closePath(); g.fill(); g.stroke();
+    g.fillStyle = '#7f1d1d'; g.fillRect(-5, by + 4, 10, 1.6);
   } else if (t === 'guard') { // tall shield, short blade
     g.fillStyle = '#cbd5e1'; g.strokeStyle = 'rgba(0,0,0,.55)'; g.lineWidth = 1;
     rr(g, -11, by - 2, 8, 13, 2.5); g.fill(); g.stroke();
@@ -321,42 +331,61 @@ export class Renderer {
   setView(v) {
     this.view = v;
     const N = v.N, c = this.atlas = document.createElement('canvas');
-    c.width = 32 * T; c.height = T;
+    c.width = 64 * T; c.height = T;
     const ag = c.getContext('2d');
-    for (let t = 0; t < 4; t++) for (let chk = 0; chk < 2; chk++) for (let k = 0; k < 4; k++) this.paint(ag, (t * 8 + chk * 4 + k) * T, 0, t, chk, [96, 3, 14, 5][k]);
+    for (let t = 0; t < 4; t++) for (let chk = 0; chk < 2; chk++) for (let k = 0; k < 8; k++) this.paint(ag, (t * 16 + chk * 8 + k) * T, 0, t, chk, k);
     this.mc = document.createElement('canvas'); this.mc.width = this.mc.height = N;
     this.mimg = this.mc.getContext('2d').createImageData(N, N);
     v.updateFog();
   }
   // One tile of ground. The map is drawn from a small sheet of these every frame, so its size costs no memory.
   paint(g, x, y, t, chk, h) {
-    g.fillStyle = chk ? '#6aa84c' : '#65a247';
-    g.fillRect(x, y, T, T);
-    if (t === 0 && h % 7 === 0) { g.fillStyle = '#7dba5c'; g.fillRect(x + 6 + h % 13, y + 8 + (h >> 4) % 13, 3, 3); }
-    if (t === 1) {
-      g.fillStyle = '#3d86c6'; g.fillRect(x, y, T, T);
-      g.strokeStyle = 'rgba(255,255,255,.35)'; g.lineWidth = 1.5; g.lineCap = 'round';
-      line(g, x + 5 + h % 8, y + 10, x + 14 + h % 8, y + 10); line(g, x + 12, y + 22, x + 24, y + 22);
-    } else if (t === 2) {
-      g.fillStyle = 'rgba(0,0,0,.2)'; g.beginPath(); g.ellipse(x + 17, y + 26, 11, 4, 0, 0, 7); g.fill();
-      g.fillStyle = '#6b4423'; g.fillRect(x + 14, y + 17, 5, 10);
-      g.fillStyle = '#2f6b3a'; g.beginPath(); g.arc(x + 16, y + 13, 12, 0, 7); g.fill();
-      g.fillStyle = '#3f8a4b'; g.beginPath(); g.arc(x + 13, y + 10, 7, 0, 7); g.fill();
-    } else if (t === 3) {
-      g.fillStyle = '#8a8f98'; g.beginPath(); g.ellipse(x + 16, y + 23, 13, 6, 0, 0, 7); g.fill();
-      for (const [cx, hh, c] of [[9, 12, '#38bdf8'], [16, 19, '#7dd3fc'], [23, 13, '#0ea5e9']]) {
-        g.fillStyle = c; g.beginPath();
-        g.moveTo(x + cx, y + 24 - hh); g.lineTo(x + cx + 5, y + 24 - hh / 2); g.lineTo(x + cx + 3, y + 24);
-        g.lineTo(x + cx - 3, y + 24); g.lineTo(x + cx - 5, y + 24 - hh / 2); g.closePath(); g.fill();
-      }
-      g.fillStyle = 'rgba(255,255,255,.7)'; g.fillRect(x + 15, y + 9, 2, 6);
+    // h is the variant, 0 to 7. Most grass is plain; a few variants carry a tuft, flowers or a stone.
+    const k = h & 7, v = k & 3, circle = (cx, cy, rad) => { g.beginPath(); g.arc(x + cx, y + cy, rad, 0, 7); g.fill(); };
+    // grass, with a soft light and dark patch so the ground is not flat
+    g.fillStyle = chk ? '#6bab4d' : '#67a549'; g.fillRect(x, y, T, T);
+    if (k === 1) { g.fillStyle = 'rgba(255,255,255,.05)'; g.beginPath(); g.ellipse(x + 12, y + 12, 10, 7, .4, 0, 7); g.fill(); }
+    if (k === 6) { g.fillStyle = 'rgba(0,0,0,.045)'; g.beginPath(); g.ellipse(x + 19, y + 20, 10, 7, -.3, 0, 7); g.fill(); }
+    if (t === 0) {
+      g.strokeStyle = '#4f8a3a'; g.lineWidth = 1.2; g.lineCap = 'round';
+      const tuft = (cx, cy) => { line(g, x + cx, y + cy, x + cx - 2, y + cy - 4); line(g, x + cx, y + cy, x + cx, y + cy - 5); line(g, x + cx, y + cy, x + cx + 2, y + cy - 4); };
+      if (k === 3) tuft(9, 22);
+      else if (k === 5) { tuft(22, 12); tuft(8, 27); }
+      else if (k === 4) { g.fillStyle = '#fef9c3'; circle(21, 21, 1.6); circle(24, 19, 1.3); g.fillStyle = '#fbbf24'; circle(22.5, 20, .8); tuft(8, 12); }
+      else if (k === 7) { g.fillStyle = '#a8a29e'; circle(10, 23, 2); g.fillStyle = '#d6d3d1'; circle(9.4, 22.4, .9); }
+    } else if (t === 1) { // water: deep blue, a lighter band, a few ripples
+      g.fillStyle = '#3a82c4'; g.fillRect(x, y, T, T);
+      g.fillStyle = 'rgba(125,190,240,.22)'; g.fillRect(x, y + (v * 7) % 22, T, 7);
+      g.strokeStyle = 'rgba(255,255,255,.45)'; g.lineWidth = 1.4; g.lineCap = 'round';
+      g.beginPath(); g.arc(x + 9 + v * 3, y + 11, 5, Math.PI * 1.15, Math.PI * 1.85); g.stroke();
+      g.beginPath(); g.arc(x + 21 - v * 2, y + 24, 5, Math.PI * 1.15, Math.PI * 1.85); g.stroke();
+    } else if (t === 2) { // a tree: trunk, and a canopy of three leafy rounds
+      const ox = [0, 1.5, -1.5, 0][v], sc = [1, .92, 1.06, .98][v];
+      g.fillStyle = 'rgba(0,0,0,.22)'; g.beginPath(); g.ellipse(x + 17 + ox, y + 27, 11 * sc, 4, 0, 0, 7); g.fill();
+      g.fillStyle = '#6b4423'; g.fillRect(x + 14 + ox, y + 18, 4.5, 9);
+      g.fillStyle = '#285f33'; circle(16 + ox, 14, 12 * sc);
+      g.fillStyle = '#348043'; circle(12 + ox, 11, 8 * sc); circle(20 + ox, 13, 7 * sc);
+      g.fillStyle = '#4c9b56'; circle(13 + ox, 8.5, 4.5 * sc);
+      if (v === 2) { g.fillStyle = '#ef4444'; circle(19, 16, 1.4); circle(11, 15, 1.4); } // apples on some
+    } else if (t === 3) { // crystal: three cut shards on a bed of rock
+      g.fillStyle = '#7c8088'; g.beginPath(); g.ellipse(x + 16, y + 24, 13, 6, 0, 0, 7); g.fill();
+      g.fillStyle = '#9ca3af'; g.beginPath(); g.ellipse(x + 15, y + 23, 9, 3.5, 0, 0, 7); g.fill();
+      const shard = (cx, hh, c1, c2) => {
+        g.fillStyle = c1; g.beginPath(); g.moveTo(x + cx, y + 25 - hh); g.lineTo(x + cx + 5, y + 25 - hh / 2); g.lineTo(x + cx + 3, y + 25); g.lineTo(x + cx - 3, y + 25); g.lineTo(x + cx - 5, y + 25 - hh / 2); g.closePath(); g.fill();
+        g.fillStyle = c2; g.beginPath(); g.moveTo(x + cx, y + 25 - hh); g.lineTo(x + cx + 5, y + 25 - hh / 2); g.lineTo(x + cx + 3, y + 25); g.lineTo(x + cx, y + 25); g.closePath(); g.fill();
+      };
+      shard(9, 12 + v, '#7dd3fc', '#38bdf8'); shard(23, 13 - v, '#7dd3fc', '#0ea5e9'); shard(16, 19 + v, '#bae6fd', '#38bdf8');
+      g.fillStyle = 'rgba(255,255,255,.85)'; g.fillRect(x + 14.5, y + 9, 1.6, 6);
     }
   }
   toWorld(sx, sy) { return [sx / this.cam.z + this.cam.x, sy / this.cam.z + this.cam.y]; }
   clamp() {
-    const c = this.cam, W = this.view.N * T, vw = this.w / c.z, vh = this.h / c.z, m = 120;
-    c.x = vw > W + 2 * m ? (W - vw) / 2 : Math.max(-m, Math.min(W + m - vw, c.x));
-    c.y = vh > W + 2 * m ? (W - vh) / 2 : Math.max(-m, Math.min(W + m - vh, c.y));
+    // The camera may travel past each edge of the map: a little everywhere, and further where controls float over
+    // the map (this.pad, in screen pixels), so that nothing on the map is ever stuck behind them.
+    const c = this.cam, W = this.view.N * T, vw = this.w / c.z, vh = this.h / c.z, m = 60, p = this.pad || { l: 0, t: 0, r: 0, b: 0 };
+    const x0 = -m - p.l / c.z, x1 = W + m + p.r / c.z - vw, y0 = -m - p.t / c.z, y1 = W + m + p.b / c.z - vh;
+    c.x = x1 < x0 ? (x0 + x1) / 2 : Math.max(x0, Math.min(x1, c.x));
+    c.y = y1 < y0 ? (y0 + y1) / 2 : Math.max(y0, Math.min(y1, c.y));
   }
   center(x, y) { this.cam.x = x - this.w / this.cam.z / 2; this.cam.y = y - this.h / this.cam.z / 2; this.clamp(); }
   zoomAt(sx, sy, f) {
@@ -382,8 +411,16 @@ export class Renderer {
       for (let ty = y0; ty <= y1; ty++) for (let tx = x0; tx <= x1; tx++) {
         const i = ty * N + tx;
         if (!v.explored[i]) continue;
-        const h = (tx * 73856093 ^ ty * 19349663) >>> 0;
-        g.drawImage(this.atlas, (v.terrain[i] * 8 + ((tx + ty) & 1) * 4 + (h & 3)) * T, 0, T, T, tx * T, ty * T, T + .6, T + .6);
+        let h = Math.imul(tx * 374761393 + ty * 668265263, 1274126177); h ^= h >>> 15; // well mixed, so variants do not line up
+        const tt = v.terrain[i];
+        g.drawImage(this.atlas, (tt * 16 + ((tx + ty) & 1) * 8 + ((h >>> 8) & 7)) * T, 0, T, T, tx * T, ty * T, T + .6, T + .6);
+        if (tt === 1) { // a sandy shore wherever water meets land
+          g.fillStyle = 'rgba(233,224,180,.7)';
+          if (ty > 0 && v.terrain[i - N] !== 1) g.fillRect(tx * T, ty * T, T, 3.5);
+          if (ty < N - 1 && v.terrain[i + N] !== 1) g.fillRect(tx * T, ty * T + T - 3.5, T, 3.5);
+          if (tx > 0 && v.terrain[i - 1] !== 1) g.fillRect(tx * T, ty * T, 3.5, T);
+          if (tx < N - 1 && v.terrain[i + 1] !== 1) g.fillRect(tx * T + T - 3.5, ty * T, 3.5, T);
+        }
       }
     }
 
@@ -416,7 +453,7 @@ export class Renderer {
     }
     units.sort((a, b) => a.ry - b.ry);
     for (const e of units) {
-      const big = DEF[e.type].hero || e.type === 'knight' || e.type === 'catapult';
+      const big = DEF[e.type].hero || e.type === 'knight' || e.type === 'catapult' || e.type === 'boss';
       if (ui.sel.has(e.id)) {
         g.strokeStyle = '#4ade80'; g.lineWidth = 1.6;
         g.beginPath(); g.ellipse(e.rx, e.ry + 6, big ? 13 : 10, big ? 7 : 5.5, 0, 0, 7); g.stroke();
@@ -424,7 +461,8 @@ export class Renderer {
       drawUnit(g, e, v.info[e.owner].color);
       if (clock - e.hurtT < 110) { g.fillStyle = 'rgba(255,255,255,.6)'; g.beginPath(); g.ellipse(e.rx, e.ry - 3 - (e.bob || 0), big ? 10 : 7.5, big ? 13 : 10, 0, 0, 7); g.fill(); } // a white flash when hit
       const max = e.max;
-      if (e.hp < max || ui.sel.has(e.id) || DEF[e.type].hero) bar(g, e.rx, e.ry - (big ? 27 : 19), big ? 20 : 16, e.hp / max, v.friendly(e) ? '#4ade80' : '#f87171');
+      const boss = e.type === 'boss';
+      if (e.hp < max || ui.sel.has(e.id) || DEF[e.type].hero || boss) bar(g, e.rx, e.ry - (boss ? 42 : big ? 27 : 19), boss ? 34 : big ? 20 : 16, e.hp / max, v.friendly(e) ? '#4ade80' : '#f87171');
       if (DEF[e.type].hero) { // level badge
         const lv = v.pl[e.owner].lvl;
         g.fillStyle = '#fbbf24'; g.strokeStyle = '#1f2937'; g.lineWidth = 1;

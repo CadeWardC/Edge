@@ -40,6 +40,15 @@ export class AI {
       if (w) cmd({ t: 'assist', ids: [w.id], b: b.id });
     }
 
+    // Mend buildings once the fighting near them has stopped.
+    if (!me.alert || s.tick - me.alert.tick > 80) {
+      for (const t of Object.keys(by)) for (const b of by[t]) {
+        if (!b.b || !b.built || b.hp > DEF[b.type].hp * 0.75 || DEF[b.type].wall) continue;
+        if (!workers.some(w => w.order && w.order.k === 'repair' && w.order.b === b.id)) cmd({ t: 'repair', b: b.id });
+        break;
+      }
+    }
+
     if (hq && !hq.queue.length && workers.length < this.maxW) cmd({ t: 'train', b: hq.id, u: 'worker' });
 
     const army = [...g('soldier'), ...g('archer'), ...g('knight'), ...g('guard'), ...g('mage'), ...g('catapult')];

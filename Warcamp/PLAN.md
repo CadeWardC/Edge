@@ -15,7 +15,7 @@ is copied, which also means the game can be shared and published freely.
 | Units | Worker, Soldier (melee), Archer (ranged), Guard (tank), Rider (fast, heavy), Mage (splash), Cleric (healer), Catapult (buildings only), and a hero picked before the game (Warden, Ranger or Sage, each with three spells unlocked by levelling up from kills) who returns 30 s after falling. |
 | Buildings | Keep (two more per game; everything else must be built near a finished Keep), Cottage, Outpost, Barracks, Stable, Workshop, Sanctum, Watchtower, Wall. |
 | Map | 112×112 tiles, generated from a seed and mirrored four ways so every player's quarter is equal; the bases sit somewhere different each game. Fog of war and a minimap. |
-| Players | 1 to 4, any mix of people and computers. Free for all, or everyone against the computers. Three computer levels. |
+| Players | 1 to 4 people plus computers (up to 8 sides). Free for all, everyone against the computers, or Survival against endless waves and bosses. Three difficulty levels. |
 | Multiplayer | Host shares a 4-letter code. Peer to peer, no game server. A computer holds the base of a player who drops out, and they rejoin on their own. |
 | Controls | Touch (tap, drag, pinch, hold-and-drag box) and mouse plus keyboard. |
 | PWA | Installable, full screen, works offline after the first visit. |
@@ -43,7 +43,7 @@ Small things that decide whether the game is fun to hold.
 - Sound: taps, attacks, building finished, "under attack", and one looping tune per world. Web Audio, a few kB.
 - Attack-move button and a rally point for each production building.
 - Control groups on desktop (Ctrl+1..9) and a "last selection" button on touch.
-- Repair buildings with workers. (Resuming or cancelling an unfinished building, and cancelling a queued unit,
+- (Done: workers repair buildings.) (Resuming or cancelling an unfinished building, and cancelling a queued unit,
   are done.)
 - Gates for walls.
 - A five-step interactive tutorial on first launch.

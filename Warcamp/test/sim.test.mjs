@@ -345,5 +345,73 @@ for (const seed of [1, 2, 3, 4, 5, 6]) {
   check(s.winner === 0, 'when the last opponent gives up, the remaining player wins');
 }
 
+// Survival: endless waves that grow, a boss every fifth wave, and no way to win.
+{
+  const cfg = { seed: 21, level: 1, mode: 'survival', players: [{ name: 'A', team: 0, ai: true }, { name: 'B', team: 0, ai: true, hero: 'sage' }, { name: 'The Horde', team: 1, horde: true }] };
+  const s = new Sim(cfg), ais = [new AI(s, 0, 2), new AI(s, 1, 2)], H = 2;
+  check(![...s.ents.values()].some(e => e.owner === H) && s.snapshot().wv[0] === 0 && s.snapshot().wv[1] === 90, 'the Horde has no base, and the first wave is 90 seconds away');
+  const sizes = [], seenBoss = [], bossIds = new Set();
+  let lastWave = 0, strongest = 1;
+  while (s.winner === -1 && s.tick < 30000) {
+    for (const a of ais) a.update();
+    s.step(); s.snapshot();
+    if (s.wave !== lastWave) {
+      lastWave = s.wave;
+      const mine = [...s.ents.values()].filter(e => e.owner === H);
+      sizes.push(mine.length);
+      for (const e of mine) if (e.type === 'boss' && !bossIds.has(e.id)) { bossIds.add(e.id); if (!seenBoss.includes(s.wave)) seenBoss.push(s.wave); } // a Warlord that walked in with this wave
+      for (const e of mine) strongest = Math.max(strongest, e.mul || 1);
+    }
+  }
+  check(lastWave >= 5 && sizes[0] > 0 && sizes[0] <= 8, `waves keep coming (${lastWave} in ${(s.tick / 600).toFixed(0)} game-min); the first is small (${sizes[0]} units)`);
+  check(seenBoss.length > 0 && seenBoss.every(w => w % 5 === 0), `a Warlord arrives with every fifth wave (waves ${seenBoss.join(', ')})`);
+  check(strongest > 1.2, `later waves are stronger, not just bigger (up to x${strongest.toFixed(2)} health and damage)`);
+  check(s.winner === 1 || s.winner === -1, s.winner === 1 ? `two hard computers were overrun at wave ${s.wave}: it is hard` : `two hard computers were still standing at wave ${s.wave}`);
+  check(s.winner !== 0 && s.players[H].alive, 'the players can never "win" Survival: the Horde is never knocked out');
+  // one player alone against the Horde, doing nothing: overrun
+  const lone = new Sim({ seed: 5, level: 2, mode: 'survival', players: [{ name: 'A', team: 0 }, { name: 'The Horde', team: 1, horde: true }] });
+  while (lone.winner === -1 && lone.tick < 20000) { lone.step(); lone.snapshot(); }
+  check(lone.winner === 1, `a player who does nothing is overrun (at wave ${lone.wave}, ${(lone.tick / 600).toFixed(1)} game-min)`);
+  // saved and restored mid-wave
+  const text = JSON.stringify(s.save()), back = Sim.restore(cfg, JSON.parse(text));
+  check(back.wave === s.wave && back.waveAt === s.waveAt && back.hordeId === H, 'a saved Survival game comes back at the same wave');
+}
+
+// Eight players: four seats and four more computers, each on its own base site.
+{
+  const players = [0, 1, 2, 3, 4, 5, 6, 7].map(i => ({ name: 'P' + i, team: i < 4 ? 0 : 1, ai: true }));
+  const s = new Sim({ seed: 31, extra: true, players });
+  const hqs = [...s.ents.values()].filter(e => e.type === 'hq');
+  const spots = new Set(hqs.map(h => h.tx + ',' + h.ty));
+  let linked = true;
+  const [ax, ay] = s.basePos(0);
+  for (let i = 1; i < 8; i++) { const [bx, by] = s.basePos(i), p = s.findPath(ax, ay + 3, bx, by + 3, bx, by + 3); if (p[p.length - 1] !== (by + 3) * s.N + bx) linked = false; }
+  check(hqs.length === 8 && spots.size === 8 && linked, 'eight players get eight separate bases, all connected');
+  const plain = genMap(31, s.N), withExtra = genMap(31, s.N, true);
+  check(plain.terrain.some((v, i) => v !== withExtra.terrain[i]) && genMap(31, s.N).terrain.every((v, i) => v === plain.terrain[i]), 'the extra base sites only appear when asked for');
+  const ais = players.map((_, i) => new AI(s, i, 1));
+  while (s.winner === -1 && s.tick < 60000) { for (const a of ais) a.update(); s.step(); s.snapshot(); }
+  check(s.winner === 0 || s.winner === 1, `a 4 v 4 game finishes (team ${s.winner} won after ${(s.tick / 600).toFixed(1)} game-min, ${s.ents.size} entities at the end)`);
+}
+
+// Workers repair damaged buildings.
+{
+  const s = new Sim({ seed: 3, players: [{ name: 'a', team: 0 }, { name: 'b', team: 1 }] });
+  const run = n => { for (let i = 0; i < n; i++) { s.step(); s.snapshot(); } };
+  const hq = [...s.ents.values()].find(e => e.type === 'hq' && e.owner === 0), ws = [...s.ents.values()].filter(e => e.type === 'worker' && e.owner === 0);
+  run(50); hq.hp = 700;
+  const w0 = s.players[0].wood;
+  s.command(1, { t: 'repair', b: hq.id }); s.command(0, { t: 'repair', ids: [ws[0].id], b: hq.id });
+  check(ws[0].order.k === 'repair' && ws[1].order.k === 'harvest', 'the worker that was sent goes to repair; the others keep gathering');
+  run(300);
+  const mid = hq.hp;
+  run(1200);
+  check(mid > 700 && mid < 1400 && hq.hp === 1400 && ws[0].order && ws[0].order.k === 'harvest', `repair takes time (700 -> ${Math.round(mid)} after 30 s -> ${hq.hp}), then the worker goes back to gathering`);
+  hq.hp = 900; s.command(0, { t: 'repair', b: hq.id });
+  check([...s.ents.values()].filter(e => e.owner === 0 && e.order && e.order.k === 'repair').length === 2, 'with no workers named, the two nearest free ones go');
+  s.command(0, { t: 'repair', ids: [ws[2].id], b: ws[0].id });
+  check(ws[2].order.k !== 'repair' || ws[2].order.b === hq.id, 'a unit cannot be "repaired"');
+}
+
 if (failed) { console.error(`${failed} check(s) failed`); process.exit(1); }
 console.log('all checks passed');
