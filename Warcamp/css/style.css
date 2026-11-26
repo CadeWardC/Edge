@@ -481,6 +481,8 @@ input, select { background: var(--dock); border: 1px solid #3b4d6b; border-radiu
 #game.on:is(.lay-over, .lay-lite, .folded) #fold { bottom: max(var(--pb, 0px), env(safe-area-inset-bottom)); }
 /* An installed iPhone app can report a screen shorter than it is, which left an empty band along the bottom: main.js measures the real height. */
 #game, .screen { height: var(--fh, auto); }
+/* The stretched part lies outside what the page thinks is the screen, so the page must not clip to that. */
+html.tall, html.tall body { overflow: visible; }
 
 /* The run summary on the end screen (Nomad). */
 .stats { list-style: none; margin: 0 0 6px; padding: 0 !important; display: flex; flex-direction: column; gap: 2px; }

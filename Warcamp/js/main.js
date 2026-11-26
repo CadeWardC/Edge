@@ -829,21 +829,24 @@ addEventListener('keydown', e => {
 });
 addEventListener('keyup', e => keys.delete(e.key.toLowerCase()));
 addEventListener('blur', () => keys.clear());
-// An installed iPhone app can lay the page out shorter than the screen (by the height of the clock bar). Use the real height.
+// An installed iPhone app whose page runs under the clock can be laid out shorter than the screen, by the height
+// of the clock bar, leaving an empty band along the bottom. Only then is the page stretched to the real height.
 function fit() {
   let h = 0;
   if (navigator.standalone) {
-    // Measure what a full-height fixed box really gets, whatever the window claims to be.
     const pr = document.createElement('div');
-    pr.style.cssText = 'position:fixed;top:0;bottom:0;left:0;width:0;visibility:hidden';
+    pr.style.cssText = 'position:fixed;top:0;bottom:0;left:0;width:0;visibility:hidden;padding-top:env(safe-area-inset-top)';
     document.body.appendChild(pr);
-    const have = pr.getBoundingClientRect().height, wide = pr.parentElement.clientWidth || innerWidth;
+    const have = pr.getBoundingClientRect().height, wide = pr.parentElement.clientWidth || innerWidth, bar = parseFloat(getComputedStyle(pr).paddingTop) || 0;
     pr.remove();
     const full = have >= wide ? Math.max(screen.width, screen.height) : Math.min(screen.width, screen.height);
-    if (full > have + 1 && full - have < 100) h = full;
+    // The missing height must be the clock bar itself. When the page starts below the clock (bar is 0) it is
+    // simply that much shorter, and stretching it would push the bottom of the screen out of sight.
+    if (bar > 0 && Math.abs(full - have - bar) < 12) h = full;
   }
   const st = document.documentElement.style;
   if (h) st.setProperty('--fh', h + 'px'); else st.removeProperty('--fh');
+  document.documentElement.classList.toggle('tall', !!h); // lets the stretched part show: see style.css
 }
 fit(); setTimeout(fit, 300); setTimeout(fit, 1500);
 { const ver = new URL(import.meta.url).searchParams.get('v'); $('mVer').textContent = 'Version ' + (ver ? ver.slice(0, 7) : 'dev'); $('mVer').hidden = false; }
