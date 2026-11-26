@@ -11,9 +11,14 @@ their workers and kill their hero.
   from kills and unlock two more spells.
 - Eight kinds of troops (Soldier, Archer, Guard, Rider, Mage, Cleric, Catapult, plus Workers) from two buildings, up to
   60 units, walls, and extra Keeps on a large map where the starting spots change every game.
-- **Multiplayer** for 2 to 4 people on their own devices, in three modes: free for all; everyone against the
-  computers (which can fill empty seats, plus up to four more); and **Survival**, everyone on one side against
-  endless, growing waves with a Warlord every fifth wave.
+- **Multiplayer** for 2 to 4 people on their own devices. Every mode also plays alone: free for all; everyone against
+  the computers (which can fill empty seats, plus up to four more); **Survival**, everyone on one side, their Keeps
+  together in the middle of the map, against endless, growing waves from its edges with a Warlord every fifth wave;
+  and **Nomad**, no base at all: lead a hero and a small party as far from the start as you can, past camps that lie
+  in wait or patrol, with waves hunting you the further you push.
+- Four **maps**, each generated afresh every game: Open fields, an Island ringed by sea (bays, coves, narrow
+  peninsulas), a Deep forest (winding clearings and narrow paths) and Rivers and bridges (four rivers, crossed only
+  by bridges). Nothing sails yet, so water is a wall.
 - **Touch first**, and it also plays with mouse and keyboard.
 - The controls float over a full-screen map by default; two other layouts (Dock, Light) are in the game menu, a button to put the controls away,
   and a left-handed option. In Dock the controls never cover the battlefield; in the others the map fills the screen
@@ -88,8 +93,10 @@ No build step and no dependencies to install: plain ES modules and a canvas.
 
 | File | What it does |
 | --- | --- |
-| `js/data.js` | Every unit and building number. Balance changes happen here. |
-| `js/sim.js` | The simulation: map generation, pathfinding, gathering, building, combat, win check. No DOM, no network. |
+| `js/data.js` | Every unit and building number, and the numbers of Survival and Nomad. Balance changes happen here. |
+| `js/maps.js` | The maps. Each is generated from the seed, one quarter mirrored four ways. A new map is one more entry in `MAPS` and `STYLES`. |
+| `js/sim.js` | The simulation: pathfinding, gathering, building, combat, Survival waves, win check. No DOM, no network. |
+| `js/nomad.js` | Nomad mode: the parties, the camps, the waves and the distance. Called by the simulation. |
 | `js/ai.js` | The computer player. It gives the same commands a person does. |
 | `js/render.js` | What a screen knows (rebuilt from snapshots), fog of war, drawing, minimap. |
 | `js/net.js` | Room codes and connections. |
@@ -106,8 +113,10 @@ their orders. The host draws from the same snapshots, so single player and multi
 node Warcamp/test/sim.test.mjs
 ```
 
-Plays complete computer-versus-computer games without a browser and checks that maps are fair and connected,
-that every game ends, that workers never stand idle and that bad input from the network is ignored.
+Plays complete computer-versus-computer games without a browser and checks that every map is fair and connected,
+that water cannot be crossed except by bridge, that every game ends, that workers never stand idle, that Survival
+starts in the middle with the gates at the edges, that a Nomad run counts distance, sends waves and ends properly,
+and that bad input from the network is ignored.
 Adding `?net=local` to the URL connects tabs of one browser to each other without the internet, and
 `?speed=8` fast-forwards a hosted game; both are for testing.
 

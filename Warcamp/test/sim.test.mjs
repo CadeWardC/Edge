@@ -2,6 +2,8 @@
 // Plays whole AI-vs-AI games with no browser and fails on any exception or a game that never ends.
 import { Sim, genMap } from '../js/sim.js';
 import { AI } from '../js/ai.js';
+import { MAPS, makeMap } from '../js/maps.js';
+import { NOMAD } from '../js/data.js';
 
 let failed = 0;
 const check = (ok, msg) => { if (!ok) { failed++; console.error('FAIL', msg); } else console.log('ok  ', msg); };
@@ -451,6 +453,205 @@ for (const seed of [1, 2, 3, 4, 5, 6]) {
   s.command(0, { t: 'build', ids: ws, b: 'outpost', tx: site[0], ty: site[1] });
   s.command(0, { t: 'build', ids: ws, b: 'house', tx: site[0] + 4, ty: site[1] });
   check([...s.ents.values()].some(e => e.type === 'outpost') && ![...s.ents.values()].some(e => e.type === 'house'), 'an Outpost can be built far from any Keep; other buildings still cannot');
+}
+
+// ---------------------------------------------------------------- maps
+// Every map on offer: mirrored four ways, all bases joined by land, and no open ground that cannot be walked to.
+for (const { id } of MAPS) {
+  let sym = true, linked = true, stranded = 0, water = 0, trees = 0, decks = 0;
+  for (const seed of [1, 2, 3, 99, 12345]) {
+    for (const flags of [{}, { cluster: true }, { extra: true }]) {
+      const players = Array.from({ length: flags.extra ? 8 : 4 }, (_, i) => ({ name: 'P' + i, team: flags.cluster ? (i < 2 ? 0 : 1) : i }));
+      const s = new Sim({ seed, map: id, ...flags, players }), n = s.N;
+      for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) if (s.terrain[y * n + x] !== s.terrain[(n - 1 - y) * n + (n - 1 - x)] || s.terrain[y * n + x] !== s.terrain[y * n + (n - 1 - x)]) sym = false;
+      const [ax, ay] = s.basePos(0);
+      for (let i = 1; i < players.length; i++) { const [bx, by] = s.basePos(i), p = s.findPath(ax, ay + 3, bx, by + 3, bx, by + 3); if (p[p.length - 1] !== (by + 3) * n + bx) linked = false; }
+      if (id !== 'classic') for (let i = 0; i < n * n; i++) if (s.terrain[i] === 0 && !s.reach[i]) stranded++;
+      if (!flags.cluster && !flags.extra) for (let i = 0; i < n * n; i++) { if (s.terrain[i] === 1) water++; if (s.terrain[i] === 2) trees++; if (s.deck && s.deck[i]) decks++; }
+    }
+  }
+  const pct = v => Math.round(v / 5 / 112 / 112 * 100);
+  check(sym && linked && stranded === 0, `map "${id}": mirrored, every base joined by land${id === 'classic' ? '' : ', no open ground cut off'} (${pct(water)}% water, ${pct(trees)}% trees${decks ? `, ${decks / 5 / 2} bridges` : ''})`);
+}
+{
+  const m = id => makeMap({ seed: 7, map: id });
+  const share = (t, v) => t.reduce((a, x) => a + (x === v), 0) / t.length;
+  const isl = m('island'), n = 112;
+  let rim = true;
+  for (let i = 0; i < n; i++) for (const j of [i, (n - 1) * n + i, i * n, i * n + n - 1]) if (isl.terrain[j] !== 1) rim = false;
+  check(rim && share(isl.terrain, 1) > .15 && share(isl.terrain, 1) < .4, 'the Island is ringed by sea on every edge, and is mostly land');
+  check(share(m('forest').terrain, 2) > .6, `the Deep forest is mostly trees (${Math.round(share(m('forest').terrain, 2) * 100)}%)`);
+  check(!m('classic').deck && !isl.deck && m('unknown-map').terrain.every((v, i) => v === m('classic').terrain[i]), 'only the river map has bridges, and an unknown map name is the original map');
+}
+// Water is a wall. On the river map the only ways across are the bridges: close them and the far bank cannot be reached.
+{
+  const s = new Sim({ seed: 4, map: 'rivers', players: [{ name: 'a', team: 0 }, { name: 'b', team: 1 }] }), n = s.N;
+  const [ax, ay] = s.basePos(0), [bx, by] = s.basePos(1);
+  const arrives = () => { const p = s.findPath(ax, ay + 3, bx, by + 3, bx, by + 3); return p[p.length - 1] === (by + 3) * n + bx; };
+  const path = s.findPath(ax, ay + 3, bx, by + 3, bx, by + 3);
+  check(arrives() && path.every(i => s.terrain[i] === 0) && path.some(i => s.deck[i]), 'a path between two bases never touches water, and crosses by bridge');
+  const hero = [...s.ents.values()].find(e => e.owner === 0 && e.cds);
+  s.command(0, { t: 'move', ids: [hero.id], x: (bx + .5) * 32, y: (by + 3.5) * 32 });
+  let wet = 0, crossed = false;
+  for (let t = 0; t < 2500 && hero.order; t++) { s.step(); s.snapshot(); const i = s.tileOf(hero.y) * n + s.tileOf(hero.x); if (s.terrain[i] === 1) wet++; if (s.deck[i]) crossed = true; }
+  check(wet === 0 && crossed && Math.hypot(hero.x / 32 - bx, hero.y / 32 - by - 3) < 2, 'a hero sent to the enemy base walks there over the bridges and never sets foot in water');
+  const d = s.deck.indexOf(1), dx = d % n, dy = (d / n) | 0;
+  s.players[0].wood = 500;
+  const w = [...s.ents.values()].find(e => e.owner === 0 && e.type === 'worker');
+  s.command(0, { t: 'build', ids: [w.id], b: 'wall', tx: dx, ty: dy });
+  check(s.walkable(dx, dy) && !s.canPlace('wall', dx, dy) && ![...s.ents.values()].some(e => e.type === 'wall'), 'a bridge can be walked on but not built on');
+  for (let i = 0; i < n * n; i++) if (s.deck[i]) s.terrain[i] = 1;
+  check(!arrives(), 'with the bridges gone there is no way across the rivers');
+}
+// Computers can play a whole game on each new map.
+for (const [map, seed, n] of [['island', 5, 2], ['island', 42, 4], ['forest', 5, 2], ['forest', 42, 4], ['rivers', 5, 2], ['rivers', 42, 4]]) {
+  const sim = new Sim({ seed, map, players: Array.from({ length: n }, (_, i) => ({ name: 'AI' + i, team: i })) });
+  const ais = sim.players.map((_, i) => new AI(sim, i, 1));
+  let built = 0;
+  while (sim.winner === -1 && sim.tick < 60000) { for (const a of ais) a.update(); sim.step(); sim.snapshot(); if (sim.tick === 3000) built = [...sim.ents.values()].filter(e => e.b && e.built).length; }
+  check(sim.winner >= 0 && built >= n * 4, `${n} AIs on "${map}" build up (${built} buildings after 5 game-min) and finish: winner team ${sim.winner} after ${(sim.tick / 600).toFixed(1)} game-min`);
+}
+
+// ---------------------------------------------------------------- Survival: together in the middle, the Horde from the edges
+for (const { id } of MAPS) {
+  const cfg = { seed: 21, map: id, mode: 'survival', center: true, extra: true, players: [0, 1, 2, 3].map(i => ({ name: 'P' + i, team: 0 })).concat([{ name: 'The Horde', team: 1, horde: true }]) };
+  const s = new Sim(cfg), n = s.N, mid = (n - 1) / 2;
+  const keeps = [...s.ents.values()].filter(e => e.type === 'hq'), far = Math.max(...keeps.map(k => Math.hypot(k.x / 32 - n / 2, k.y / 32 - n / 2)));
+  let apart = 0;
+  for (const a of keeps) for (const b of keeps) apart = Math.max(apart, Math.hypot(a.x - b.x, a.y - b.y) / 32);
+  check(keeps.length === 4 && far < n * 0.2 && apart < n * 0.4, `Survival on "${id}": four Keeps round the middle of the map (within ${far.toFixed(0)} tiles of it, at most ${apart.toFixed(0)} apart)`);
+  // every gate is out by the edge, further out than any Keep, and can walk to the players
+  let ok = true, nearest = 1e9;
+  for (const g of [[n >> 1, 3], [n >> 1, n - 4], [3, n >> 1], [n - 4, n >> 1], [3, 3], [n - 4, 3], [3, n - 4], [n - 4, n - 4]]) {
+    const [gx, gy] = s.gate(...g), [bx, by] = s.basePos(0), p = s.findPath(gx, gy, bx, by + 3, bx, by + 3);
+    const d = Math.max(Math.abs(gx - mid), Math.abs(gy - mid));
+    nearest = Math.min(nearest, d);
+    if (!s.walkable(gx, gy) || p[p.length - 1] !== (by + 3) * n + bx) ok = false;
+  }
+  check(ok && nearest > far + 8, `Survival on "${id}": all eight gates are out towards the edge (at least ${nearest.toFixed(0)} tiles from the middle) and every one has a way to the Keeps`);
+}
+{
+  // two players are neighbours, not opposite corners
+  const s = new Sim({ seed: 3, mode: 'survival', center: true, extra: true, players: [{ name: 'A', team: 0 }, { name: 'B', team: 0 }, { name: 'The Horde', team: 1, horde: true }] });
+  const [a, b] = [s.basePos(0), s.basePos(1)];
+  check(Math.hypot(a[0] - b[0], a[1] - b[1]) < 30 && a[1] === b[1], `two Survival players start side by side (${Math.hypot(a[0] - b[0], a[1] - b[1]).toFixed(0)} tiles apart, not ${Math.hypot(112 - 2 * s.base[0], 112 - 2 * s.base[1]).toFixed(0)})`);
+  while (s.wave < 1) { s.step(); s.snapshot(); }
+  const horde = [...s.ents.values()].filter(e => e.owner === 2);
+  check(horde.length > 0 && horde.every(e => s.reach[s.tileOf(e.y) * s.N + s.tileOf(e.x)]), 'the first wave walks in on ground that leads to the players');
+}
+
+// ---------------------------------------------------------------- single player: a computer that loses its Keep
+{
+  const play = rich => {
+    const s = new Sim({ seed: 5, players: [{ name: 'me', team: 0 }, { name: 'ai', team: 1, ai: true }] }), ai = new AI(s, 1, 1), P = s.players[1];
+    const mend = () => { for (const e of s.ents.values()) if (e.owner === 0 && e.type === 'hq') e.hp = 1400; }; // keep the game going
+    for (let i = 0; i < 3000; i++) { mend(); ai.update(); s.step(); s.snapshot(); }
+    if (rich) { P.res = 900; P.wood = 900; } else { P.res = 0; P.wood = 0; for (const e of [...s.ents.values()]) if (e.owner === 1 && e.type === 'outpost') s.kill(e); }
+    s.kill([...s.ents.values()].find(e => e.type === 'hq' && e.owner === 1));
+    let at = -1, charge = false;
+    for (let i = 0; i < 3000; i++) {
+      mend(); ai.update(); s.step(); s.snapshot();
+      if (at < 0 && [...s.ents.values()].some(e => e.type === 'hq' && e.owner === 1 && e.built)) at = i;
+      if ([...s.ents.values()].some(e => e.owner === 1 && e.type === 'worker' && e.order && (e.order.k === 'amove' || e.order.k === 'attack'))) charge = true;
+    }
+    return { at, charge };
+  };
+  const a = play(true), b = play(false);
+  check(a.at > 0, `a computer that loses its Keep and can pay for another builds one (${(a.at / 10).toFixed(0)} s later)`);
+  check(b.at < 0 && b.charge, 'one with nothing left and nowhere to bring anything sends its workers into a last stand, so the game can end');
+}
+
+// ---------------------------------------------------------------- Nomad
+{
+  const mk = (map, seed, n = 1, wave = 1) => new Sim({ seed, map, mode: 'nomad', size: NOMAD.map, wave,
+    players: Array.from({ length: n }, (_, i) => ({ name: 'P' + i, team: 0, hero: ['hero', 'sage', 'ranger'][i % 3] })).concat([{ name: 'The Horde', team: 1, horde: true }]) });
+  // A simple player: keeps the party together and attack-moves a few tiles at a time towards the far end.
+  const march = (s, p) => {
+    const nm = s.nomad, mine = [...s.ents.values()].filter(e => e.owner === p), hero = mine.find(e => e.cds);
+    if (!hero) return;
+    const fighting = mine.some(e => e.order && e.order.k === 'attack');
+    if (fighting) { for (let n = 0; n < 3; n++) s.command(p, { t: 'ability', id: hero.id, n }); const idle = mine.filter(e => !e.order).map(e => e.id); if (idle.length) s.command(p, { t: 'move', a: 1, ids: idle, x: hero.x, y: hero.y }); return; }
+    const cx = mine.reduce((a, e) => a + e.x, 0) / mine.length, cy = mine.reduce((a, e) => a + e.y, 0) / mine.length;
+    if (Math.max(...mine.map(e => Math.hypot(e.x - cx, e.y - cy))) > 130) return s.command(p, { t: 'move', a: 1, ids: mine.map(e => e.id), x: cx, y: cy });
+    const path = s.findPath(s.tileOf(cx), s.tileOf(cy), nm.gx, nm.gy, nm.gx, nm.gy), i = path[Math.min(path.length - 1, 7)];
+    if (i != null) s.command(p, { t: 'move', a: 1, ids: mine.map(e => e.id), x: (i % s.N + .5) * 32, y: (((i / s.N) | 0) + .5) * 32 });
+  };
+
+  // how a run is set up
+  for (const { id } of MAPS) {
+    const s = mk(id, 11), nm = s.nomad, H = 1, n = s.N;
+    const mine = [...s.ents.values()].filter(e => e.owner === 0), foes = [...s.ents.values()].filter(e => e.owner === H);
+    const onLand = foes.every(e => s.reach[s.tileOf(e.y) * n + s.tileOf(e.x)]);
+    const kinds = [0, 1, 2].map(k => nm.camps.filter(c => c.k === k).length);
+    const nearest = Math.min(...foes.map(e => Math.hypot(e.x / 32 - nm.ox, e.y / 32 - nm.oy)));
+    const goal = s.findPath(nm.ox, nm.oy, nm.gx, nm.gy, nm.gx, nm.gy);
+    check(!mine.some(e => e.b || e.type === 'worker') && mine.length === 1 + NOMAD.party.length && mine.filter(e => e.cds).length === 1,
+      `Nomad on "${id}": no Keep and no workers, a hero and a party of ${NOMAD.party.length}`);
+    check(kinds[0] > 10 && kinds[1] > 5 && kinds[2] === 1 && onLand && nearest >= NOMAD.safe - 2 && goal[goal.length - 1] === nm.gy * n + nm.gx && foes.some(e => e.type === 'boss'),
+      `Nomad on "${id}": ${kinds[0]} camps lying in wait, ${kinds[1]} patrols and a Warlord's camp at the far end, all on ground the party can walk to, none within ${Math.floor(nearest)} tiles of the start; the far end is ${nm.far} tiles away`);
+  }
+
+  // distance, waves, ambushes, recruits, and the two ways a run ends
+  {
+    const s = mk('classic', 3), nm = s.nomad, seen = { w: 0, a: 0, c: 0 };
+    let snap = s.snapshot(), bestSeen = 0, backwards = false, recruits = 0, hunters = 0, waveOutOfSight = true;
+    check(snap.wv === undefined && snap.nm[0] === 0 && snap.nm[1] === 0 && snap.nm[2] === NOMAD.step && snap.nm[5] === nm.camps.length && s.winner === -1, 'a run starts at distance 0 with no wave yet; the next comes at ' + NOMAD.step + ' tiles');
+    for (let t = 0; t < 250; t++) { s.step(); snap = s.snapshot(); }
+    check(snap.nm[0] <= 2 && snap.nm[1] === 0 && s.winner === -1, 'standing still earns no distance and, at first, no wave');
+    while (s.winner === -1 && s.tick < 36000) {
+      if (s.tick % 20 === 0) march(s, 0);
+      const before = s.ents.size;
+      s.step(); snap = s.snapshot();
+      if (snap.nm[0] < bestSeen) backwards = true;
+      bestSeen = snap.nm[0];
+      for (const e of snap.nm[6]) {
+        seen[e[0]]++;
+        if (e[0] === 'c') recruits += e[2];
+        if (e[0] === 'w') { // a wave has just appeared: nowhere the party can see
+          const hero = [...s.ents.values()].find(u => u.owner === 0 && u.cds);
+          for (const u of s.ents.values()) if (u.hunt && u.id > s.nextId - 40) { hunters++; if (hero && Math.hypot(u.x - hero.x, u.y - hero.y) < 9 * 32) waveOutOfSight = false; }
+        }
+      }
+    }
+    check(bestSeen > 60 && !backwards && nm.best === bestSeen, `the furthest distance only ever goes up (to ${bestSeen} tiles of ${nm.far} in ${(s.tick / 600).toFixed(1)} game-min)`);
+    check(seen.w >= 2 && seen.w === nm.wave && hunters > 0 && waveOutOfSight, `pushing outward sets off waves (${seen.w}), each appearing out of the party's sight`);
+    check(seen.a >= 1 && seen.c >= 1 && seen.c === nm.cleared && recruits >= 1 && nm.kills > 5, `camps are sprung (${seen.a}) and cleared (${seen.c}), freeing ${recruits} recruits; ${nm.kills} of the Horde defeated`);
+    check(s.winner === 1 && !nm.won && ![...s.ents.values()].some(e => e.owner === 0), 'when the hero falls the run is over, and the Horde has won it');
+    const steps = s.tick; s.step();
+    check(s.tick === steps, 'nothing moves after the run has ended');
+  }
+  {
+    // waiting does not keep the Horde away for ever
+    const s = mk('island', 2);
+    while (s.nomad.wave < 1 && s.tick < 2000) { s.step(); s.snapshot(); }
+    check(s.nomad.wave === 1 && Math.abs(s.tick - NOMAD.patience * 10) < 20 && s.nomad.best < NOMAD.step, `a party that stays put is tracked down after ${NOMAD.patience} seconds`);
+    // clearing the camp at the far end completes the journey
+    const w = mk('rivers', 2), nm = w.nomad, last = nm.camps.length - 1, hero = [...w.ents.values()].find(e => e.owner === 0 && e.cds);
+    hero.x = (nm.gx - 8 + .5) * 32; hero.y = (nm.gy + .5) * 32;
+    for (const e of [...w.ents.values()]) if (e.camp === last) w.kill(e);
+    for (let t = 0; t < 12; t++) { w.step(); w.snapshot(); }
+    check(w.winner === 0 && nm.won === 1 && nm.best >= nm.far, 'beating the camp at the far end completes the journey: the players win, at the full distance');
+  }
+  {
+    // two players travel together; the run lasts until the last hero falls
+    const s = mk('forest', 9, 2), heroes = [...s.ents.values()].filter(e => e.cds);
+    check(heroes.length === 2 && Math.hypot(heroes[0].x - heroes[1].x, heroes[0].y - heroes[1].y) < 10 * 32 && s.enemy(heroes[0], heroes[1]) === false, 'two players set out from the same place, on the same side');
+    s.kill(heroes[0]); for (let t = 0; t < 12; t++) s.step();
+    check(!s.players[0].alive && s.players[1].alive && s.winner === -1, 'one hero falling takes that party out; the other travels on');
+    s.kill(heroes[1]); for (let t = 0; t < 12; t++) s.step();
+    check(s.winner === 1, 'the last hero falling ends the run');
+    const one = mk('classic', 5, 1, 1), four = mk('classic', 5, 4, 3), size = x => [...x.ents.values()].filter(e => e.owner === x.hordeId).length;
+    const tough = x => Math.max(...[...x.ents.values()].filter(e => e.owner === x.hordeId && e.type !== 'boss').map(e => e.mul));
+    check(size(four) > size(one) * 1.2 && size(four) < 450 && tough(four) > tough(one) * 1.3 && four.lv.name === 'Nightmare', `more players and a harder setting face more in the camps (${size(one)} against ${size(four)}), and tougher (x${tough(one).toFixed(2)} against x${tough(four).toFixed(2)})`);
+  }
+  {
+    // saved and restored mid-run: the same run carries on
+    const cfg = { seed: 8, map: 'forest', mode: 'nomad', size: NOMAD.map, wave: 1, players: [{ name: 'A', team: 0 }, { name: 'The Horde', team: 1, horde: true }] };
+    const a = new Sim(cfg), go = (s, n) => { let last; for (let i = 0; i < n && s.winner === -1; i++) { if (s.tick % 20 === 0) march(s, 0); s.step(); last = s.snapshot(); } return JSON.stringify(last); };
+    go(a, 700);
+    const b = Sim.restore(cfg, JSON.parse(JSON.stringify(a.save())));
+    check(b.nomad.best === a.nomad.best && b.nomad.best > 10 && go(a, 600) === go(b, 600), `a Nomad run saved ${a.nomad.best} tiles out and restored plays on exactly as the original`);
+  }
 }
 
 if (failed) { console.error(`${failed} check(s) failed`); process.exit(1); }

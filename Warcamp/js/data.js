@@ -85,3 +85,33 @@ export const SURVIVAL = {
   limit: 90,            // most Horde units on the map at once
   unlock: [['soldier', 1], ['archer', 2], ['guard', 3], ['knight', 4], ['mage', 6], ['catapult', 8]],
 };
+
+// Nomad: no base. Each player leads a hero and a small party away from where they start; the score is how far they
+// get. Camps of the Horde lie in wait or patrol along the way, and the further the party pushes, the more waves hunt it.
+export const NOMAD = {
+  map: 192,             // tiles per side: a longer road than the usual map
+  party: ['soldier', 'soldier', 'soldier', 'guard', 'archer', 'archer', 'archer', 'cleric'], // who sets out with the hero
+  cap: 24,              // most troops one party can hold, recruits included
+  camps: 44,            // camps on a map of that size, a third of them patrols
+  safe: 14,             // no camp this close to the start (tiles)
+  spacing: 11,          // or this close to another camp
+  step: 20,             // a wave is sent each time the party gets this many tiles further out than ever before
+  patience: 120,        // and one tracks it down anyway after this many seconds without a wave
+  minGap: 45,           // but never two waves within this many seconds
+  ring: 15,             // waves appear this many tiles from the leading hero: out of sight
+  limit: 60,            // most hunters on the map at once
+  bossEvery: 5,
+  // Waves follow the Survival difficulty that was picked: `hard` scales them, `grow` compounds.
+  wave: (n, players, L) => Math.round((2 + n * 1.6) * (0.5 + 0.5 * players) * L.hard * L.grow ** (n - 1)),
+  strength: (n, players, L) => (0.8 + n * 0.05) * (0.85 + 0.15 * L.hard) * (1 + 0.06 * (players - 1)) * L.grow ** ((n - 1) / 2),
+  boss: (n, players, L) => (0.4 + n * 0.03) * (0.85 + 0.15 * L.hard) * (1 + 0.3 * (players - 1)),
+  hunters: [['soldier', 1], ['archer', 2], ['knight', 3], ['guard', 5], ['mage', 7]],
+  // Camps grow with f, how far along the way they are (0 at the start, 1 at the far end).
+  // More players meet bigger camps, but a camp is never more than eight strong: past that its members get tougher instead.
+  camp: (f, players, L) => Math.min(8, Math.round((2 + f * 6) * (0.8 + 0.2 * players) * L.hard)),
+  campStrength: (f, players, L) => (0.75 + f * 0.9) * (0.85 + 0.15 * L.hard) * (1 + 0.12 * (players - 1)),
+  campKinds: [['soldier', 0], ['archer', 0.1], ['guard', 0.25], ['knight', 0.4], ['mage', 0.55]],
+  // Clearing a camp frees its captives, who join whoever is nearest: two from a camp lying in wait, one from a patrol.
+  recruits: ['soldier', 'archer', 'guard', 'soldier', 'archer', 'cleric', 'knight', 'mage'],
+  mend: 0.3,            // and everyone in that party nearby gets this much of their health back
+};

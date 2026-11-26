@@ -40,7 +40,7 @@ input, select { background: var(--dock); border: 1px solid #3b4d6b; border-radiu
 .row { display: flex; gap: 8px; }
 .row > * { flex: 1; }
 .row.opts { flex-wrap: wrap; }
-.row.opts label { flex: 1 1 130px; min-width: 0; }
+.row.opts label { flex: 1 1 180px; min-width: 0; }
 .row.opts select { min-width: 0; width: 100%; }
 #code { text-transform: uppercase; letter-spacing: 6px; text-align: center; font-weight: 700; }
 .code { margin: 0; text-align: center; color: var(--dim); }
@@ -478,3 +478,8 @@ input, select { background: var(--dock); border: 1px solid #3b4d6b; border-radiu
 #game.on:is(.lay-over, .lay-lite, .folded) #fold { bottom: max(var(--pb, 0px), env(safe-area-inset-bottom)); }
 /* An installed iPhone app can report a screen shorter than it is, which left an empty band along the bottom: main.js measures the real height. */
 #game, .screen { height: var(--fh, auto); }
+
+/* The run summary on the end screen (Nomad). */
+.stats { list-style: none; margin: 0 0 6px; padding: 0 !important; display: flex; flex-direction: column; gap: 2px; }
+.stats li { display: flex; justify-content: space-between; gap: 12px; margin: 0; padding: 5px 2px; border-bottom: 1px solid var(--line); font-size: 14px; }
+.stats li span { color: var(--dim); }

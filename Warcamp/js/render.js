@@ -1,14 +1,18 @@
 // What a screen knows (View, rebuilt from snapshots) and how it is drawn (Renderer).
 // The host draws from snapshots too, so single player and multiplayer share every line here.
 import { TILE as T, DEF, TYPES, COLORS, MAP_SIZE, heroMult, BUILD_RANGE } from './data.js';
-import { genMap } from './sim.js';
+import { makeMap } from './maps.js';
 
 export class View {
   constructor(cfg, me) {
     this.N = cfg.size || MAP_SIZE;
     this.seed = cfg.seed;
-    this.terrain = genMap(cfg.seed, this.N, cfg.extra, cfg.cluster).terrain;
+    const m = makeMap(cfg), N = this.N;
+    this.terrain = m.terrain; this.deck = m.deck || null; // deck: the tiles that are bridges
     this.wave = null; // Survival: [wave number, seconds to the next one]
+    // Nomad: where the journey starts (ox, oy) and where the land ends (gx, gy), in tiles; the rest comes with each snapshot.
+    this.nomad = cfg.mode !== 'nomad' ? null : { ox: m.base[0], oy: m.base[1], gx: N - 1 - m.base[0], gy: N - 1 - m.base[1],
+      far: Math.floor(Math.hypot(N - 1 - 2 * m.base[0], N - 1 - 2 * m.base[1])), best: 0, wave: 0, next: 0, kills: 0, cleared: 0, camps: 0, won: 0, news: [] };
     this.info = cfg.players.map((p, i) => ({ name: p.name, team: p.team, color: p.tint || COLORS[p.color ?? i] || COLORS[i % COLORS.length], hero: p.hero || 'hero', horde: !!p.horde }));
     this.me = me; this.team = this.info[me].team;
     this.pl = this.info.map(() => ({ res: 0, pop: 0, cap: 0, alive: true, heroT: 0 }));
@@ -20,6 +24,7 @@ export class View {
   apply(s) {
     this.tick = s.k; this.winner = s.w;
     if (s.wv) { if (this.wave && s.wv[0] > this.wave[0]) this.waveNews = s.wv[0]; this.wave = s.wv; }
+    if (s.nm && this.nomad) { const n = this.nomad; [n.best, n.wave, n.next, n.kills, n.cleared, n.camps] = s.nm; n.won = s.nm[7]; n.news.push(...s.nm[6]); }
     // who has just been knocked out (not on the first snapshot, which only says how things already stand)
     if (this.got) s.p.forEach((a, i) => { if (this.pl[i].alive && !a[3]) this.news.push(i); });
     this.got = true;
@@ -380,6 +385,19 @@ export class Renderer {
       g.fillStyle = 'rgba(255,255,255,.85)'; g.fillRect(x + 14.5, y + 9, 1.6, 6);
     }
   }
+  // One tile of a bridge: planks laid across the way people walk, and a rail wherever the water is.
+  plank(g, tx, ty, i) {
+    const v = this.view, N = v.N, x = tx * T, y = ty * T, wet = j => j >= 0 && j < N * N && v.terrain[j] === 1;
+    const n = wet(i - N), s = wet(i + N), w = tx > 0 && wet(i - 1), e = tx < N - 1 && wet(i + 1);
+    g.fillStyle = '#b08a56'; g.fillRect(x, y, T + .6, T + .6);
+    g.strokeStyle = 'rgba(74,52,28,.55)'; g.lineWidth = 1;
+    for (let k = 8; k < T; k += 8) { if (n || s) line(g, x + k, y, x + k, y + T); else line(g, x, y + k, x + T, y + k); }
+    g.fillStyle = '#6b4a2b';
+    if (n) g.fillRect(x, y, T + .6, 4);
+    if (s) g.fillRect(x, y + T - 4, T + .6, 4);
+    if (w) g.fillRect(x, y, 4, T + .6);
+    if (e) g.fillRect(x + T - 4, y, 4, T + .6);
+  }
   toWorld(sx, sy) { return [sx / this.cam.z + this.cam.x, sy / this.cam.z + this.cam.y]; }
   clamp() {
     // The camera may travel past each edge of the map: a little everywhere, and further where controls float over
@@ -419,6 +437,7 @@ export class Renderer {
         let h = Math.imul(tx * 374761393 + ty * 668265263, 1274126177); h ^= h >>> 15; // well mixed, so variants do not line up
         const tt = v.terrain[i];
         g.drawImage(this.atlas, ((h >>> 8) & 7) * T * AT, (tt * 2 + ((tx + ty) & 1)) * T * AT, T * AT, T * AT, tx * T, ty * T, T + .6, T + .6);
+        if (v.deck && v.deck[i]) this.plank(g, tx, ty, i);
         if (tt === 1) { // a sandy shore wherever water meets land
           g.fillStyle = 'rgba(233,224,180,.7)';
           if (ty > 0 && v.terrain[i - N] !== 1) g.fillRect(tx * T, ty * T, T, 3.5);
@@ -475,6 +494,17 @@ export class Renderer {
         g.fillStyle = '#1f2937'; g.font = 'bold 9px system-ui, sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
         g.fillText(lv, e.rx - 16, e.ry - 25.5);
       }
+    }
+
+    if (v.nomad) { // Nomad: a white flag where the journey began, a gold one where the land ends
+      const flag = (tx, ty, col) => {
+        if (!v.explored[ty * N + tx]) return;
+        const x = (tx + .5) * T, y = (ty + .5) * T;
+        g.strokeStyle = '#1f2937'; g.lineWidth = 2.4; line(g, x, y + 8, x, y - 26);
+        g.fillStyle = col; g.strokeStyle = '#1f2937'; g.lineWidth = 1.2;
+        g.beginPath(); g.moveTo(x, y - 26); g.lineTo(x + 18, y - 20); g.lineTo(x, y - 13); g.closePath(); g.fill(); g.stroke();
+      };
+      flag(v.nomad.ox, v.nomad.oy, '#f8fafc'); flag(v.nomad.gx, v.nomad.gy, '#fbbf24');
     }
 
     // effects: shots in flight, blows landing, numbers for damage and healing
@@ -591,7 +621,7 @@ export class Renderer {
   drawMini() {
     const v = this.view, N = v.N, mg = this.mg, S = this.mini.width, px = this.mimg.data, c = this.cam, spect = v.spectating();
     for (let i = 0; i < N * N; i++) {
-      const col = MINI[v.terrain[i]], f = !v.explored[i] ? 0 : v.visible[i] ? 1 : .55;
+      const col = v.deck && v.deck[i] ? '#b08a56' : MINI[v.terrain[i]], f = !v.explored[i] ? 0 : v.visible[i] ? 1 : .55;
       px[i * 4] = parseInt(col.slice(1, 3), 16) * f; px[i * 4 + 1] = parseInt(col.slice(3, 5), 16) * f;
       px[i * 4 + 2] = parseInt(col.slice(5, 7), 16) * f; px[i * 4 + 3] = 255;
       if (!f) { px[i * 4] = 11; px[i * 4 + 1] = 18; px[i * 4 + 2] = 32; }
@@ -605,6 +635,10 @@ export class Renderer {
       mg.fillStyle = v.info[e.owner].color;
       const s = e.b ? e.size * T * k + 1 : 3;
       mg.fillRect(e.x * k - s / 2, e.y * k - s / 2, s, s);
+    }
+    if (v.nomad) { // the start and the far end are always marked, so there is always somewhere to head for
+      const dot = (tx, ty, col) => { mg.fillStyle = '#0b1220'; mg.fillRect(tx * T * k - 4, ty * T * k - 4, 8, 8); mg.fillStyle = col; mg.fillRect(tx * T * k - 3, ty * T * k - 3, 6, 6); };
+      dot(v.nomad.ox, v.nomad.oy, '#f8fafc'); dot(v.nomad.gx, v.nomad.gy, '#fbbf24');
     }
     if (v.hurt && v.tick - v.hurt.tick < 30 && (v.tick >> 1) & 1) {
       mg.strokeStyle = '#fff'; mg.lineWidth = 2; mg.strokeRect(v.hurt.x * k - 6, v.hurt.y * k - 6, 12, 12);

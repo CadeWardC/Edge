@@ -12,7 +12,7 @@ for (const m of sw.slice(sw.indexOf('ASSETS'), sw.indexOf('];')).matchAll(/'([^'
 const html = readFileSync(join(root, 'index.html'), 'utf8');
 for (const m of html.matchAll(/(?:src|href)="([^"#:]+)"/g)) want.add(m[1]);
 for (const m of readFileSync(join(root, 'manifest.webmanifest'), 'utf8').matchAll(/"src":\s*"([^"]+)"/g)) want.add(m[1]);
-for (const f of ['main', 'sim', 'ai', 'render', 'net']) {
+for (const f of ['main', 'sim', 'maps', 'nomad', 'ai', 'render', 'net']) {
   for (const m of readFileSync(join(root, 'js', f + '.js'), 'utf8').matchAll(/from '\.\/([^']+)'/g)) want.add('js/' + m[1]);
 }
 const missing = [...want].filter(f => !existsSync(join(root, f)));

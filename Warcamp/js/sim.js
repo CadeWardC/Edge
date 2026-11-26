@@ -1,87 +1,16 @@
 // The authoritative simulation. It has no DOM or network code: the host (or a single-player
 // game) steps it 10 times a second, feeds it commands, and ships snapshot() to every screen.
 import { TILE as T, DEF, TI, MAXCAP, MAP_SIZE, BUILDABLE, SURVIVAL, HEROES, HERO_RESPAWN, LEVELS, heroMult, RAGE_BONUS, WARD_TAKEN, SHOCK_VS_BUILDINGS, BUILD_RANGE, KEEP_LIMIT } from './data.js';
+import { rng, genMap, makeMap, TREE_AMT, CRYSTAL_AMT } from './maps.js';
+import { startNomad, stepNomad, nomadSnap } from './nomad.js';
 
 export const DT = 0.1;
 // How close a worker must be to a wall to build or unload. A worker on the tile beside the wall is 16 away;
 // the slack is for being jostled by other workers at a busy drop-off.
 const REACH = 36;
-const TREE_AMT = 200, CRYSTAL_AMT = 1500, CARRY = 10;
+const CARRY = 10;
 
-export function rng(a) {
-  return () => {
-    a |= 0; a = a + 0x6D2B79F5 | 0;
-    let t = Math.imul(a ^ a >>> 15, 1 | a);
-    t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
-    return ((t ^ t >>> 14) >>> 0) / 4294967296;
-  };
-}
-
-// One quarter of the map is generated from the seed and mirrored four ways, so every player's corner is equal.
-// The base sits at a different spot in its quarter each game. Terrain: 0 grass, 1 water, 2 tree, 3 crystal.
-export function genMap(seed, N, extra, cluster) {
-  const r = rng(seed), Q = N >> 1, q = new Uint8Array(Q * Q), ri = n => (r() * n) | 0;
-  const set = (x, y, t) => { if (x >= 0 && y >= 0 && x < Q && y < Q) q[y * Q + x] = t; };
-  const blob = (t, x, y, n) => {
-    for (let i = 0; i < n; i++) {
-      set(x, y, t); set(x + 1, y, t);
-      x = Math.max(0, Math.min(Q - 1, x + ri(3) - 1));
-      y = Math.max(0, Math.min(Q - 1, y + ri(3) - 1));
-    }
-  };
-  const k = (Q * Q) / 784; // how much bigger than the original 28-tile quarter
-  const room = Math.floor(Q * 0.3) + 1;
-  const bx = 9 + ri(room), by = 9 + ri(room);
-  for (let i = 0; i < 8 * k; i++) blob(2, ri(Q), ri(Q), 10 + ri(14));
-  for (let i = 0; i < 3 * k; i++) blob(1, ri(Q), ri(Q), 8 + ri(12));
-  for (let i = 0; i < 2 * k; i++) blob(3, ri(Q), ri(Q), 3); // crystal out in the open, worth an Outpost or a new Keep
-  // Clear the base, then carve roads so every base can always reach every other.
-  for (let y = 0; y < Q; y++) for (let x = 0; x < Q; x++) if (Math.hypot(x - bx, y - by) < 6.5) q[y * Q + x] = 0;
-  for (let x = bx; x < Q; x++) { set(x, by, 0); set(x, by + 1, 0); }
-  for (let y = by; y < Q; y++) { set(bx, y, 0); set(bx + 1, y, 0); }
-  for (let x = bx, y = by; x < Q - 1 || y < Q - 1;) { // a winding road to the middle of the map
-    if (x < Q - 1 && (y >= Q - 1 || (Q - 1 - x) >= (Q - 1 - y))) x++; else y++;
-    set(x, y, 0); set(x - 1, y, 0); set(x, y - 1, 0);
-  }
-  // Allies start near each other: three more base sites a short walk from the first, each with its own roads.
-  const allies = [[bx + 15, by], [bx, by + 15], [bx + 15, by + 15]];
-  if (cluster) for (const [ax, ay] of allies) {
-    for (let y = 0; y < Q; y++) for (let x = 0; x < Q; x++) if (Math.hypot(x - ax, y - ay) < 6.5) q[y * Q + x] = 0;
-    for (let x = ax; x < Q; x++) { set(x, ay, 0); set(x, ay + 1, 0); }
-    for (let y = ay; y < Q; y++) { set(ax, y, 0); set(ax + 1, y, 0); }
-    for (let x = bx; x <= ax; x++) { set(x, ay, 0); set(x, ay + 1, 0); } // and a road back to the first base
-    for (let y = by; y <= ay; y++) { set(ax, y, 0); set(ax + 1, y, 0); }
-  }
-  // Guaranteed starting resources beside the base, and a contested deposit in the middle.
-  for (let x = bx + 5; x <= bx + 7; x++) { set(x, by - 3, 3); set(x, by - 2, 3); }
-  for (let x = bx - 4; x <= bx - 3; x++) { set(x, by + 11, 3); set(x, by + 12, 3); } // a second deposit a short walk away
-  for (let x = bx - 5; x <= bx - 1; x++) { set(x, by + 6, 2); set(x, by + 7, 2); }
-  if (cluster) for (const [ax, ay] of allies) { // the same start for every ally: crystal and trees by the base
-    for (let x = ax + 5; x <= ax + 7; x++) { set(x, ay - 3, 3); set(x, ay - 2, 3); }
-    for (let x = ax - 5; x <= ax - 1; x++) { set(x, ay + 6, 2); set(x, ay + 7, 2); }
-  }
-  for (const [x, y] of [[Q - 3, Q - 6], [Q - 2, Q - 6], [Q - 1, Q - 6], [Q - 6, Q - 3], [Q - 6, Q - 2], [Q - 6, Q - 1]]) set(x, y, 3);
-
-  // With more than four players, each quarter gets a second base site nearer the middle of the map.
-  const sx = Q - 13, sy = Q - 13;
-  if (extra) {
-    for (let y = 0; y < Q; y++) for (let x = 0; x < Q; x++) if (Math.hypot(x - sx, y - sy) < 6.5) q[y * Q + x] = 0;
-    for (let x = sx; x < Q; x++) { set(x, sy, 0); set(x, sy + 1, 0); }
-    for (let y = sy; y < Q; y++) { set(sx, y, 0); set(sx + 1, y, 0); }
-    for (let x = sx - 8; x <= sx - 7; x++) for (let y = sy - 1; y <= sy + 1; y++) set(x, y, 3);
-    for (let x = sx - 2; x <= sx + 2; x++) { set(x, sy - 8, 2); set(x, sy - 9, 2); }
-  }
-
-  const terrain = new Uint8Array(N * N), amt = new Uint16Array(N * N);
-  for (let y = 0; y < Q; y++) for (let x = 0; x < Q; x++) {
-    const v = q[y * Q + x];
-    for (const [mx, my] of [[x, y], [N - 1 - x, y], [x, N - 1 - y], [N - 1 - x, N - 1 - y]]) {
-      terrain[my * N + mx] = v;
-      amt[my * N + mx] = v === 2 ? TREE_AMT : v === 3 ? CRYSTAL_AMT : 0;
-    }
-  }
-  return { terrain, amt, base: [bx, by], base2: [sx, sy], allies };
-}
+export { rng, genMap };
 
 // Slots 0 and 1 are opposite each other, so a two-player game is always a fair diagonal.
 export function basePos(slot, N, base) {
@@ -98,19 +27,35 @@ const num = v => typeof v === 'number' && isFinite(v);
 export class Sim {
   constructor(cfg) {
     const N = this.N = cfg.size || MAP_SIZE;
-    const m = genMap(cfg.seed, N, cfg.extra, cfg.cluster);
+    const m = makeMap(cfg);
     this.base = m.base; this.base2 = m.base2;
+    this.deck = m.deck || null; // bridges: walked on like any ground, never built on
     // Where each player starts. Normally one per quarter of the map. When the players are allies (cfg.cluster),
-    // they share one quarter, close together, and the other side takes the other quarters.
+    // they share one quarter, close together, and the other side takes the other quarters. In Survival (cfg.center)
+    // the players hold the middle of the map together, one site in each quarter, and the Horde comes from the edges.
     this.spots = null;
-    if (cfg.cluster) {
-      const flip = (p, qd) => [[p[0], p[1]], [N - 1 - p[0], N - 1 - p[1]], [N - 1 - p[0], p[1]], [p[0], N - 1 - p[1]]][qd];
+    const flip = (p, qd) => [[p[0], p[1]], [N - 1 - p[0], N - 1 - p[1]], [N - 1 - p[0], p[1]], [p[0], N - 1 - p[1]]][qd];
+    if (cfg.center) {
+      const home = [0, 2, 3, 1].map(qd => flip(m.base2, qd)).concat([0, 2, 3, 1].map(qd => flip(m.base, qd))); // neighbours first
+      this.spots = cfg.players.map(p => p.horde ? null : home.shift() || null);
+    } else if (cfg.cluster) {
       const home = [m.base, ...m.allies].map(p => flip(p, 0));
       const away = [1, 2, 3].map(qd => flip(m.base, qd)).concat([1, 2, 3].flatMap(qd => m.allies.map(p => flip(p, qd))));
       const team0 = cfg.players[0].team;
       this.spots = cfg.players.map(p => p.horde ? null : p.team === team0 ? home.shift() : away.shift());
     }
     this.terrain = m.terrain; this.amt = m.amt;
+    // Every tile that can be walked to from the first base on the untouched map. Enemies that arrive from nowhere
+    // (Survival waves, everything in Nomad) are only ever put on such a tile, so none is stranded behind water or woods.
+    this.reach = new Uint8Array(N * N);
+    {
+      const [sx, sy] = m.base, todo = [sy * N + sx];
+      this.reach[todo[0]] = 1;
+      while (todo.length) {
+        const i = todo.pop(), x = i % N;
+        for (const j of [x < N - 1 ? i + 1 : -1, x > 0 ? i - 1 : -1, i + N, i - N]) if (j >= 0 && j < N * N && !this.reach[j] && this.terrain[j] === 0) { this.reach[j] = 1; todo.push(j); }
+      }
+    }
     this.occ = new Int32Array(N * N);
     this.ents = new Map();
     this.nextId = 1; this.tick = 0; this.winner = -1;
@@ -126,7 +71,10 @@ export class Sim {
     this.hordeId = this.players.findIndex(p => p.horde);
     this.lv = SURVIVAL.levels[cfg.wave ?? cfg.level ?? 1] || SURVIVAL.levels[1];
     this.wave = 0; this.waveAt = SURVIVAL.first * 10;
-    this.players.forEach((p, i) => {
+    // Nomad: nobody has a base. Each player leads a party away from the starting point (see nomad.js).
+    this.nomad = null;
+    if (cfg.mode === 'nomad' && this.hordeId >= 0) startNomad(this, cfg);
+    else this.players.forEach((p, i) => {
       if (p.horde) return;
       const [bx, by] = this.basePos(i);
       this.addBuilding('hq', i, bx - 1, by - 1, true);
@@ -189,9 +137,11 @@ export class Sim {
     }
     return false;
   }
+  // Ground a building may stand on: free, and not a bridge.
+  buildable(x, y) { return this.walkable(x, y) && !(this.deck && this.deck[y * this.N + x]); }
   canPlace(type, tx, ty) {
     const s = DEF[type].size;
-    for (let y = ty; y < ty + s; y++) for (let x = tx; x < tx + s; x++) if (!this.walkable(x, y)) return false;
+    for (let y = ty; y < ty + s; y++) for (let x = tx; x < tx + s; x++) if (!this.buildable(x, y)) return false;
     return true;
   }
   hasBuilt(owner, type) {
@@ -285,7 +235,7 @@ export class Sim {
       for (let ty = cy - r; ty <= cy + r; ty++) for (let tx = cx - r; tx <= cx + r; tx++) {
         if (Math.max(Math.abs(tx - cx), Math.abs(ty - cy)) !== r) continue;
         let ok = true;
-        for (let y = ty - 1; y <= ty + s && ok; y++) for (let x = tx - 1; x <= tx + s; x++) if (!this.walkable(x, y)) { ok = false; break; }
+        for (let y = ty - 1; y <= ty + s && ok; y++) for (let x = tx - 1; x <= tx + s; x++) if (!this.buildable(x, y)) { ok = false; break; }
         if (ok) c.push([tx, ty]);
       }
       if (c.length) return c[(this.tick + this.nextId) % c.length];
@@ -430,6 +380,7 @@ export class Sim {
     this.ents.delete(e.id);
     this.fx.push(['d', e.x | 0, e.y | 0, e.b ? e.size : 0]);
     const P = this.players[e.owner];
+    if (this.nomad && e.owner === this.hordeId) this.nomad.kills++;
     if (e.b) {
       for (let y = e.ty; y < e.ty + e.size; y++) for (let x = e.tx; x < e.tx + e.size; x++) this.occ[y * this.N + x] = 0;
       this.bad.clear();
@@ -642,7 +593,7 @@ export class Sim {
       if (s) this.spawnUnit(p.hero, i, (s[0] + .5) * T, (s[1] + .5) * T);
       else if (p.alive) p.heroT = 5;
     });
-    if (this.hordeId >= 0) this.runHorde();
+    if (this.nomad) stepNomad(this); else if (this.hordeId >= 0) this.runHorde();
     if (this.tick % 10 === 0) this.checkWin();
     this.tick++;
   }
@@ -675,6 +626,16 @@ export class Sim {
       this.pathPoint(e, best.x, best.y);
     }
   }
+  // Where a wave walks in: from a point on the edge of the map, the first open ground towards the middle that has
+  // a way to the players (so never the sea round an island, or a glade walled in by trees).
+  gate(gx, gy) {
+    const N = this.N, c = (N - 1) / 2, n = Math.ceil(Math.max(Math.abs(c - gx), Math.abs(c - gy)));
+    for (let i = 0; i <= n; i++) {
+      const x = Math.round(gx + (c - gx) * i / n), y = Math.round(gy + (c - gy) * i / n);
+      if (this.reach[y * N + x] && this.walkable(x, y)) return [x, y];
+    }
+    return [gx, gy];
+  }
   spawnWave(n) {
     const H = this.hordeId, N = this.N, rnd = rng(this.tick * 31 + n * 7919);
     const players = this.players.filter(p => !p.horde && p.alive).length || 1;
@@ -684,7 +645,7 @@ export class Sim {
     const mul = SURVIVAL.strength(n, players, this.lv), kinds = SURVIVAL.unlock.filter(u => n >= u[1]).map(u => u[0]);
     // two of the gates round the edge of the map, different each wave
     const gates = [[N >> 1, 3], [N >> 1, N - 4], [3, N >> 1], [N - 4, N >> 1], [3, 3], [N - 4, 3], [3, N - 4], [N - 4, N - 4]];
-    const pick = () => { const g = gates.splice((rnd() * gates.length) | 0, 1)[0]; return this.walkable(g[0], g[1]) ? g : this.nearFree(g[0], g[1]) || g; };
+    const pick = () => this.gate(...gates.splice((rnd() * gates.length) | 0, 1)[0]);
     const at = [pick(), pick()];
     const put = (type, m, i) => {
       const g = at[i % 2];
@@ -883,7 +844,7 @@ export class Sim {
   save() {
     const N = this.N, amt = [];
     for (let i = 0; i < N * N; i++) if (this.terrain[i] >= 2 && this.amt[i] !== (this.terrain[i] === 2 ? TREE_AMT : CRYSTAL_AMT)) amt.push(i, this.amt[i]);
-    return { tick: this.tick, nextId: this.nextId, winner: this.winner, players: this.players, ents: [...this.ents.values()], gone: this.gone, amt, bad: [...this.bad], wave: this.wave, waveAt: this.waveAt };
+    return { tick: this.tick, nextId: this.nextId, winner: this.winner, players: this.players, ents: [...this.ents.values()], gone: this.gone, amt, bad: [...this.bad], wave: this.wave, waveAt: this.waveAt, nomad: this.nomad || undefined };
   }
   static restore(cfg, st) {
     const s = new Sim(cfg);
@@ -893,6 +854,7 @@ export class Sim {
     s.gone = st.gone.slice(); s.bad = new Set(st.bad);
     s.players = st.players; s.tick = st.tick; s.nextId = st.nextId; s.winner = st.winner;
     if (st.waveAt) { s.wave = st.wave; s.waveAt = st.waveAt; }
+    if (st.nomad) s.nomad = st.nomad;
     s.changed = []; s.fx = [];
     for (const e of st.ents) {
       s.ents.set(e.id, e);
@@ -905,7 +867,8 @@ export class Sim {
   snapshot() {
     const s = {
       k: this.tick, w: this.winner,
-      wv: this.hordeId >= 0 ? [this.wave, Math.max(0, Math.ceil((this.waveAt - this.tick) / 10))] : undefined,
+      wv: this.hordeId >= 0 && !this.nomad ? [this.wave, Math.max(0, Math.ceil((this.waveAt - this.tick) / 10))] : undefined,
+      nm: this.nomad ? nomadSnap(this) : undefined,
       p: this.players.map(p => [Math.floor(p.res), p.pop, Math.min(p.cap, MAXCAP), p.alive ? 1 : 0, Math.ceil(p.heroT), Math.floor(p.wood), p.lvl,
         // [7] xp %, [8] Keeps the player may still build
 

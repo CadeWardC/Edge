@@ -76,7 +76,8 @@
     <div id="slots"></div>
     <div id="pick"></div>
     <div class="row opts">
-      <label>Mode <select id="lMode"><option value="ffa">Free for all</option><option value="coop">Players vs computers</option><option value="survival">Survival: waves and bosses</option></select></label>
+      <label>Mode <select id="lMode"><option value="ffa">Free for all</option><option value="coop">Players vs computers</option><option value="survival">Survival: waves and bosses</option><option value="nomad">Nomad: how far can you get?</option></select></label>
+      <label>Map <select id="lMap"></select></label>
       <label id="lExtraL">More computers <select id="lExtra"><option>0</option><option>1</option><option>2</option><option>3</option><option>4</option></select></label>
       <label>Difficulty <select id="lLevel"><option value="0">Easy</option><option value="1" selected>Normal</option><option value="2">Hard</option></select></label>
       <label id="lWaveL" hidden>Waves <select id="lWave"><option value="0">Easy</option><option value="1" selected>Normal</option><option value="2">Hard</option><option value="3">Nightmare</option></select></label>
@@ -96,11 +97,13 @@
     <ul>
       <li><b>Goal:</b> to knock a player out, destroy all their <b>Keeps</b>, kill all their <b>workers</b> and kill their <b>hero</b>. While any of those is left they are still in: a worker can build a new Keep, and a hero returns at a Keep.</li>
       <li>Buildings must go up near one of your finished Keeps (the dashed line shows where). A Keep or an Outpost can go anywhere, and you may build two more Keeps in a game.</li>
-      <li>When the players are on one side (Players vs computers, Survival) their Keeps start close together.</li>
+      <li>When the players are on one side their Keeps start close together: in a corner against the computers, in the middle of the map in Survival.</li>
       <li><b>Workers</b> gather <b>crystal</b> (◆) from crystals and <b>wood</b> (▮) from trees, and carry it to your Keep. Units cost crystal, buildings cost wood. A new worker goes for whichever you have less of; tap a tree or a crystal to send workers there.</li>
       <li><b>Cottages</b> raise your unit limit. An <b>Outpost</b> is a second place to drop crystal and wood. A new <b>Keep</b> is a whole second base. <b>Walls</b> block the way. <b>Watchtowers</b> shoot.</li>
       <li>The <b>Barracks</b> trains Soldiers, Archers, Guards (tough, slow) and Riders (fast). With a Barracks you can add an <b>Arsenal</b>: Mages (each blast hurts a whole group), Clerics (heal) and Catapults (wreck buildings from far away, cannot hit troops). You can have up to 60 units.</li>
       <li>Workers <b>repair</b> damaged buildings: select workers and tap the building, or select the building and tap Repair.</li>
+      <li><b>Maps:</b> pick one when you set up a game. <b>Open fields</b> is open ground; the <b>Island</b> is ringed by sea, with bays, coves and narrow peninsulas that hold extra crystal; the <b>Deep forest</b> is trees nearly everywhere, with winding clearings and narrow paths; <b>Rivers and bridges</b> is cut up by four rivers. Nothing sails yet, so water is a wall, and the only way over a river is a <b>bridge</b> (nothing can be built on one).</li>
+      <li><b>Nomad:</b> no base and no workers. You lead your hero and a small party away from the white flag, towards the gold one at the far end of the land. The top of the screen shows how far you are now, the furthest this run has got, and your best ever. Camps of the Horde lie in wait or patrol along the way; clearing one frees recruits and lets your party catch its breath. Each time you push further out than before, a wave comes hunting you, and one finds you anyway if you wait too long. The run ends when your hero falls, or when you beat the Warlord at the far end.</li>
       <li>The ☰ menu lets you change the <b>screen layout</b>, and the small arrow at the edge of the map hides or shows the controls.</li>
       <li>Select a <b>Watchtower</b> to see how far it shoots. Select troops and tap <b>Disband</b> twice to send them home for good, for example if they are stuck.</li>
       <li>Your <b>hero</b> is your strongest unit and comes back at the Keep 30 seconds after falling. Pick one before the game: the <b>Warden</b> (tough fighter), the <b>Ranger</b> (fast archer) or the <b>Sage</b> (healer). It gains experience when it, or troops fighting beside it, defeat enemies. Each level makes it stronger, and levels 2 and 4 unlock new spells.</li>
@@ -122,7 +125,7 @@
     <ul>
       <li>One player hosts and shares the 4-letter code; the others type it and tap Join. Empty seats can be computers.</li>
       <li>If a player's connection drops or they leave the app, a computer holds their base and the game lets them back in on its own when they return. If the app was closed completely, open it again and tap <b>Rejoin game</b>.</li>
-      <li><b>Survival:</b> everyone is on one side against The Horde. Waves walk in from the edges of the map, each bigger and stronger than the last, with a Warlord every fifth wave. More players bring a bigger, tougher Horde, and Survival has its own difficulty: on Hard and Nightmare every wave compounds on the last. It never ends: the score is how many waves you hold.</li>
+      <li><b>Survival:</b> everyone is on one side against The Horde. The players' Keeps stand together in the middle of the map, and waves walk in from its edges, each bigger and stronger than the last, with a Warlord every fifth wave. More players bring a bigger, tougher Horde, and Survival has its own difficulty: on Hard and Nightmare every wave compounds on the last. It never ends: the score is how many waves you hold.</li>
       <li><b>Players vs computers:</b> the computers can fill empty seats, and up to four more can be added on top of the four players.</li>
       <li>If the host is knocked out or leaves, another player's device takes over as host and the game carries on.</li>
       <li>The ☰ menu has <b>Give up</b>: you are out, the others play on, and you can stay to watch.</li>
@@ -157,6 +160,7 @@
   <div class="card">
     <h1 id="eTitle">Victory</h1>
     <p id="eMsg" class="tag"></p>
+    <ul id="eStats" class="stats" hidden></ul>
     <div class="row">
       <button id="eWatch">Look around</button>
       <button id="eMenu" class="big">Main menu</button>
