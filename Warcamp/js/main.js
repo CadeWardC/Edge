@@ -29,6 +29,7 @@ function show(id) {
     const g = saved(); $('mContinue').hidden = !g;
     if (g) $('mContinue').textContent = 'Continue your game' + (g.code ? ' (room ' + g.code + ')' : '');
   }
+  if (id && !G.view) startDemo(); else stopDemo(); // a game plays behind the menus until a real one is on
 }
 let toastT = 0;
 function toast(msg) {
@@ -470,6 +471,47 @@ async function takeover(st) {
   if (seen) { G.view.explored.set(seen); Object.assign(R.cam, cam); G.needCenter = false; for (const id of sel) G.sel.add(id); }
   toast('You are now the host: keep the game open');
 }
+
+// ---------------------------------------------------------------- the game behind the menus
+// Four computers play each other on a random map, drawn with no fog; the camera drifts to wherever there is a fight.
+// It is its own little game (its own Sim and View), so nothing about a real game depends on it.
+let demo = null;
+const calm = matchMedia('(prefers-reduced-motion: reduce)').matches;
+function startDemo() {
+  if (demo || G.view) return;
+  try {
+    const cfg = { seed: (Math.random() * 2 ** 31) | 0, size: MAP_SIZE, mode: 'ffa', map: MAPS[(Math.random() * MAPS.length) | 0].id,
+      players: [0, 1, 2, 3].map(i => ({ name: 'Computer ' + (i + 1), ai: true, team: i, hero: HEROES[i % HEROES.length], color: [0, 1, 2, 4][i] })) };
+    const sim = new Sim(cfg), view = new View(cfg, 0);
+    view.spectating = () => true;
+    demo = { sim, view, ais: cfg.players.map((_, i) => new AI(sim, i, 2)), acc: 0, hold: 0, focus: 0, x: 0, y: 0, placed: false };
+    R.setView(view);
+  } catch { demo = null; } // the menus work without it
+}
+function stopDemo() { demo = null; }
+function demoFrame(dt) {
+  const d = demo, s = d.sim;
+  // The first game-minute and a half is skipped through quickly, so there are bases to look at straight away.
+  let n = s.tick < 900 ? 24 : 0;
+  if (!calm || s.tick < 900) { d.acc += dt * 15; while (d.acc >= 1) { d.acc--; n++; } }
+  for (n = Math.min(n, 30); n > 0 && s.winner === -1; n--) { for (const a of d.ais) a.update(); s.step(); d.view.apply(s.snapshot()); }
+  if (s.winner !== -1 || s.tick > 12000) { demo = null; startDemo(); return; }
+  // Look at a fight if there is one, else at each base in turn; stay a while, then move on.
+  let at = s.ents.get(d.focus);
+  if (!at || (d.hold -= dt) <= 0) {
+    const all = [...s.ents.values()], fights = all.filter(e => !e.b && e.order && e.order.k === 'attack' && !e.order.auto), keeps = all.filter(e => e.type === 'hq');
+    const pool = fights.length ? fights : keeps.length ? keeps : all;
+    at = pool[(Math.random() * pool.length) | 0];
+    d.focus = at ? at.id : 0; d.hold = 12;
+  }
+  if (!at) return;
+  const k = d.placed ? Math.min(1, dt * .7) : 1;
+  d.x += (at.x - d.x) * k; d.y += (at.y - d.y) * k; d.placed = true;
+  R.cam.z = Math.min(innerWidth, innerHeight) < 500 ? .7 : .95;
+  R.center(d.x, d.y);
+  R.draw(dt, { sel: NONE, box: null, ghost: null });
+}
+const NONE = new Set();
 
 // ---------------------------------------------------------------- starting and ending a game
 function startGame(cfg, me, conns, save) {
@@ -1142,6 +1184,8 @@ function frame(now) {
     }
     R.draw(dt, { sel: G.sel, box: G.box, ghost });
     if ((hudT -= dt) <= 0) { hudT = .2; updateHud(); }
+  } else if (demo) {
+    try { demoFrame(dt); } catch { demo = null; }
   }
   requestAnimationFrame(frame);
 }
