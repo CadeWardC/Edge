@@ -51,24 +51,18 @@
 
 <div id="menu" class="screen">
   <div class="card">
-    <header class="brand">
-      <h1>WARCAMP</h1>
-      <p class="tag">Gather <i></i> Build <i></i> Conquer</p>
-    </header>
-    <div class="glass">
-      <label class="field"><span>Your name</span><input id="name" maxlength="12" autocomplete="off" spellcheck="false"></label>
-      <button id="mContinue" class="big rejoin" hidden>Continue your game</button>
-      <button id="mRejoin" class="big rejoin" hidden>Rejoin game</button>
-      <button id="mSingle" class="big choice">Single player<small>Skirmish, Survival or Nomad</small></button>
-      <button id="mHost" class="choice">Host a multiplayer game<small>Up to 4 players, each on their own device</small></button>
-      <div class="or"><span>or join a friend</span></div>
-      <div class="row join">
-        <input id="code" maxlength="4" placeholder="CODE" autocomplete="off" autocapitalize="characters" spellcheck="false">
-        <button id="mJoin" class="big">Join</button>
-      </div>
-      <p id="mMsg" class="msg"></p>
+    <h1 class="brand">WARCAMP</h1>
+    <button id="mContinue" class="big rejoin" hidden>Continue your game</button>
+    <button id="mRejoin" class="big rejoin" hidden>Rejoin game</button>
+    <button id="mSingle" class="big">Single player</button>
+    <button id="mHost">Host multiplayer</button>
+    <div class="row join">
+      <input id="code" maxlength="4" placeholder="CODE" aria-label="Room code" autocomplete="off" autocapitalize="characters" spellcheck="false">
+      <button id="mJoin">Join</button>
     </div>
-    <div class="row minor">
+    <p id="mMsg" class="msg"></p>
+    <label class="as">Playing as <input id="name" maxlength="12" autocomplete="off" spellcheck="false"></label>
+    <div class="links">
       <button id="mHelp">How to play</button>
       <button id="mInstall" hidden>Install app</button>
     </div>
