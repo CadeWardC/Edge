@@ -172,7 +172,7 @@ function onJoin(c) {
 function syncLobby() {
   renderLobby();
   const slots = L.slots.map(s => ({ kind: s.kind, name: s.name, hero: s.hero, color: s.color }));
-  L.slots.forEach((s, i) => s.conn && s.conn.send({ t: 'lobby', slots, mode: L.mode, level: L.level, extra: L.extra || 0, code: L.code, you: i }));
+  L.slots.forEach((s, i) => s.conn && s.conn.send({ t: 'lobby', slots, mode: L.mode, level: L.level, wave: L.wave ?? 1, extra: L.extra || 0, code: L.code, you: i }));
 }
 function renderLobby() {
   $('lTitle').textContent = L.online ? 'Multiplayer game' : 'Single player';
@@ -191,11 +191,12 @@ function renderLobby() {
       `<button data-hero="${h}" class="${me.hero === h ? 'on' : ''}"><b>${DEF[h].name}</b><small>${DEF[h].about}</small><small><i>${DEF[h].abs[0].name}</i>: ${DEF[h].abs[0].about}</small><small>More spells at levels 2 and 4</small></button>`).join('') +
     '</div><div class="pl">Your colour</div><div class="colors">' + COLORS.map((c, i) =>
       `<button data-color="${i}" style="background:${c}" class="${me.color === i ? 'on' : ''}" aria-label="${COLOR_NAMES[i]}"${L.slots.some(o => o !== me && seated(o) && o.color === i) ? ' disabled' : ''}></button>`).join('') + '</div>';
-  $('lMode').value = L.mode; $('lLevel').value = L.level; $('lExtra').value = L.extra || 0;
+  $('lMode').value = L.mode; $('lLevel').value = L.level; $('lWave').value = L.wave ?? 1; $('lWave').disabled = !L.host;
+  $('lWaveL').hidden = L.mode !== 'survival'; $('lLevel').parentElement.hidden = L.mode === 'survival'; $('lExtra').value = L.extra || 0;
   $('lMode').disabled = $('lLevel').disabled = $('lExtra').disabled = !L.host;
   $('lExtraL').hidden = L.mode !== 'coop';
   $('lAbout').textContent = { ffa: 'Everyone for themselves.', coop: 'All the players on one side against the computers. Computers can sit in empty seats, and up to four more can be added.',
-    survival: 'Everyone on one side against endless waves, each bigger than the last, with a Warlord every fifth wave. How long can you hold?' }[L.mode];
+    survival: 'Everyone on one side against endless waves, each bigger than the last, with a Warlord every fifth wave. More players bring a bigger, tougher Horde. ' + SURVIVAL.levels[L.wave ?? 1].name + ': ' + SURVIVAL.levels[L.wave ?? 1].about + '.' }[L.mode];
   $('lStart').hidden = !L.host;
   $('lMsg').textContent = L.host ? '' : 'Waiting for the host to start…';
 }
@@ -219,6 +220,7 @@ $('slots').onclick = e => {
 $('lMode').onchange = () => { L.mode = $('lMode').value; if (L.mode === 'coop' && !L.extra && !L.slots.some(s => s.kind === 'ai')) L.extra = 1; syncLobby(); };
 $('lExtra').onchange = () => { L.extra = +$('lExtra').value; syncLobby(); };
 $('lLevel').onchange = () => { L.level = +$('lLevel').value; syncLobby(); };
+$('lWave').onchange = () => { L.wave = +$('lWave').value; syncLobby(); };
 $('lBack').onclick = () => { closeNet(); show('menu'); };
 $('lStart').onclick = () => {
   const ps = [], conns = [], tokens = [];
@@ -244,7 +246,7 @@ $('lStart').onclick = () => {
   if (L.mode === 'coop' && !coop) { $('lMsg').textContent = 'Players vs computers needs at least one computer.'; return; }
   ps.forEach((p, i) => { p.team = survival ? 0 : coop ? (p.ai ? 1 : 0) : i; });
   if (survival) { ps.push({ name: 'The Horde', horde: true, team: 1, tint: '#57534e' }); conns.push(null); tokens.push(null); }
-  const cfg = { seed: (Math.random() * 2 ** 31) | 0, size: MAP_SIZE, level: L.level, mode: L.mode, cluster: L.mode !== 'ffa', extra: L.mode === 'ffa' && ps.length > 4, players: ps };
+  const cfg = { seed: (Math.random() * 2 ** 31) | 0, size: MAP_SIZE, level: L.level, wave: L.wave ?? 1, mode: L.mode, cluster: L.mode !== 'ffa', extra: L.mode === 'ffa' && ps.length > 4, players: ps };
   G.tokens = tokens;
   conns.forEach((c, i) => c && c.send({ t: 'start', cfg, you: i }));
   startGame(cfg, 0, conns);
@@ -254,7 +256,7 @@ $('lStart').onclick = () => {
 function net(msg) { const n = $('net'); n.textContent = msg; n.hidden = !msg; }
 function clientMsg(m) {
   if (!m) return;
-  if (m.t === 'lobby' && !G.view) { L = { online: true, host: false, code: m.code, mode: m.mode, level: m.level, extra: m.extra || 0, you: m.you, slots: m.slots }; renderLobby(); }
+  if (m.t === 'lobby' && !G.view) { L = { online: true, host: false, code: m.code, mode: m.mode, level: m.level, wave: m.wave ?? 1, extra: m.extra || 0, you: m.you, slots: m.slots }; renderLobby(); }
   else if (m.t === 'start') {
     const back = !!G.rc;
     if (G.rc) { clearTimeout(G.rc.wait); G.rc = null; }

@@ -71,10 +71,17 @@ export const heroMult = lvl => 1 + LEVEL_BONUS * ((lvl || 1) - 1);
 export const SURVIVAL = {
   first: 90,            // seconds before the first wave
   gap: n => Math.max(45, 75 - n),                                   // seconds between waves
-  size: (n, players, hard) => Math.round((3 + n * 1.9) * (0.55 + 0.45 * players) * hard),
-  strength: (n, hard) => (1 + Math.max(0, n - 5) * 0.08) * (0.85 + 0.15 * hard), // health and damage multiplier
+  // Survival has its own difficulty. `hard` scales every wave; `grow` compounds wave after wave, so the harder
+  // levels climb like a curve, not a line.
+  levels: [{ name: 'Easy', hard: 0.75, grow: 1, about: 'waves grow steadily' },
+           { name: 'Normal', hard: 1, grow: 1.03, about: 'each wave is 3% bigger again' },
+           { name: 'Hard', hard: 1.3, grow: 1.06, about: 'each wave is 6% bigger again' },
+           { name: 'Nightmare', hard: 1.6, grow: 1.1, about: 'each wave is 10% bigger again: it gets out of hand fast' }],
+  // Every extra player brings 60% more Horde, and makes each of them 6% tougher.
+  size: (n, players, L) => Math.round((3 + n * 1.9) * (0.4 + 0.6 * players) * L.hard * L.grow ** (n - 1)),
+  strength: (n, players, L) => (1 + Math.max(0, n - 5) * 0.08) * (0.85 + 0.15 * L.hard) * (1 + 0.06 * (players - 1)) * L.grow ** ((n - 1) / 2), // health and damage multiplier
+  boss: (n, players, L) => (1 + (n / 5 - 1) * 0.5) * (0.85 + 0.15 * L.hard) * (1 + 0.3 * (players - 1)) * L.grow ** ((n - 1) / 2),
   bossEvery: 5,
   limit: 90,            // most Horde units on the map at once
   unlock: [['soldier', 1], ['archer', 2], ['guard', 3], ['knight', 4], ['mage', 6], ['catapult', 8]],
-  hard: [0.75, 1, 1.35], // by difficulty: easy, normal, hard
 };

@@ -124,7 +124,7 @@ export class Sim {
     }));
     // Survival: the last "player" is The Horde. It has no base; its waves walk in from the edges of the map.
     this.hordeId = this.players.findIndex(p => p.horde);
-    this.hard = SURVIVAL.hard[cfg.level ?? 1] || 1;
+    this.lv = SURVIVAL.levels[cfg.wave ?? cfg.level ?? 1] || SURVIVAL.levels[1];
     this.wave = 0; this.waveAt = SURVIVAL.first * 10;
     this.players.forEach((p, i) => {
       if (p.horde) return;
@@ -680,8 +680,8 @@ export class Sim {
     const players = this.players.filter(p => !p.horde && p.alive).length || 1;
     let have = 0;
     for (const e of this.ents.values()) if (e.owner === H) have++;
-    const count = Math.max(0, Math.min(SURVIVAL.size(n, players, this.hard), SURVIVAL.limit - have));
-    const mul = SURVIVAL.strength(n, this.hard), kinds = SURVIVAL.unlock.filter(u => n >= u[1]).map(u => u[0]);
+    const count = Math.max(0, Math.min(SURVIVAL.size(n, players, this.lv), SURVIVAL.limit - have));
+    const mul = SURVIVAL.strength(n, players, this.lv), kinds = SURVIVAL.unlock.filter(u => n >= u[1]).map(u => u[0]);
     // two of the gates round the edge of the map, different each wave
     const gates = [[N >> 1, 3], [N >> 1, N - 4], [3, N >> 1], [N - 4, N >> 1], [3, 3], [N - 4, 3], [3, N - 4], [N - 4, N - 4]];
     const pick = () => { const g = gates.splice((rnd() * gates.length) | 0, 1)[0]; return this.walkable(g[0], g[1]) ? g : this.nearFree(g[0], g[1]) || g; };
@@ -693,7 +693,7 @@ export class Sim {
       e.mul = m; e.hp = this.maxHp(e);
     };
     for (let i = 0; i < count; i++) put(kinds[(rnd() * kinds.length) | 0], mul, i);
-    if (n % SURVIVAL.bossEvery === 0) for (let i = 0; i <= Math.floor(n / 15); i++) put('boss', (1 + (n / SURVIVAL.bossEvery - 1) * 0.5) * (0.85 + 0.15 * this.hard), i);
+    if (n % SURVIVAL.bossEvery === 0) for (let i = 0; i <= Math.floor(n / 15); i++) put('boss', SURVIVAL.boss(n, players, this.lv), i);
   }
 
   // A player is out when their last building falls; the last team standing wins.
