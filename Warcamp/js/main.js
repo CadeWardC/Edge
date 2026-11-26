@@ -799,13 +799,20 @@ addEventListener('blur', () => keys.clear());
 function fit() {
   let h = 0;
   if (navigator.standalone) {
-    const full = innerHeight >= innerWidth ? Math.max(screen.width, screen.height) : Math.min(screen.width, screen.height);
-    if (full > innerHeight && full - innerHeight < 100) h = full;
+    // Measure what a full-height fixed box really gets, whatever the window claims to be.
+    const pr = document.createElement('div');
+    pr.style.cssText = 'position:fixed;top:0;bottom:0;left:0;width:0;visibility:hidden';
+    document.body.appendChild(pr);
+    const have = pr.getBoundingClientRect().height, wide = pr.parentElement.clientWidth || innerWidth;
+    pr.remove();
+    const full = have >= wide ? Math.max(screen.width, screen.height) : Math.min(screen.width, screen.height);
+    if (full > have + 1 && full - have < 100) h = full;
   }
   const st = document.documentElement.style;
   if (h) st.setProperty('--fh', h + 'px'); else st.removeProperty('--fh');
 }
-fit();
+fit(); setTimeout(fit, 300); setTimeout(fit, 1500);
+{ const ver = new URL(import.meta.url).searchParams.get('v'); if (ver) { $('mVer').textContent = 'Version ' + ver.slice(0, 7); $('mVer').hidden = false; } }
 addEventListener('resize', () => { fit(); R.resize(); });
 if (window.ResizeObserver) new ResizeObserver(() => { R.resize(); pads(); }).observe(cv); // the map area changes size with the dock
 addEventListener('orientationchange', () => setTimeout(() => { fit(); R.resize(); }, 250));
