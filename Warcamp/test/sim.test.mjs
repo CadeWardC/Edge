@@ -368,6 +368,15 @@ for (const seed of [1, 2, 3, 4, 5, 6]) {
   check(strongest > 1.2, `later waves are stronger, not just bigger (up to x${strongest.toFixed(2)} health and damage)`);
   check(s.winner === 1 || s.winner === -1, s.winner === 1 ? `two hard computers were overrun at wave ${s.wave}: it is hard` : `two hard computers were still standing at wave ${s.wave}`);
   check(s.winner !== 0 && s.players[H].alive, 'the players can never "win" Survival: the Horde is never knocked out');
+  {
+    const { SURVIVAL: SV } = await import('../js/data.js'), [E, , Hd, Nm] = SV.levels;
+    check(SV.size(5, 4, Hd) > SV.size(5, 2, Hd) * 1.6 && SV.strength(5, 4, Hd) > SV.strength(5, 1, Hd) && SV.boss(5, 4, Hd) > SV.boss(5, 1, Hd) * 1.8,
+      `more players, harder waves: wave 5 on Hard is ${SV.size(5, 1, Hd)} / ${SV.size(5, 2, Hd)} / ${SV.size(5, 4, Hd)} strong for 1 / 2 / 4 players, and tougher each`);
+    const ratio = L => SV.size(20, 1, L) / SV.size(10, 1, L);
+    check(ratio(Nm) > ratio(Hd) && ratio(Hd) > ratio(E) * 1.5, `harder levels curve upward: wave 10 to 20 grows x${ratio(E).toFixed(1)} on Easy, x${ratio(Hd).toFixed(1)} on Hard, x${ratio(Nm).toFixed(1)} on Nightmare`);
+    const nm = new Sim({ seed: 5, wave: 3, mode: 'survival', players: [{ name: 'A', team: 0 }, { name: 'The Horde', team: 1, horde: true }] });
+    check(nm.lv.name === 'Nightmare', 'Survival takes its own difficulty setting');
+  }
   // one player alone against the Horde, doing nothing: overrun
   const lone = new Sim({ seed: 5, level: 2, mode: 'survival', players: [{ name: 'A', team: 0 }, { name: 'The Horde', team: 1, horde: true }] });
   while (lone.winner === -1 && lone.tick < 20000) { lone.step(); lone.snapshot(); }
