@@ -359,8 +359,8 @@ function pads() {
   if (G.view) for (const id of ['top', 'side', 'panel', 'mini']) {
     const E = $(id).getBoundingClientRect();
     if (!E.width || !E.height || E.right <= S.left + 1 || E.left >= S.right - 1 || E.bottom <= S.top + 1 || E.top >= S.bottom - 1) continue; // not over the map
-    // Upright, controls sit along the top and bottom; sideways, along the left and right.
-    if (S.height >= S.width) { if (E.top + E.height / 2 < S.top + S.height / 2) p.t = Math.max(p.t, E.bottom - S.top); else p.b = Math.max(p.b, S.bottom - E.top); }
+    // A wide, flat control lies along the top or the bottom; anything else sits against the left or the right.
+    if (E.width >= E.height * 1.3) { if (E.top + E.height / 2 < S.top + S.height / 2) p.t = Math.max(p.t, E.bottom - S.top); else p.b = Math.max(p.b, S.bottom - E.top); }
     else if (E.left + E.width / 2 > S.left + S.width / 2) p.r = Math.max(p.r, S.right - E.left);
     else p.l = Math.max(p.l, E.right - S.left);
   }
@@ -368,7 +368,7 @@ function pads() {
   const st = $('stage').style;
   // The floating messages only need to clear the bar across the top, not the mini-map in the corner.
   const T0 = $('top').getBoundingClientRect(), barTop = G.view && S.height >= S.width && T0.width && T0.top < S.top + S.height / 2 && T0.bottom > S.top + 1 ? T0.bottom - S.top : 0;
-  st.setProperty('--pt', (S.height >= S.width ? barTop : p.t) + 'px'); st.setProperty('--pb', p.b + 'px');
+  st.setProperty('--pt', barTop + 'px'); st.setProperty('--pb', p.b + 'px');
   st.setProperty('--pr', (p.r > 150 ? p.r : 0) + 'px'); st.setProperty('--pl', (p.l > 150 ? p.l : 0) + 'px');
 }
 $('layouts').onclick = e => { const b = e.target.closest('button[data-lay]'); if (!b) return; LAY.lay = b.dataset.lay; folded = false; applyLayout(); };
