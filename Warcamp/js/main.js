@@ -788,6 +788,7 @@ addEventListener('keydown', e => {
   keys.add(k);
   if (k === 'escape') { if (G.placing) G.placing = null; else G.sel.clear(); hudT = 0; }
   if (k === 'q') $('bArmy').click();
+  if (k === 'b') $('bBuild').click();
   if (k === '.') $('bIdle').click();
 });
 addEventListener('keyup', e => keys.delete(e.key.toLowerCase()));
@@ -815,6 +816,18 @@ $('bIdle').onclick = () => {
   const e = idle[idleI++ % idle.length];
   G.sel.clear(); G.sel.add(e.id); G.placing = null;
   R.center(e.x, e.y); hudT = 0;
+};
+// Build: pick the workers nearest the middle of the screen (idle ones first) and show what they can build.
+$('bBuild').onclick = () => {
+  const v = G.view, c = R.cam, cx = c.x + R.w / c.z / 2, cy = c.y + R.h / c.z / 2;
+  const ws = [...ents().values()].filter(e => e.owner === v.me && e.type === 'worker');
+  if (!ws.length) { toast('No workers: train one at your Keep'); return; }
+  const far = e => Math.hypot(e.x - cx, e.y - cy) - (e.idle ? 400 : 0);
+  ws.sort((a, b) => far(a) - far(b));
+  G.sel.clear(); G.placing = null;
+  for (const w of ws.slice(0, 2)) G.sel.add(w.id);
+  hudT = 0;
+  toast('Pick a building, then tap where it goes');
 };
 $('bBox').onclick = () => { G.boxMode = !G.boxMode; $('bBox').classList.toggle('on', G.boxMode); if (G.boxMode) toast('Drag a box around your units'); };
 $('bDesel').onclick = () => { G.sel.clear(); G.placing = null; hudT = 0; };

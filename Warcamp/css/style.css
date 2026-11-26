@@ -371,3 +371,62 @@ input, select { background: var(--dock); border: 1px solid #3b4d6b; border-radiu
   #game.on:is(.lay-over, .lay-lite) #panel > .d.q { flex: 0 1 auto; display: flex; }
 }
 @media (orientation: landscape) { #game.on:is(.lay-over, .lay-lite) #panel > .chips { flex: 1 1 52%; min-width: 0; } #game.on:is(.lay-over, .lay-lite) #panel > .bars { flex: 1 1 200px; min-width: 0; } }
+
+/* ---------- floating layout, final arrangement ----------
+   Top-right: the mini-map, with the Menu button beside it and the resources beside that.
+   Top-left: the hero's level and, in Survival, the wave counter.
+   Bottom: the selection panel and the action buttons (Army, Idle, Build, Box, Clear), which are larger. */
+#game.on:is(.lay-over, .lay-lite, .folded) #side button { height: 54px; min-height: 54px; min-width: 50px; }
+#game.on:is(.lay-over, .lay-lite, .folded) #side svg { width: 24px; height: 24px; }
+#game.on:is(.lay-over, .lay-lite, .folded) #side span { font-size: 11px; }
+#game.on.lay-lite #side button { height: 46px; min-height: 46px; }
+#game.on:is(.lay-over, .lay-lite, .folded) #menuBtn { position: fixed; z-index: 3; flex: none; width: 50px; min-width: 50px; height: 46px; min-height: 46px;
+  background: #0f1a2ee0; border: 1px solid var(--line); border-radius: 12px; }
+#game.on.lay-lite #menuBtn span { display: block; }
+@media (orientation: portrait) {
+  #game.on:is(.lay-over, .lay-lite) #mini { top: calc(env(safe-area-inset-top) + 4px); left: auto; right: 4px; }
+  #game.on:is(.lay-over, .lay-lite, .folded) #menuBtn { top: calc(env(safe-area-inset-top) + 4px); right: 110px; }
+  #game.on.mapoff:is(.lay-over, .lay-lite) #menuBtn, #game.on.folded #menuBtn { right: 4px; top: calc(env(safe-area-inset-top) + 36px); }
+  #game.on:is(.lay-over, .lay-lite, .folded) #top { max-width: calc(100% - 170px); overflow: hidden; }
+  #game.on.mapoff:is(.lay-over, .lay-lite) #top, #game.on.folded #top { max-width: calc(100% - 70px); }
+  #game.on:is(.lay-over, .lay-lite) #mapTog { left: auto; right: 4px; top: calc(env(safe-area-inset-top) + 108px); }
+  #game.on.mapoff:is(.lay-over, .lay-lite) #mapTog { top: calc(env(safe-area-inset-top) + 4px); }
+  #game.on:is(.lay-over, .lay-lite, .folded) #heroInfo { left: 8px; right: auto; top: calc(var(--pt, 0px) + 6px); }
+  #game.on:is(.lay-over, .lay-lite, .folded) #waveInfo { left: 8px; right: auto; top: calc(var(--pt, 0px) + 34px); }
+  #game.on:is(.lay-over, .lay-lite) #panel { bottom: calc(env(safe-area-inset-bottom) + 66px); }
+}
+@media (orientation: landscape) {
+  #game.on:is(.lay-over, .lay-lite) #mini { top: 4px; left: auto; right: calc(env(safe-area-inset-right) + 4px); }
+  #game.on:is(.lay-over, .lay-lite, .folded) #menuBtn { top: 4px; right: calc(env(safe-area-inset-right) + 102px); }
+  #game.on:is(.lay-over, .lay-lite, .folded) #top, #game.on.left:is(.lay-over, .lay-lite, .folded) #top { left: auto; right: calc(env(safe-area-inset-right) + 158px); top: 4px; height: 46px; }
+  #game.on.mapoff:is(.lay-over, .lay-lite) #menuBtn, #game.on.folded #menuBtn { right: calc(env(safe-area-inset-right) + 62px); }
+  #game.on.mapoff:is(.lay-over, .lay-lite) #top, #game.on.folded #top { right: calc(env(safe-area-inset-right) + 118px); }
+  #game.on.folded #menuBtn { right: calc(env(safe-area-inset-right) + 4px); }
+  #game.on.folded #top { right: calc(env(safe-area-inset-right) + 60px); }
+  #game.on:is(.lay-over, .lay-lite) #mapTog, #game.on.left:is(.lay-over, .lay-lite) #mapTog { left: auto; right: calc(env(safe-area-inset-right) + 4px); top: 100px; }
+  #game.on.mapoff:is(.lay-over, .lay-lite) #mapTog { top: 4px; height: 46px; width: 52px; padding: 0; border-radius: 12px; }
+  #game.on:is(.lay-over, .lay-lite, .folded) #heroInfo, #game.on.mapoff:is(.lay-over, .lay-lite) #heroInfo, #game.on.left:is(.lay-over, .lay-lite) #heroInfo { left: calc(env(safe-area-inset-left) + 8px); top: 6px; }
+  #game.on:is(.lay-over, .lay-lite, .folded) #waveInfo, #game.on.left:is(.lay-over, .lay-lite, .folded) #waveInfo, #game.on.left.mapoff:is(.lay-over, .lay-lite, .folded) #waveInfo { right: auto; left: calc(env(safe-area-inset-left) + 8px); top: 34px; }
+  /* the action row is wider now that its buttons are bigger */
+  #game.on:is(.lay-over, .lay-lite, .folded) #side { width: 282px; }
+  #game.on:is(.lay-over, .lay-lite) #panel { right: calc(env(safe-area-inset-right) + 292px); }
+  #game.on.left:is(.lay-over, .lay-lite) #panel { left: calc(env(safe-area-inset-left) + 292px); right: calc(env(safe-area-inset-right) + 4px); }
+}
+/* Dock layout keeps Menu in the row, which now has six buttons. */
+@media (orientation: portrait) { #game.on.lay-dock:not(.folded) #top { padding-right: 240px; font-size: 12.5px; gap: 6px; } }
+/* Narrow phones upright: Menu drops under the resources so the numbers are never cut. */
+@media (orientation: portrait) and (max-width: 372px) {
+  #game.on:is(.lay-over, .lay-lite) #top { max-width: calc(100% - 112px); font-size: 12px; gap: 6px; padding: 5px 7px; }
+  #game.on:is(.lay-over, .lay-lite):not(.mapoff) #menuBtn { right: auto; left: 4px; top: calc(env(safe-area-inset-top) + 38px); }
+  #game.on:is(.lay-over, .lay-lite):not(.mapoff) #heroInfo { left: 62px; }
+  #game.on:is(.lay-over, .lay-lite):not(.mapoff) #waveInfo { left: 62px; }
+}
+/* Short messages sit below the top-row controls so they never cross them. */
+@media (orientation: portrait) {
+  #game.on:is(.lay-over, .lay-lite, .folded) #toast { top: calc(env(safe-area-inset-top) + 150px); max-width: calc(100% - 16px); }
+  #game.on:is(.lay-over, .lay-lite, .folded) #news { top: calc(env(safe-area-inset-top) + 190px); }
+}
+@media (orientation: landscape) {
+  #game.on:is(.lay-over, .lay-lite, .folded) #toast { top: 60px; max-width: 55%; }
+  #game.on:is(.lay-over, .lay-lite, .folded) #news { top: 98px; }
+}
