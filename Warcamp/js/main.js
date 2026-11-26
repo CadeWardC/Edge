@@ -871,24 +871,23 @@ addEventListener('keydown', e => {
 });
 addEventListener('keyup', e => keys.delete(e.key.toLowerCase()));
 addEventListener('blur', () => keys.clear());
-// An installed iPhone app whose page runs under the clock can be laid out shorter than the screen, by the height
-// of the clock bar, leaving an empty band along the bottom. Only then is the page stretched to the real height.
+// An installed iPhone app whose page runs under the clock is laid out shorter than the screen, by the height of the
+// clock bar, and the phone draws nothing in the band that leaves along the bottom: stretching the page into it only
+// got the bottom of the controls cut off. So the page keeps the size it is given. An app added to the Home Screen
+// from this version on starts below the clock and has no band; one added earlier keeps its old setting until it
+// is added again, and the menu says so.
 function fit() {
-  let h = 0;
-  if (navigator.standalone) {
-    const pr = document.createElement('div');
-    pr.style.cssText = 'position:fixed;top:0;bottom:0;left:0;width:0;visibility:hidden;padding-top:env(safe-area-inset-top)';
-    document.body.appendChild(pr);
-    const have = pr.getBoundingClientRect().height, wide = pr.parentElement.clientWidth || innerWidth, bar = parseFloat(getComputedStyle(pr).paddingTop) || 0;
-    pr.remove();
-    const full = have >= wide ? Math.max(screen.width, screen.height) : Math.min(screen.width, screen.height);
-    // The missing height must be the clock bar itself. When the page starts below the clock (bar is 0) it is
-    // simply that much shorter, and stretching it would push the bottom of the screen out of sight.
-    if (bar > 0 && Math.abs(full - have - bar) < 12) h = full;
+  if (!navigator.standalone) return;
+  const pr = document.createElement('div');
+  pr.style.cssText = 'position:fixed;top:0;bottom:0;left:0;width:0;visibility:hidden;padding-top:env(safe-area-inset-top)';
+  document.body.appendChild(pr);
+  const have = pr.getBoundingClientRect().height, wide = pr.parentElement.clientWidth || innerWidth, bar = parseFloat(getComputedStyle(pr).paddingTop) || 0;
+  pr.remove();
+  const full = have >= wide ? Math.max(screen.width, screen.height) : Math.min(screen.width, screen.height);
+  if (bar > 0 && Math.abs(full - have - bar) < 12) {
+    $('mIOS').textContent = 'There is an empty strip along the bottom. To get rid of it, remove Warcamp from your Home Screen and add it again from Safari.';
+    $('mIOS').hidden = false;
   }
-  const st = document.documentElement.style;
-  if (h) st.setProperty('--fh', h + 'px'); else st.removeProperty('--fh');
-  document.documentElement.classList.toggle('tall', !!h); // lets the stretched part show: see style.css
 }
 fit(); setTimeout(fit, 300); setTimeout(fit, 1500);
 { const ver = new URL(import.meta.url).searchParams.get('v'); $('mVer').textContent = 'Version ' + (ver ? ver.slice(0, 7) : 'dev'); $('mVer').hidden = false; }
@@ -902,7 +901,7 @@ $('mVer').onclick = () => {
   $('mDiag').textContent = [
     `screen ${screen.width}x${screen.height}  window ${innerWidth}x${innerHeight}  page ${document.documentElement.clientWidth}x${document.documentElement.clientHeight}`,
     `fixed box top ${fixed.top} height ${fixed.h}  100vh ${vh.h}  100dvh ${dvh.h}`,
-    `menu top ${g.top} height ${g.height}  fh ${document.documentElement.style.getPropertyValue('--fh') || 'none'}`,
+    `menu top ${g.top} height ${g.height}`,
     `view ${vv ? `${vv.width}x${vv.height} top ${vv.offsetTop} page ${vv.pageTop} zoom ${vv.scale}` : 'n/a'}  scroll ${scrollX},${scrollY}`,
     `safe top ${safe.pt} bottom ${safe.pb}  mode ${mode}  installed ${!!navigator.standalone}  ${innerHeight >= innerWidth ? 'portrait' : 'landscape'}`,
     navigator.userAgent.replace(/^.*?\((.*?)\).*$/, '$1'),

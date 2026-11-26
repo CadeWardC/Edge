@@ -479,10 +479,6 @@ input, select { background: var(--dock); border: 1px solid #3b4d6b; border-radiu
 /* With floating controls the map fills the whole screen, under the clock and down to the bottom edge. The controls keep clear of both themselves. */
 #game.on:is(.lay-over, .lay-lite, .folded) { padding: 0; }
 #game.on:is(.lay-over, .lay-lite, .folded) #fold { bottom: max(var(--pb, 0px), env(safe-area-inset-bottom)); }
-/* An installed iPhone app can report a screen shorter than it is, which left an empty band along the bottom: main.js measures the real height. */
-#game, .screen { height: var(--fh, auto); }
-/* The stretched part lies outside what the page thinks is the screen, so the page must not clip to that. */
-html.tall, html.tall body { overflow: visible; }
 
 /* The run summary on the end screen (Nomad). */
 .stats { list-style: none; margin: 0 0 6px; padding: 0 !important; display: flex; flex-direction: column; gap: 2px; }
@@ -557,3 +553,19 @@ button.choice.big small { color: #dbeafe; }
 #lobby .card > .row:last-child #lStart { flex: 2; font-size: 16px; }
 @media (max-width: 380px) { .heroes { grid-template-columns: 1fr; } }
 @media (orientation: landscape) and (max-height: 520px) { .brand h1 { font-size: 38px; } .brand .tag { margin-top: 6px; } #menu .card { width: min(560px, 100%); } }
+
+/* ---------- main menu, kept minimal: a title and a short column of buttons straight over the game ---------- */
+#menu .card { width: min(300px, 100%); gap: 10px; }
+h1.brand { padding: 0 0 14px; text-align: center; }
+#menu .card > button, #menu .row.join > * { min-height: 48px; font-size: 16px; font-weight: 600; border-radius: 12px; }
+#menu .card > button:not(.big), #menu .row.join button { background: rgba(13, 22, 40, .72); border-color: rgba(148, 178, 222, .28); -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); }
+#menu #code { background: rgba(8, 13, 24, .72); border-color: rgba(148, 178, 222, .28); -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); }
+#menu .msg:empty { display: none; }
+#menu .msg { text-shadow: 0 1px 4px #000; }
+.as { justify-content: center; gap: 6px !important; margin-top: 8px; font-size: 13px; color: #b7c6de !important; text-shadow: 0 1px 4px #000; }
+.as input { flex: 0 1 132px !important; padding: 5px 8px; font-size: 16px; font-weight: 600; text-align: center; background: transparent; border-color: transparent; border-bottom: 1px solid rgba(183, 198, 222, .5); border-radius: 0; text-shadow: 0 1px 4px #000; }
+.as input:focus { outline: none; border-bottom-color: #60a5fa; }
+.links { display: flex; justify-content: center; gap: 18px; }
+#menu .links button { background: none !important; border: 0; padding: 6px 4px; min-height: 0; font-size: 13px; color: #b7c6de; text-decoration: underline; text-underline-offset: 3px; text-shadow: 0 1px 4px #000; box-shadow: none; }
+#menu .hint { font-size: 12px; }
+#menu #mVer { opacity: .6; }
