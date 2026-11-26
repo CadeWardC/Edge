@@ -1,5 +1,5 @@
 // Computer opponent. It plays through the same sim.command() calls a human does.
-import { DEF, MAXCAP } from './data.js';
+import { DEF, MAXCAP, HEROES } from './data.js';
 
 export class AI {
   // level: 0 easy, 1 normal, 2 hard
@@ -24,6 +24,13 @@ export class AI {
     const near = (list, t) => list.reduce((b, w) => (!b || s.dist(w, t) < s.dist(b, t) ? w : b), null);
 
     for (const w of workers) if (!w.order) s.autoHarvest(w);
+    // Keep some workers on wood (buildings cost it) and the rest on crystal (units cost it).
+    const onWood = workers.filter(w => w.order && w.order.k === 'harvest' && w.order.kind === 2);
+    const wantWood = me.wood < 200 ? Math.max(2, Math.ceil(workers.length * 0.4)) : me.wood > 500 ? 1 : Math.max(1, Math.round(workers.length * 0.25));
+    if (onWood.length < wantWood) {
+      const w = workers.find(w => w.order && w.order.k === 'harvest' && w.order.kind === 3);
+      if (w && workers.length > 1) s.autoHarvest(w, 2);
+    } else if (onWood.length > wantWood) s.autoHarvest(onWood[0], 3);
 
     // Never leave a building half finished.
     const unbuilt = ['hq', 'house', 'barracks', 'stable', 'tower', 'outpost'].flatMap(t => g(t).filter(b => !b.built));
@@ -51,7 +58,7 @@ export class AI {
         const far = w && !['hq', 'outpost'].some(t => g(t).some(b => b.built && Math.hypot(b.x / 32 - w.order.tx, b.y / 32 - w.order.ty) < 8));
         if (far) { want = 'outpost'; at = [w.order.tx, w.order.ty]; }
       }
-      if (want && me.res >= DEF[want].cost) {
+      if (want && me.res >= DEF[want].cost && me.wood >= (DEF[want].wood || 0)) {
         const site = s.findSite(want, at[0], at[1]);
         const w = workers.find(w => !w.order || w.order.k === 'harvest');
         if (site && w) cmd({ t: 'build', ids: [w.id], b: want, tx: site[0], ty: site[1] });
@@ -63,7 +70,7 @@ export class AI {
     }
     for (const b of g('stable')) if (b.built && b.queue.length < 1) cmd({ t: 'train', b: b.id, u: 'knight' });
 
-    const hero = g('hero')[0];
+    const hero = HEROES.flatMap(g)[0];
     const force = hero ? [...army, hero] : army;
     const idle = force.filter(u => !u.order).map(u => u.id);
     const home = hq || force[0];
@@ -84,9 +91,14 @@ export class AI {
     }
 
     if (hero && hero.abT <= 0) {
-      let n = 0;
-      for (const t of s.ents.values()) if (s.enemy(hero, t) && s.dist(hero, t) < 80) n++;
-      if (n >= 2) cmd({ t: 'ability', id: hero.id });
+      const ab = DEF[hero.type].ab;
+      let foes = 0, friends = 0, hurt = 0;
+      for (const t of s.ents.values()) {
+        if (t.b || s.dist(hero, t) > ab.radius - 10) continue;
+        if (s.enemy(hero, t)) foes++;
+        else { friends++; if (t.hp < DEF[t.type].hp * 0.6) hurt++; }
+      }
+      if (ab.kind === 'shock' ? foes >= 2 : ab.kind === 'heal' ? hurt >= 2 : this.att && friends >= 4) cmd({ t: 'ability', id: hero.id });
     }
   }
   // The nearest enemy building, or any enemy at all if none is left standing.

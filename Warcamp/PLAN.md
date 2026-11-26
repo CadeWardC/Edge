@@ -11,12 +11,12 @@ is copied, which also means the game can be shared and published freely.
 
 | Area | In the game today |
 | --- | --- |
-| Core loop | Workers gather crystal from crystals and trees, carry it to the Keep, and build. Cottages raise the unit limit (up to 40). |
-| Units | Worker, Soldier (melee), Archer (ranged), Rider (fast, heavy), and a Champion hero with a Shockwave power who returns 30 s after falling. |
+| Core loop | Workers gather crystal (pays for units) and wood (pays for buildings), carry it to the Keep or an Outpost, and build. Cottages raise the unit limit (up to 40). |
+| Units | Worker, Soldier (melee), Archer (ranged), Rider (fast, heavy), and a hero picked before the game (Warden, Ranger or Sage, each with its own power) who returns 30 s after falling. |
 | Buildings | Keep, Cottage, Outpost (a second drop-off for crystal), Barracks, Stable (needs a Barracks), Watchtower. |
 | Map | 56×56 tiles, generated from a seed and mirrored four ways so every corner is equal. Fog of war and a minimap. |
 | Players | 1 to 4, any mix of people and computers. Free for all, or everyone against the computers. Three computer levels. |
-| Multiplayer | Host shares a 4-letter code. Peer to peer, no game server. A computer takes over a player who drops out. |
+| Multiplayer | Host shares a 4-letter code. Peer to peer, no game server. A computer holds the base of a player who drops out, and they rejoin on their own. |
 | Controls | Touch (tap, drag, pinch, hold-and-drag box) and mouse plus keyboard. |
 | PWA | Installable, full screen, works offline after the first visit. |
 | Tests | `node Warcamp/test/sim.test.mjs` plays whole games without a browser. |
@@ -101,7 +101,7 @@ Work items:
 
 - Run our own matchmaking and relay (a PeerJS server plus a TURN relay). Today the game uses the free public
   PeerJS service, which is fine for friends but has no guarantee, and some mobile networks need a relay to connect.
-- Reconnect to a running game; move the host role to another player when the host leaves.
+- Move the host role to another player when the host leaves.
 - Smaller network traffic: send only what changed each tick (snapshots are about 3 kB ten times a second today).
 - Lobby chat, quick messages in game, spectators, a rematch button.
 - Later, if public matchmaking is wanted: a small server that runs the simulation, so no player's device is trusted.

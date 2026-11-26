@@ -1,5 +1,5 @@
 // Menus, lobby, controls and the game loop.
-import { TILE as T, DEF, TYPES, BUILDABLE, COLORS, ABILITY } from './data.js';
+import { TILE as T, DEF, TYPES, BUILDABLE, COLORS, COLOR_NAMES, HEROES } from './data.js';
 import { Sim } from './sim.js';
 import { AI } from './ai.js';
 import { View, Renderer } from './render.js';
@@ -15,12 +15,13 @@ const cv = $('c');
 const R = new Renderer(cv, $('mini'));
 const G = { view: null, sel: new Set(), placing: null, boxMode: false, box: null, send: null, conn: null, room: null, conns: null, timer: 0, ended: false, needCenter: false, mouse: null, touch: false };
 let L = null; // lobby state
-window.__wc = { G, R, get L() { return L; } };
+window.__wc = { G, R, get L() { return L; }, drop() { const c = G.conn; if (c) { c.close(); clientClosed(c); } } };
 
 // ---------------------------------------------------------------- screens
 function show(id) {
   for (const s of ['menu', 'lobby', 'help', 'end', 'ask']) $(s).hidden = s !== id;
   $('hud').hidden = !G.view;
+  if (id === 'menu') { const s = session(); $('mRejoin').hidden = !s; if (s) $('mRejoin').textContent = 'Rejoin game ' + s.code; }
 }
 let toastT = 0;
 function toast(msg) {
@@ -33,12 +34,38 @@ $('name').value = store.get('warcamp-name') || 'Player';
 const myName = () => { const n = clean($('name').value); store.set('warcamp-name', n); return n; };
 
 // ---------------------------------------------------------------- menu and lobby
+// Who this device is, so the host can give a player their base back after a dropped connection.
+// It is kept per tab, so two tabs on one device are two players; the saved session carries it across a full restart.
+const tab = { get: k => { try { return sessionStorage.getItem(k); } catch { return null; } }, set: (k, v) => { try { sessionStorage.setItem(k, v); } catch { /* private mode */ } } };
+let TOKEN = params.get('id') || tab.get('warcamp-token') || Math.random().toString(36).slice(2) + Date.now().toString(36);
+tab.set('warcamp-token', TOKEN);
+const SKEY = 'warcamp-session' + (params.get('id') || '');
+const prefs = () => ({
+  hero: HEROES.includes(store.get('warcamp-hero')) ? store.get('warcamp-hero') : 'hero',
+  color: Math.max(0, Math.min(COLORS.length - 1, +store.get('warcamp-color') || 0)),
+});
+const seated = s => s.kind === 'human' || s.kind === 'ai';
+const freeColor = want => {
+  const used = L.slots.filter(seated).map(s => s.color);
+  if (want != null && !used.includes(want)) return want;
+  for (let c = 0; c < COLORS.length; c++) if (!used.includes(c)) return c;
+  return 0;
+};
+function setKind(s, kind) {
+  s.kind = kind;
+  delete s.color; delete s.hero;
+  if (kind === 'ai') { s.color = freeColor(); s.hero = HEROES[(Math.random() * HEROES.length) | 0]; }
+}
+function newLobby(online, code, kinds) {
+  const p = prefs();
+  L = { online, host: true, code, mode: 'ffa', level: 1, you: 0, slots: [{ kind: 'human', name: myName(), token: TOKEN, hero: p.hero, color: p.color }] };
+  for (const k of kinds) { const s = { kind: 'closed' }; L.slots.push(s); setKind(s, k); }
+  renderLobby(); show('lobby');
+}
+
 $('mHelp').onclick = () => show('help');
 $('hClose').onclick = () => show('menu');
-$('mSingle').onclick = () => {
-  L = { online: false, host: true, code: '', mode: 'ffa', level: 1, you: 0, slots: [{ kind: 'human', name: myName() }, { kind: 'ai' }, { kind: 'closed' }, { kind: 'closed' }] };
-  renderLobby(); show('lobby');
-};
+$('mSingle').onclick = () => newLobby(false, '', ['ai', 'closed', 'closed']);
 $('mHost').onclick = async () => {
   $('mMsg').textContent = 'Opening a room…';
   for (let attempt = 0; attempt < 3; attempt++) {
@@ -46,9 +73,8 @@ $('mHost').onclick = async () => {
     try {
       G.room = await hostRoom(code);
       G.room.onconn = onJoin;
-      L = { online: true, host: true, code, mode: 'ffa', level: 1, you: 0, slots: [{ kind: 'human', name: myName() }, { kind: 'open' }, { kind: 'open' }, { kind: 'ai' }] };
       $('mMsg').textContent = '';
-      renderLobby(); show('lobby');
+      newLobby(true, code, ['open', 'open', 'ai']);
       return;
     } catch (e) {
       if (e && e.type === 'unavailable-id') continue; // code already in use, try another
@@ -57,42 +83,71 @@ $('mHost').onclick = async () => {
     }
   }
 };
-$('mJoin').onclick = async () => {
-  const code = $('code').value.trim().toUpperCase();
-  if (code.length !== 4) { $('mMsg').textContent = 'Type the 4-letter code from the host.'; return; }
+function hello() { const p = prefs(); return { t: 'hello', name: myName(), token: TOKEN, hero: p.hero, color: p.color }; }
+function useConn(c) {
+  G.conn = c;
+  c.ondata = clientMsg;
+  c.onclose = () => clientClosed(c);
+  c.send(hello());
+}
+async function join(code) {
   $('mMsg').textContent = 'Joining ' + code + '…';
   try {
-    const c = G.conn = await joinRoom(code);
-    c.ondata = clientMsg;
-    c.onclose = clientClosed;
-    c.send({ t: 'hello', name: myName() });
-    $('mMsg').textContent = '';
+    const c = await joinRoom(code);
     L = { online: true, host: false, code, mode: 'ffa', level: 1, you: -1, slots: [] };
+    useConn(c);
+    $('mMsg').textContent = '';
     renderLobby(); show('lobby');
   } catch (e) {
     $('mMsg').textContent = (e && e.message || 'Could not join') + '.';
   }
+}
+$('mJoin').onclick = () => {
+  const code = $('code').value.trim().toUpperCase();
+  if (code.length !== 4) { $('mMsg').textContent = 'Type the 4-letter code from the host.'; return; }
+  join(code);
 };
 $('code').addEventListener('keydown', e => { if (e.key === 'Enter') $('mJoin').click(); });
+// A game this device was in a short while ago can be picked up again from the menu.
+function session() {
+  try { const s = JSON.parse(store.get(SKEY) || 'null'); return s && s.code && Date.now() - s.at < 30 * 60e3 ? s : null; } catch { return null; }
+}
+$('mRejoin').onclick = () => { const s = session(); if (!s) return; if (s.token) { TOKEN = s.token; tab.set('warcamp-token', TOKEN); } join(s.code); };
 
 // Host side: someone connected to the room.
 function onJoin(c) {
   c.ondata = m => {
-    if (!m || m.t !== 'hello') return;
-    const i = G.view ? -1 : L.slots.findIndex(s => s.kind === 'open');
-    if (i < 0) { c.send({ t: 'full' }); setTimeout(() => c.close(), 300); return; }
-    L.slots[i] = { kind: 'human', name: clean(m.name), conn: c };
+    if (!m) return;
+    if (m.t === 'pick' && !G.view) {
+      const s = L.slots.find(s => s.conn === c);
+      if (!s) return;
+      if (HEROES.includes(m.hero)) s.hero = m.hero;
+      if (Number.isInteger(m.color) && m.color >= 0 && m.color < COLORS.length && !L.slots.some(o => o !== s && seated(o) && o.color === m.color)) s.color = m.color;
+      return syncLobby();
+    }
+    if (m.t !== 'hello') return;
+    const token = typeof m.token === 'string' ? m.token.slice(0, 64) : '';
+    const full = () => { c.send({ t: 'full' }); setTimeout(() => c.close(), 300); };
+    if (G.view) { // a game is running: only someone who was in it may come back
+      const pid = token && G.tokens ? G.tokens.indexOf(token) : -1;
+      if (pid < 1 || !G.attach) return full();
+      return G.attach(c, pid);
+    }
+    const s = L.slots.find(s => s.kind === 'open');
+    if (!s) return full();
+    Object.assign(s, { kind: 'human', name: clean(m.name), conn: c, token, hero: HEROES.includes(m.hero) ? m.hero : 'hero' });
+    s.color = freeColor(Number.isInteger(m.color) && m.color >= 0 && m.color < COLORS.length ? m.color : null);
     c.onclose = () => {
       if (G.view) return;
-      const j = L.slots.findIndex(s => s.conn === c);
-      if (j >= 0) { L.slots[j] = { kind: 'open' }; syncLobby(); }
+      const s = L.slots.find(s => s.conn === c);
+      if (s) { delete s.conn; delete s.token; delete s.name; setKind(s, 'open'); syncLobby(); }
     };
     syncLobby();
   };
 }
 function syncLobby() {
   renderLobby();
-  const slots = L.slots.map(s => ({ kind: s.kind, name: s.name }));
+  const slots = L.slots.map(s => ({ kind: s.kind, name: s.name, hero: s.hero, color: s.color }));
   L.slots.forEach((s, i) => s.conn && s.conn.send({ t: 'lobby', slots, mode: L.mode, level: L.level, code: L.code, you: i }));
 }
 function renderLobby() {
@@ -102,64 +157,126 @@ function renderLobby() {
   const label = { ai: 'Computer', open: 'Waiting for a player…', closed: 'Closed' };
   $('slots').innerHTML = L.slots.map((s, i) => {
     const text = s.kind === 'human' ? esc(s.name) + (i === L.you ? ' (you)' : '') : label[s.kind];
+    const hero = seated(s) && DEF[s.hero] ? `<small>${DEF[s.hero].name}</small>` : '';
     const btn = L.host && i > 0 && s.kind !== 'human' ? `<button data-slot="${i}">Change</button>` : '';
-    return `<div class="slot ${s.kind === 'closed' || s.kind === 'open' ? 'off' : ''}"><i style="background:${COLORS[i]}"></i><span>${text}</span>${btn}</div>`;
+    return `<div class="slot ${seated(s) ? '' : 'off'}"><i style="background:${seated(s) ? COLORS[s.color] : '#2c3d5a'}"></i><span>${text}${hero}</span>${btn}</div>`;
   }).join('') || '<div class="slot off"><span>Connecting…</span></div>';
+  const me = L.slots[L.you];
+  $('pick').innerHTML = !me ? '' :
+    '<div class="pl">Your hero</div><div class="heroes">' + HEROES.map(h =>
+      `<button data-hero="${h}" class="${me.hero === h ? 'on' : ''}"><b>${DEF[h].name}</b><small>${DEF[h].about}</small><small><i>${DEF[h].ab.name}</i>: ${DEF[h].ab.about}</small></button>`).join('') +
+    '</div><div class="pl">Your colour</div><div class="colors">' + COLORS.map((c, i) =>
+      `<button data-color="${i}" style="background:${c}" class="${me.color === i ? 'on' : ''}" aria-label="${COLOR_NAMES[i]}"${L.slots.some(o => o !== me && seated(o) && o.color === i) ? ' disabled' : ''}></button>`).join('') + '</div>';
   $('lMode').value = L.mode; $('lLevel').value = L.level;
   $('lMode').disabled = $('lLevel').disabled = !L.host;
   $('lStart').hidden = !L.host;
   $('lMsg').textContent = L.host ? '' : 'Waiting for the host to start…';
 }
+$('pick').onclick = e => {
+  const b = e.target.closest('button');
+  const me = L && L.slots[L.you];
+  if (!b || b.disabled || !me) return;
+  const hero = b.dataset.hero || me.hero, color = b.dataset.color != null ? +b.dataset.color : me.color;
+  store.set('warcamp-hero', hero); store.set('warcamp-color', color);
+  if (L.host) { me.hero = hero; me.color = color; syncLobby(); }
+  else if (G.conn) G.conn.send({ t: 'pick', hero, color });
+};
 $('slots').onclick = e => {
   const b = e.target.closest('button[data-slot]');
   if (!b || !L.host) return;
   const s = L.slots[+b.dataset.slot];
   const order = L.online ? ['open', 'ai', 'closed'] : ['ai', 'closed'];
-  s.kind = order[(order.indexOf(s.kind) + 1) % order.length];
+  setKind(s, order[(order.indexOf(s.kind) + 1) % order.length]);
   syncLobby();
 };
 $('lMode').onchange = () => { L.mode = $('lMode').value; syncLobby(); };
 $('lLevel').onchange = () => { L.level = +$('lLevel').value; syncLobby(); };
 $('lBack').onclick = () => { closeNet(); show('menu'); };
 $('lStart').onclick = () => {
-  const ps = [], conns = [];
+  const ps = [], conns = [], tokens = [];
   let n = 1;
   for (const s of L.slots) {
-    if (s.kind !== 'human' && s.kind !== 'ai') continue;
+    if (!seated(s)) continue;
     const ai = s.kind === 'ai';
-    ps.push({ name: ai ? 'Computer ' + n++ : s.name, ai, team: 0, bonus: ai ? [.85, 1, 1.25][L.level] : 1 });
+    ps.push({ name: ai ? 'Computer ' + n++ : s.name, ai, team: 0, bonus: ai ? [.85, 1, 1.25][L.level] : 1, hero: s.hero || 'hero', color: s.color });
     conns.push(s.conn || null);
+    tokens.push(ai ? null : s.token || null);
   }
   if (ps.length < 2) { $('lMsg').textContent = 'Add a computer or wait for a player.'; return; }
   const coop = L.mode === 'coop' && ps.some(p => p.ai) && ps.some(p => !p.ai);
   if (L.mode === 'coop' && !coop) { $('lMsg').textContent = 'Players vs computers needs at least one computer.'; return; }
   ps.forEach((p, i) => { p.team = coop ? (p.ai ? 1 : 0) : i; });
   const cfg = { seed: (Math.random() * 2 ** 31) | 0, size: 56, level: L.level, players: ps };
+  G.tokens = tokens;
   conns.forEach((c, i) => c && c.send({ t: 'start', cfg, you: i }));
   startGame(cfg, 0, conns);
 };
 
 // Client side: messages from the host.
+function net(msg) { const n = $('net'); n.textContent = msg; n.hidden = !msg; }
 function clientMsg(m) {
   if (!m) return;
   if (m.t === 'lobby' && !G.view) { L = { online: true, host: false, code: m.code, mode: m.mode, level: m.level, you: m.you, slots: m.slots }; renderLobby(); }
-  else if (m.t === 'start') startGame(m.cfg, m.you, null);
-  else if (m.t === 'snap') { if (G.view) G.view.apply(m.s); }
-  else if (m.t === 'full') { closeNet(); show('menu'); $('mMsg').textContent = 'That game is full or has already started.'; }
+  else if (m.t === 'start') {
+    const back = !!G.rc;
+    if (G.rc) { clearTimeout(G.rc.wait); G.rc = null; }
+    net('');
+    // Coming back to the same game keeps what this screen had already explored.
+    if (m.resume && G.view && G.view.seed === m.cfg.seed) G.view.me = m.you; else startGame(m.cfg, m.you, null);
+    for (const i of m.gone || []) if (G.view.terrain[i]) { G.view.terrain[i] = 0; G.view.dirty.push(i); }
+    G.lastSnap = performance.now();
+    store.set(SKEY, JSON.stringify({ code: L.code, token: TOKEN, at: Date.now() }));
+    if (back || m.resume) toast('You are back in the game');
+  }
+  else if (m.t === 'snap') { G.lastSnap = performance.now(); if (G.view) G.view.apply(m.s); }
+  else if (m.t === 'bye') {
+    store.set(SKEY, '');
+    closeNet();
+    if (G.view && !G.ended) endScreen('Game over', 'The host ended the game.');
+  }
+  else if (m.t === 'full') {
+    store.set(SKEY, '');
+    if (G.rc) { clearTimeout(G.rc.wait); G.rc = null; }
+    net('');
+    if (G.view) { closeNet(); endScreen('Disconnected', 'That game has ended, or the host has gone.'); }
+    else { closeNet(); show('menu'); $('mMsg').textContent = 'That game is full or has already started.'; }
+  }
 }
-function clientClosed() {
-  if (!G.conn) return;
+function clientClosed(c) {
+  if (c !== G.conn) return;
   G.conn = null;
-  if (G.view) { if (!G.ended) endScreen('Disconnected', 'The host left the game.'); }
+  if (G.view) { if (!G.ended) reconnect(); }
   else { show('menu'); $('mMsg').textContent = 'The host closed the room.'; }
+}
+// The connection dropped (the app was swiped away, the network blinked, the host stepped out):
+// keep knocking on the room until the host lets this player back in.
+function reconnect() {
+  if (G.rc || !G.view || G.ended || G.conns) return;
+  const rc = G.rc = { since: performance.now(), wait: 0 };
+  const drop = () => { const x = G.conn; G.conn = null; if (x) { x.onclose = null; x.ondata = null; try { x.close(); } catch { /* already gone */ } } };
+  drop();
+  net('Connection lost. Getting you back in…');
+  const attempt = async () => {
+    if (G.rc !== rc) return;
+    if (performance.now() - rc.since > 5 * 60e3) { G.rc = null; net(''); endScreen('Disconnected', 'Could not get back to the game.'); return; }
+    try {
+      const c = await joinRoom(L.code);
+      if (G.rc !== rc) { c.close(); return; }
+      useConn(c);
+      rc.wait = setTimeout(() => { if (G.rc === rc) { drop(); attempt(); } }, 6000); // no answer yet: knock again
+    } catch { setTimeout(attempt, 2500); }
+  };
+  attempt();
 }
 function closeNet() {
   clearInterval(G.timer); G.timer = 0;
+  if (G.rc) { clearTimeout(G.rc.wait); G.rc = null; }
+  net('');
   if (G.conns) for (const c of G.conns) c && c.close();
-  if (L && L.slots) for (const s of L.slots) s.conn && s.conn.close();
+  if (L && L.slots) for (const s of L.slots) s.conn && s.conn.close && s.conn.close();
   if (G.room) G.room.close();
-  const c = G.conn; G.conn = null; if (c) c.close();
-  G.room = G.conns = null;
+  const c = G.conn; G.conn = null; if (c) { c.onclose = null; c.close(); }
+  G.room = G.conns = G.attach = G.tokens = null;
 }
 
 // ---------------------------------------------------------------- starting and ending a game
@@ -168,20 +285,32 @@ function startGame(cfg, me, conns) {
   R.setView(G.view);
   R.cam.z = Math.min(innerWidth, innerHeight) < 500 ? .8 : 1;
   G.sel.clear(); G.placing = null; G.box = null; G.boxMode = false; G.ended = false; G.elim = false; G.needCenter = true;
+  G.lastSnap = performance.now();
   $('bBox').classList.remove('on');
   if (conns) {
     // This device is the host: it runs the simulation and sends everyone a snapshot each tick.
     const sim = G.sim = new Sim(cfg);
-    const ais = cfg.players.map((p, i) => p.ai ? new AI(sim, i, cfg.level) : null);
+    const ais = G.ais = cfg.players.map((p, i) => p.ai ? new AI(sim, i, cfg.level) : null);
     G.conns = conns;
-    conns.forEach((c, i) => {
-      if (!c) return;
+    const hook = (c, i) => {
       c.ondata = m => { if (m && m.t === 'cmd') { try { sim.command(i, m.c); } catch { /* ignore bad input */ } } };
       c.onclose = () => {
+        if (conns[i] !== c) return;
         conns[i] = null;
-        if (sim.players[i].alive && sim.winner === -1) { ais[i] = new AI(sim, i, 1); toast(cfg.players[i].name + ' left: a computer took over'); }
+        // A computer keeps the base alive until the player comes back.
+        if (sim.players[i].alive && sim.winner === -1) { ais[i] = new AI(sim, i, 1); toast(cfg.players[i].name + ' dropped out: a computer is holding their base'); }
       };
-    });
+    };
+    conns.forEach((c, i) => c && hook(c, i));
+    G.attach = (c, i) => {
+      const old = conns[i];
+      conns[i] = c;
+      if (old) { old.onclose = null; old.close(); }
+      hook(c, i);
+      ais[i] = null;
+      c.send({ t: 'start', cfg, you: i, resume: true, gone: sim.gone });
+      toast(cfg.players[i].name + ' is back');
+    };
     G.send = c => sim.command(me, c);
     const emit = () => { const s = sim.snapshot(); G.view.apply(s); for (const c of conns) c && c.send({ t: 'snap', s }); };
     emit();
@@ -235,6 +364,8 @@ function endScreen(title, msg) {
   show('end');
 }
 function quit() {
+  store.set(SKEY, '');
+  if (G.conns) for (const c of G.conns) c && c.send({ t: 'bye' }); // the host is leaving: tell everyone, so nobody waits
   closeNet();
   G.view = null; G.sim = null; G.send = null;
   awake(false);
@@ -477,7 +608,8 @@ $('bIdle').onclick = () => {
 $('bBox').onclick = () => { G.boxMode = !G.boxMode; $('bBox').classList.toggle('on', G.boxMode); if (G.boxMode) toast('Drag a box around your units'); };
 $('bDesel').onclick = () => { G.sel.clear(); G.placing = null; hudT = 0; };
 
-const btn = (act, name, cost, off) => `<button data-act="${act}"${off ? ' disabled' : ''}>${name}${cost ? `<small>◆ ${cost}</small>` : ''}</button>`;
+const price = d => (d.wood ? `<small class="w">▮ ${d.wood}</small>` : '') + (d.cost ? `<small>◆ ${d.cost}</small>` : '');
+const btn = (act, d, off) => `<button data-act="${act}"${off ? ' disabled' : ''}>${d.name}${price(d)}</button>`;
 function panelHTML() {
   const v = G.view, me = v.me, P = v.pl[me];
   if (G.placing) {
@@ -495,9 +627,9 @@ function panelHTML() {
     let h = `<div class="t">${d.name}</div><div class="d" id="pd"></div>`;
     if (!b.built) return h + '<div class="pb"><i id="pbar"></i></div><div class="acts">' +
       `<button data-act="resume" class="go">${b.paused ? 'Resume building' : 'Send more workers'}</button>` +
-      `<button data-act="cancelb" class="warn">Cancel<small>◆ +${d.cost} back</small></button></div>`;
+      `<button data-act="cancelb" class="warn">Cancel<small>refund</small></button></div>`;
     if (d.trains) {
-      h += '<div class="acts">' + d.trains.map(u => btn('train:' + u, DEF[u].name, DEF[u].cost, P.res < DEF[u].cost || P.pop >= P.cap || b.queue.length >= 5)).join('') + '</div>';
+      h += '<div class="acts">' + d.trains.map(u => btn('train:' + u, DEF[u], P.res < DEF[u].cost || P.pop >= P.cap || b.queue.length >= 5)).join('') + '</div>';
       if (b.queue.length) h += `<div class="d">Training: ${b.queue.map(i => DEF[TYPES[i]].name).join(', ')}</div><div class="pb"><i id="pbar"></i></div>`;
       if (b.queue.length) h = h.replace('</div><div class="d">Training', '<button data-act="unqueue" class="warn">Cancel last<small>refund</small></button></div><div class="d">Training');
     }
@@ -508,9 +640,10 @@ function panelHTML() {
   let h = `<div class="t">${Object.entries(count).map(([t, n]) => (n > 1 ? n + ' ' : '') + DEF[t].name + (n > 1 ? 's' : '')).join(', ')}</div><div class="d" id="pd"></div><div class="acts">`;
   if (count.worker) {
     const has = t => [...ents().values()].some(e => e.owner === me && e.type === t && e.built);
-    h += BUILDABLE.map(t => btn('build:' + t, DEF[t].name, DEF[t].cost, P.res < DEF[t].cost || (DEF[t].req && !has(DEF[t].req)))).join('');
+    h += BUILDABLE.map(t => btn('build:' + t, DEF[t], P.res < DEF[t].cost || P.wood < (DEF[t].wood || 0) || (DEF[t].req && !has(DEF[t].req)))).join('');
   }
-  if (count.hero) h += `<button data-act="ability" id="pab">${ABILITY.name}</button>`;
+  const hero = mine.find(e => DEF[e.type].hero);
+  if (hero) h += `<button data-act="ability" id="pab" class="go">${DEF[hero.type].ab.name}</button>`;
   return h + '<button data-act="stop">Stop</button></div>';
 }
 let hudT = 0, lastPanel = null, lastAlert = 0;
@@ -518,7 +651,9 @@ function updateHud() {
   const v = G.view, P = v.pl[v.me];
   $('res').textContent = '◆ ' + P.res;
   $('pop').textContent = `☗ ${P.pop}/${P.cap}`;
-  $('heroInfo').textContent = P.heroT > 0 ? `Champion returns in ${P.heroT}s` : '';
+  $('wood').textContent = '▮ ' + P.wood;
+  $('heroInfo').textContent = P.heroT > 0 ? `${DEF[v.info[v.me].hero].name} returns in ${P.heroT}s` : '';
+  if (!G.conns && !G.ended && !G.rc && performance.now() - G.lastSnap > 7000) reconnect(); // the host has gone quiet
   let idle = 0;
   for (const e of ents().values()) if (e.owner === v.me && e.type === 'worker' && e.idle) idle++;
   $('idleN').textContent = idle || '';
@@ -539,10 +674,10 @@ function updateHud() {
     if (pbar) pbar.style.width = (e.prog || 0) + '%';
   }
   if (pab) {
-    const hero = sel.find(e => e.type === 'hero');
-    const cd = hero ? hero.abT : 0;
+    const hero = sel.find(e => DEF[e.type].hero);
+    const cd = hero ? hero.abT : 0, name = hero ? DEF[hero.type].ab.name : '';
     pab.disabled = cd > 0;
-    pab.textContent = cd > 0 ? `${ABILITY.name} (${cd}s)` : ABILITY.name;
+    pab.textContent = cd > 0 ? `${name} (${cd}s)` : name;
   }
   // alerts and the end of the game
   if (v.hurt && v.tick - v.hurt.tick < 5 && performance.now() - lastAlert > 12000) {
@@ -550,6 +685,7 @@ function updateHud() {
     if (h.x < c.x || h.y < c.y || h.x > c.x + R.w / c.z || h.y > c.y + R.h / c.z) { lastAlert = performance.now(); toast('You are under attack!'); }
   }
   if (v.winner !== -1 && !G.ended) {
+    store.set(SKEY, '');
     const won = v.winner === v.team;
     endScreen(won ? 'Victory' : 'Defeat', won ? 'Every enemy base has fallen.' : v.winner === -2 ? 'Nobody is left standing.' : 'Your side has been wiped out.');
   } else if (!P.alive && !G.elim && !G.ended) { G.elim = true; toast('Your last building fell. You can keep watching.'); }
@@ -567,7 +703,7 @@ $('panel').addEventListener('click', ev => {
     if (a === 'resume') toast('Workers are on their way');
   }
   else if (a === 'train') { const e = selected().find(e => e.b && e.owner === me); if (e) G.send({ t: 'train', b: e.id, u: arg }); }
-  else if (a === 'ability') { for (const e of myUnits()) if (e.type === 'hero') G.send({ t: 'ability', id: e.id }); }
+  else if (a === 'ability') { for (const e of myUnits()) if (DEF[e.type].hero) G.send({ t: 'ability', id: e.id }); }
   else if (a === 'stop') G.send({ t: 'stop', ids: myUnits().map(e => e.id) });
   hudT = 0;
 });
@@ -608,7 +744,12 @@ addEventListener('beforeinstallprompt', e => { e.preventDefault(); installEvt = 
 $('mInstall').onclick = async () => { if (!installEvt) return; installEvt.prompt(); await installEvt.userChoice; installEvt = null; $('mInstall').hidden = true; };
 addEventListener('appinstalled', () => { $('mInstall').hidden = true; });
 if ('serviceWorker' in navigator && !LOCAL && (location.protocol === 'https:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1')) {
-  addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => {}));
+  const had = !!navigator.serviceWorker.controller;
+  addEventListener('load', () => navigator.serviceWorker.register('sw.js').then(reg => {
+    document.addEventListener('visibilitychange', () => { if (!document.hidden && !G.view) reg.update().catch(() => {}); });
+  }).catch(() => {}));
+  // A new version has been downloaded: switch to it straight away, unless a game is on.
+  navigator.serviceWorker.addEventListener('controllerchange', () => { if (had && !G.view) location.reload(); });
 }
 // Where multiplayer cannot work (an embedded preview with no peer connections), offer single player only.
 if (window.WARCAMP_SOLO) { $('mHost').hidden = true; $('code').parentElement.hidden = true; }

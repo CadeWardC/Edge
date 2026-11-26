@@ -99,9 +99,9 @@ for (const seed of [1, 2, 3, 4, 5, 6]) {
   const b2 = [...s.ents.values()].find(e => e.type === 'house' && !e.built);
   run(20);
   const paid = before - s.players[0].res < 0 ? 80 : 80; // income keeps arriving, so compare around the cancel itself
-  const r0 = s.players[0].res;
+  const r0 = s.players[0].wood;
   s.command(0, { t: 'cancel', b: b2.id });
-  check(!s.ents.has(b2.id) && s.players[0].res === r0 + paid && s.canPlace('house', b2.tx, b2.ty), 'cancel removes it, frees the ground and refunds the cost');
+  check(!s.ents.has(b2.id) && s.players[0].wood === r0 + paid && s.canPlace('house', b2.tx, b2.ty), 'cancel removes it, frees the ground and refunds the cost');
   s.command(0, { t: 'train', b: hq.id, u: 'worker' });
   const r1 = s.players[0].res;
   s.command(0, { t: 'unqueue', b: hq.id });
@@ -144,6 +144,66 @@ for (const seed of [1, 2, 3, 4, 5, 6]) {
     if (![...s.ents.values()].some(e => e.type === 'outpost' && e.built)) unbuilt++;
   }
   check(idle === 0 && unbuilt === 0, `10 workers crowding an Outpost on 40 maps: ${idle} idle worker-ticks, ${unbuilt} Outposts left unbuilt`);
+}
+
+// Wood comes from trees, crystal from crystals, and buildings need wood.
+{
+  const s = new Sim({ seed: 4, players: [{ name: 'a', team: 0 }, { name: 'b', team: 1 }] });
+  const run = n => { for (let i = 0; i < n; i++) { s.step(); s.snapshot(); } };
+  const ws = [...s.ents.values()].filter(e => e.type === 'worker' && e.owner === 0);
+  const P = s.players[0];
+  const tree = s.nearestRes(7, 7, 2), w0 = P.wood;
+  s.command(0, { t: 'harvest', ids: [ws[0].id], tx: tree[0], ty: tree[1] });
+  run(600);
+  check(P.wood > w0 + 50 && P.res > 300, `one worker on trees brings wood (${w0} -> ${P.wood}), the others crystal (${Math.floor(P.res)})`);
+  P.wood = 10;
+  const hq = [...s.ents.values()].find(e => e.type === 'hq' && e.owner === 0), site = s.findSite('house', hq.tx + 1, hq.ty + 1);
+  s.command(0, { t: 'build', ids: [ws[1].id], b: 'house', tx: site[0], ty: site[1] });
+  check(![...s.ents.values()].some(e => e.type === 'house'), 'no wood, no building');
+}
+
+// A building placed on top of units moves them out, and they carry on with what they were doing.
+{
+  let stuck = 0, lostOrder = 0;
+  for (let seed = 1; seed <= 30; seed++) {
+    const s = new Sim({ seed, players: [{ name: 'a', team: 0 }, { name: 'b', team: 1 }] });
+    const run = n => { for (let i = 0; i < n; i++) { s.step(); s.snapshot(); } };
+    const mine = [...s.ents.values()].filter(e => !e.b && e.owner === 0);
+    s.players[0].wood = 1000;
+    s.command(0, { t: 'move', ids: mine.map(e => e.id), x: 10.5 * 32, y: 10.5 * 32 });
+    run(80);
+    // a Barracks right on the group, built by one of the workers standing there
+    const w = mine.find(e => e.type === 'worker');
+    s.command(0, { t: 'build', ids: [w.id], b: 'barracks', tx: 10, ty: 10 });
+    const b = [...s.ents.values()].find(e => e.type === 'barracks');
+    for (const e of mine) if (!s.walkable(s.tileOf(e.x), s.tileOf(e.y))) stuck++;
+    run(400);
+    if (!b || !b.built) lostOrder++;
+    s.command(0, { t: 'move', ids: mine.map(e => e.id), x: 16.5 * 32, y: 8.5 * 32 });
+    run(150);
+    for (const e of mine) if (Math.hypot(e.x - 16.5 * 32, e.y - 8.5 * 32) > 90 || !s.walkable(s.tileOf(e.x), s.tileOf(e.y))) stuck++;
+  }
+  check(stuck === 0 && lostOrder === 0, `buildings dropped on units on 30 maps: ${stuck} stuck, ${lostOrder} left unbuilt`);
+}
+
+// Each hero's power does what it says.
+{
+  const mk = hero => new Sim({ seed: 2, players: [{ name: 'a', team: 0, hero }, { name: 'b', team: 1 }] });
+  let s = mk('ranger');
+  let h = [...s.ents.values()].find(e => e.owner === 0 && e.type === 'ranger');
+  const w = [...s.ents.values()].find(e => e.owner === 0 && e.type === 'worker');
+  s.command(0, { t: 'ability', id: h.id });
+  check(!!h && w.hasteT > s.tick && h.abT > 0, 'the Ranger is the hero that was picked, and Swift March speeds up nearby units');
+  s = mk('sage');
+  h = [...s.ents.values()].find(e => e.owner === 0 && e.type === 'sage');
+  const w2 = [...s.ents.values()].find(e => e.owner === 0 && e.type === 'worker');
+  w2.hp = 5; s.command(0, { t: 'ability', id: h.id });
+  check(w2.hp === 40, 'the Sage heals nearby units');
+  h.hp = 0; s.kill(h);
+  for (let i = 0; i < 320; i++) s.step();
+  check([...s.ents.values()].some(e => e.owner === 0 && e.type === 'sage') && s.players[0].pop === 3, 'a fallen hero comes back as the same hero and takes no housing');
+  s = mk('nonsense');
+  check([...s.ents.values()].some(e => e.owner === 0 && e.type === 'hero'), 'an unknown hero name falls back to the Warden');
 }
 
 if (failed) { console.error(`${failed} check(s) failed`); process.exit(1); }

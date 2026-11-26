@@ -35,6 +35,8 @@ jobs:
         run: node Warcamp/test/sim.test.mjs
       - name: Every file the game loads is in the repository
         run: node Warcamp/test/assets.test.mjs
+      - name: Stamp the offline cache with this commit, so phones fetch the new version
+        run: sed -i "s/const VERSION = '[^']*'/const VERSION = 'warcamp-${GITHUB_SHA::10}'/" Warcamp/sw.js && grep -n "const VERSION" Warcamp/sw.js
       - name: Leave tests and docs out of the site
         run: rm -rf Warcamp/test Warcamp/docs Warcamp/PLAN.md Warcamp/README.md
       - uses: actions/configure-pages@v5

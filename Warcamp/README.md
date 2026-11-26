@@ -6,6 +6,7 @@ Gather crystal, build a base, raise an army and destroy every enemy building.
 ![Warcamp on a phone](docs/screenshot.png)
 
 - **Single player** against 1 to 3 computers (easy, normal or hard).
+- Pick one of three **heroes** (Warden, Ranger, Sage) and one of eight **colours** before each game.
 - **Multiplayer** for 2 to 4 people on their own devices, with computers in the empty seats if wanted:
   free for all, or everyone against the computers.
 - **Touch first**, and it also plays with mouse and keyboard.
@@ -52,7 +53,10 @@ The host's device runs the game and the other devices connect straight to it (We
 - The room is found through the free public PeerJS service. It is fine for games with friends and comes with no
   guarantee; on some mobile networks a direct connection cannot be made. Running our own relay is in the roadmap.
 - The host should keep the game on screen: phones pause web pages in the background.
-- If a player leaves, a computer takes over their base. If the host leaves, the game ends.
+- If a player's connection drops or they swipe out of the app, a computer holds their base and the game lets them
+  back in on its own when they return. If the app was closed completely, opening it again shows **Rejoin game**.
+- If the host swipes away, the game freezes for everyone and carries on when the host returns. If the host closes
+  the app or leaves the game, it ends.
 
 ## Controls
 

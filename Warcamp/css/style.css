@@ -140,3 +140,41 @@ input, select { font-size: 16px; }
 #panel button.warn small { color: #fca5a5; }
 #panel button.go { background: #1d4ed8; border-color: #3b82f6; }
 @media (orientation: landscape) and (max-height: 480px) { #panel { max-height: 136px; } }
+
+/* ---------- wood, pickers, reconnect banner ---------- */
+#wood { color: #e0b074; }
+#panel button small.w { color: #e0b074; }
+#panel button small { display: inline-block; margin-right: 6px; }
+#net { position: absolute; top: 40%; left: 50%; transform: translate(-50%, -50%); background: #7f1d1df2; border: 1px solid #fca5a5; border-radius: 14px;
+  padding: 12px 18px; font-weight: 600; text-align: center; max-width: 80%; pointer-events: none !important; }
+button.rejoin { background: #b45309; border-color: #f59e0b; }
+.slot span small { display: block; color: #9fb0c9; font-size: 12px; }
+#pick { display: flex; flex-direction: column; gap: 6px; }
+#pick:empty { display: none; }
+.pl { color: #9fb0c9; font-size: 13px; margin-top: 2px; }
+.heroes { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+.heroes button { text-align: left; padding: 8px; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.heroes button small { color: #9fb0c9; font-size: 11px; line-height: 1.25; }
+.heroes button small i { color: #fde68a; font-style: normal; }
+.heroes button.on { background: #1d4ed8; border-color: #93c5fd; }
+.heroes button.on small { color: #dbeafe; }
+.colors { display: flex; gap: 8px; flex-wrap: wrap; }
+.colors button { width: 38px; height: 38px; min-height: 38px; padding: 0; border-radius: 50%; border: 3px solid transparent; }
+.colors button.on { border-color: #fff; box-shadow: 0 0 0 2px #0b1220 inset; }
+.colors button:disabled { opacity: .2; }
+#lobby .card { width: min(460px, 100%); }
+/* Lobby: Back and Start stay within reach however long the list above them is. */
+#lobby .card > .row:last-child { position: sticky; bottom: 0; padding: 10px 0 max(4px, env(safe-area-inset-bottom)); margin-top: -4px;
+  background: linear-gradient(#0b122000, #0b1220 35%); z-index: 2; }
+#lobby .slot { min-height: 42px; padding: 6px 10px; }
+#lobby .slot.off { min-height: 36px; padding: 3px 10px; }
+#lobby .slot.off button { min-height: 32px; padding: 3px 10px; }
+.row.opts label { flex: 1 1 130px; min-width: 0; }
+.row.opts select { min-width: 0; width: 100%; }
+/* Landscape: the selection panel stops short of the side bar; its buttons scroll sideways if there are many. */
+@media (orientation: landscape) {
+  #panel { max-width: calc(100% - 232px - env(safe-area-inset-left) - env(safe-area-inset-right)); }
+}
+@media (orientation: landscape) and (max-height: 480px) {
+  #panel { max-width: calc(100% - 214px - env(safe-area-inset-left) - env(safe-area-inset-right)); }
+}
