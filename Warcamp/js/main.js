@@ -3,7 +3,7 @@ import { TILE as T, DEF, TYPES, BUILDABLE, COLORS, COLOR_NAMES, HEROES, MAP_SIZE
 import { Sim } from './sim.js';
 import { AI } from './ai.js';
 import { View, Renderer } from './render.js';
-import { hostRoom, joinRoom, makeCode, LOCAL } from './net.js';
+import { hostRoom, joinRoom, makeCode } from './net.js';
 
 const $ = id => document.getElementById(id);
 const params = new URLSearchParams(location.search);
@@ -21,7 +21,11 @@ window.__wc = { G, R, get L() { return L; }, drop() { const c = G.conn; if (c) {
 function show(id) {
   for (const s of ['menu', 'lobby', 'help', 'end', 'ask']) $(s).hidden = s !== id;
   $('hud').hidden = !G.view;
-  if (id === 'menu') { const s = session(); $('mRejoin').hidden = !s; if (s) $('mRejoin').textContent = 'Rejoin game ' + s.code; }
+  if (id === 'menu') {
+    const s = session(); $('mRejoin').hidden = !s; if (s) $('mRejoin').textContent = 'Rejoin game ' + s.code;
+    const g = saved(); $('mContinue').hidden = !g;
+    if (g) $('mContinue').textContent = 'Continue your game' + (g.code ? ' (room ' + g.code + ')' : '');
+  }
 }
 let toastT = 0;
 function toast(msg) {
@@ -108,6 +112,24 @@ $('mJoin').onclick = () => {
   join(code);
 };
 $('code').addEventListener('keydown', e => { if (e.key === 'Enter') $('mJoin').click(); });
+// A game this device is running (single player, or as host) is saved every few seconds, so it survives the app
+// being closed or the page being reloaded.
+const SAVE = 'warcamp-save' + (params.get('id') || '');
+function saved() {
+  try { const s = JSON.parse(store.get(SAVE) || 'null'); return s && s.sim && Date.now() - s.at < 12 * 3600e3 ? s : null; } catch { return null; }
+}
+$('mContinue').onclick = async () => {
+  const s = saved();
+  if (!s) return;
+  L = { online: !!s.code, host: true, code: s.code || '', mode: 'ffa', level: s.cfg.level, you: 0, slots: [] };
+  if (s.code) { // reopen the same room, so the other players' devices find their way back in
+    $('mMsg').textContent = 'Reopening room ' + s.code + '…';
+    try { G.room = await hostRoom(s.code); G.room.onconn = onJoin; $('mMsg').textContent = ''; }
+    catch { $('mMsg').textContent = ''; setTimeout(() => toast('Could not reopen the room: the others cannot rejoin'), 500); }
+  }
+  G.tokens = s.tokens || [];
+  startGame(s.cfg, s.me, s.cfg.players.map(() => null), s);
+};
 // A game this device was in a short while ago can be picked up again from the menu.
 function session() {
   try { const s = JSON.parse(store.get(SKEY) || 'null'); return s && s.code && Date.now() - s.at < 30 * 60e3 ? s : null; } catch { return null; }
@@ -280,7 +302,7 @@ function closeNet() {
 }
 
 // ---------------------------------------------------------------- starting and ending a game
-function startGame(cfg, me, conns) {
+function startGame(cfg, me, conns, save) {
   G.view = new View(cfg, me);
   R.setView(G.view);
   R.cam.z = Math.min(innerWidth, innerHeight) < 500 ? .8 : 1;
@@ -289,8 +311,20 @@ function startGame(cfg, me, conns) {
   $('bBox').classList.remove('on');
   if (conns) {
     // This device is the host: it runs the simulation and sends everyone a snapshot each tick.
-    const sim = G.sim = new Sim(cfg);
-    const ais = G.ais = cfg.players.map((p, i) => p.ai ? new AI(sim, i, cfg.level) : null);
+    const sim = G.sim = save ? Sim.restore(cfg, save.sim) : new Sim(cfg);
+    // In a restored game a computer holds every other player's base until that player rejoins.
+    const ais = G.ais = cfg.players.map((p, i) => p.ai ? new AI(sim, i, cfg.level) : save && i !== me && sim.players[i].alive ? new AI(sim, i, 1) : null);
+    if (save) {
+      (save.ais || []).forEach((a, i) => { if (a && ais[i]) Object.assign(ais[i], a); });
+      for (const i of sim.gone) G.view.terrain[i] = 0;
+    }
+    const keep = () => {
+      if (sim.winner !== -1) return store.set(SAVE, '');
+      try {
+        store.set(SAVE, JSON.stringify({ at: Date.now(), cfg, me, code: L && L.online ? L.code : '', tokens: G.tokens || [],
+          ais: ais.map((a, i) => a && cfg.players[i].ai ? { att: a.att, wave: a.wave } : null), sim: sim.save() }));
+      } catch { /* storage full or blocked: play on without saving */ }
+    };
     G.conns = conns;
     const hook = (c, i) => {
       c.ondata = m => { if (m && m.t === 'cmd') { try { sim.command(i, m.c); } catch { /* ignore bad input */ } } };
@@ -325,6 +359,7 @@ function startGame(cfg, me, conns) {
         sim.step();
         emit();
         done = sim.winner !== -1;
+        if (done || sim.tick % 50 === 0) keep();
       }
     }, 50);
   } else {
@@ -365,6 +400,7 @@ function endScreen(title, msg) {
 }
 function quit() {
   store.set(SKEY, '');
+  if (G.conns) store.set(SAVE, ''); // leaving on purpose ends the saved game
   if (G.conns) for (const c of G.conns) c && c.send({ t: 'bye' }); // the host is leaving: tell everyone, so nobody waits
   closeNet();
   G.view = null; G.sim = null; G.send = null;
@@ -771,14 +807,6 @@ let installEvt = null;
 addEventListener('beforeinstallprompt', e => { e.preventDefault(); installEvt = e; $('mInstall').hidden = false; });
 $('mInstall').onclick = async () => { if (!installEvt) return; installEvt.prompt(); await installEvt.userChoice; installEvt = null; $('mInstall').hidden = true; };
 addEventListener('appinstalled', () => { $('mInstall').hidden = true; });
-if ('serviceWorker' in navigator && !LOCAL && (location.protocol === 'https:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1')) {
-  const had = !!navigator.serviceWorker.controller;
-  addEventListener('load', () => navigator.serviceWorker.register('sw.js').then(reg => {
-    document.addEventListener('visibilitychange', () => { if (!document.hidden && !G.view) reg.update().catch(() => {}); });
-  }).catch(() => {}));
-  // A new version has been downloaded: switch to it straight away, unless a game is on.
-  navigator.serviceWorker.addEventListener('controllerchange', () => { if (had && !G.view) location.reload(); });
-}
 // Where multiplayer cannot work (an embedded preview with no peer connections), offer single player only.
 if (window.WARCAMP_SOLO) { $('mHost').hidden = true; $('code').parentElement.hidden = true; }
 if (iOS && !standalone && !window.WARCAMP_SOLO) $('mIOS').hidden = false;

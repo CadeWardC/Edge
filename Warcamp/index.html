@@ -45,6 +45,7 @@
     <h1>WARCAMP</h1>
     <p class="tag">Gather. Build. Conquer. 1–4 players.</p>
     <label>Your name <input id="name" maxlength="12" autocomplete="off" spellcheck="false"></label>
+    <button id="mContinue" class="big rejoin" hidden>Continue your game</button>
     <button id="mRejoin" class="big rejoin" hidden>Rejoin game</button>
     <button id="mSingle" class="big">Single player</button>
     <button id="mHost" class="big">Host a multiplayer game</button>
@@ -104,6 +105,7 @@
     <ul>
       <li>One player hosts and shares the 4-letter code; the others type it and tap Join. Empty seats can be computers.</li>
       <li>If a player's connection drops or they leave the app, a computer holds their base and the game lets them back in on its own when they return. If the app was closed completely, open it again and tap <b>Rejoin game</b>.</li>
+      <li>A game you play alone or host is saved as you go. If the app closes or the page reloads, tap <b>Continue your game</b>.</li>
     </ul>
     <button id="hClose" class="big">Got it</button>
   </div>
@@ -131,6 +133,39 @@
   </div>
 </div>
 
+<script>
+// Offline cache and updates. This is kept apart from the game's own script so that it still runs if that fails.
+(function () {
+  var local = /[?&]net=local/.test(location.search);
+  var inGame = function () { return !!(window.__wc && window.__wc.G.view); };
+  if ('serviceWorker' in navigator && !local && (location.protocol === 'https:' || /^(localhost|127\.0\.0\.1)$/.test(location.hostname))) {
+    var had = !!navigator.serviceWorker.controller;
+    addEventListener('load', function () {
+      navigator.serviceWorker.register('sw.js').then(function (reg) {
+        document.addEventListener('visibilitychange', function () { if (!document.hidden && !inGame()) reg.update().catch(function () {}); });
+      }).catch(function () {});
+    });
+    // A new release has been downloaded: switch to it straight away, unless a game is on.
+    var mending = false; try { mending = !!sessionStorage.getItem('warcamp-repair'); } catch (e) {}
+    navigator.serviceWorker.addEventListener('controllerchange', function () { if ((had || mending) && !inGame()) location.reload(); });
+  }
+  // If the game has not started a few seconds after the page loaded, its files are broken or mismatched:
+  // throw the offline copy away and fetch everything again, once.
+  addEventListener('load', function () {
+    setTimeout(function () {
+      if (window.__wc) { try { sessionStorage.removeItem('warcamp-repair'); } catch (e) {} return; }
+      var tried; try { tried = sessionStorage.getItem('warcamp-repair'); sessionStorage.setItem('warcamp-repair', '1'); } catch (e) { tried = '1'; }
+      var msg = document.getElementById('mMsg');
+      if (tried) { if (msg) msg.textContent = 'The game did not start. Check your connection and reload.'; return; }
+      if (msg) msg.textContent = 'Repairing the saved copy of the game…';
+      var jobs = [];
+      if (window.caches) jobs.push(caches.keys().then(function (ks) { return Promise.all(ks.map(function (k) { return caches.delete(k); })); }));
+      if ('serviceWorker' in navigator) jobs.push(navigator.serviceWorker.getRegistrations().then(function (rs) { return Promise.all(rs.map(function (r) { return r.unregister(); })); }));
+      Promise.all(jobs).catch(function () {}).then(function () { location.reload(); });
+    }, 5000);
+  });
+})();
+</script>
 <script src="lib/peerjs.min.js" defer></script>
 <script type="module" src="js/main.js"></script>
 </body>

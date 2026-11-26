@@ -736,6 +736,27 @@ export class Sim {
     }
   }
 
+  // The whole game as plain data, and back again: this is what lets a game survive the app being closed.
+  save() {
+    const N = this.N, amt = [];
+    for (let i = 0; i < N * N; i++) if (this.terrain[i] >= 2 && this.amt[i] !== (this.terrain[i] === 2 ? TREE_AMT : CRYSTAL_AMT)) amt.push(i, this.amt[i]);
+    return { tick: this.tick, nextId: this.nextId, winner: this.winner, players: this.players, ents: [...this.ents.values()], gone: this.gone, amt, bad: [...this.bad] };
+  }
+  static restore(cfg, st) {
+    const s = new Sim(cfg);
+    s.ents.clear(); s.occ.fill(0);
+    for (const i of st.gone) { s.terrain[i] = 0; s.amt[i] = 0; }
+    for (let k = 0; k < st.amt.length; k += 2) s.amt[st.amt[k]] = st.amt[k + 1];
+    s.gone = st.gone.slice(); s.bad = new Set(st.bad);
+    s.players = st.players; s.tick = st.tick; s.nextId = st.nextId; s.winner = st.winner;
+    s.changed = []; s.fx = [];
+    for (const e of st.ents) {
+      s.ents.set(e.id, e);
+      if (e.b) for (let y = e.ty; y < e.ty + e.size; y++) for (let x = e.tx; x < e.tx + e.size; x++) s.occ[y * s.N + x] = e.id;
+    }
+    return s;
+  }
+
   // Everything a screen needs to draw this tick. Tile changes and effects are sent once.
   snapshot() {
     const s = {

@@ -275,5 +275,17 @@ for (const seed of [1, 2, 3, 4, 5, 6]) {
   check(h2 && h2.hp === s.maxHp(h2) && s.snapshot().p[0][6] === 5, 'a fallen hero returns at the same level');
 }
 
+// A saved game, written out as text and read back, plays on exactly as the original does.
+{
+  const cfg = { seed: 77, players: [0, 1, 2, 3].map(i => ({ name: 'AI' + i, team: i, hero: ['hero', 'ranger', 'sage', 'hero'][i] })) };
+  const a = new Sim(cfg), aisA = a.players.map((_, i) => new AI(a, i, 1));
+  const stepAll = (s, ais, n) => { let last; for (let i = 0; i < n; i++) { for (const x of ais) x.update(); s.step(); last = s.snapshot(); } return JSON.stringify(last); };
+  stepAll(a, aisA, 2500);
+  const text = JSON.stringify({ sim: a.save(), ais: aisA.map(x => ({ att: x.att, wave: x.wave })) });
+  const back = JSON.parse(text), b = Sim.restore(cfg, back.sim), aisB = b.players.map((_, i) => Object.assign(new AI(b, i, 1), back.ais[i]));
+  const sa = stepAll(a, aisA, 1500), sb = stepAll(b, aisB, 1500);
+  check(sa === sb && a.ents.size > 30, `a game saved at tick 2500 and restored matches the original 1500 ticks later (${a.ents.size} entities, ${(text.length / 1024).toFixed(0)} kB saved)`);
+}
+
 if (failed) { console.error(`${failed} check(s) failed`); process.exit(1); }
 console.log('all checks passed');
