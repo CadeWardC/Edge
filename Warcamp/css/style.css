@@ -471,3 +471,10 @@ input, select { background: var(--dock); border: 1px solid #3b4d6b; border-radiu
   #game.on:is(.lay-over, .lay-lite, .folded) #heroInfo { top: 46px !important; }
   #game.on:is(.lay-over, .lay-lite, .folded) #waveInfo { top: 74px !important; }
 }
+
+/* ---------- installed on a phone ---------- */
+/* With floating controls the map fills the whole screen, under the clock and down to the bottom edge. The controls keep clear of both themselves. */
+#game.on:is(.lay-over, .lay-lite, .folded) { padding: 0; }
+#game.on:is(.lay-over, .lay-lite, .folded) #fold { bottom: max(var(--pb, 0px), env(safe-area-inset-bottom)); }
+/* An installed iPhone app can report a screen shorter than it is, which left an empty band along the bottom: main.js measures the real height. */
+#game, .screen { height: var(--fh, auto); }

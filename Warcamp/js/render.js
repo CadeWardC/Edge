@@ -315,6 +315,7 @@ export function icon(type, color) {
 
 const MINI = ['#5f9e45', '#3d86c6', '#2f6b3a', '#7dd3fc'];
 
+const AT = 3; // how much larger than a tile the ground pictures are painted
 export class Renderer {
   constructor(canvas, mini) {
     this.cv = canvas; this.g = canvas.getContext('2d');
@@ -324,16 +325,17 @@ export class Renderer {
     this.resize();
   }
   resize() {
-    const d = this.dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const d = this.dpr = Math.min(window.devicePixelRatio || 1, 3);
     this.w = this.cv.clientWidth; this.h = this.cv.clientHeight;
     this.cv.width = Math.round(this.w * d); this.cv.height = Math.round(this.h * d);
   }
   setView(v) {
     this.view = v;
     const N = v.N, c = this.atlas = document.createElement('canvas');
-    c.width = 64 * T; c.height = T;
+    // Painted at three times its size so the ground stays sharp on a phone screen; 64 variants in an 8 by 8 sheet.
+    c.width = c.height = 8 * T * AT;
     const ag = c.getContext('2d');
-    for (let t = 0; t < 4; t++) for (let chk = 0; chk < 2; chk++) for (let k = 0; k < 8; k++) this.paint(ag, (t * 16 + chk * 8 + k) * T, 0, t, chk, k);
+    for (let n = 0; n < 64; n++) { ag.setTransform(AT, 0, 0, AT, (n & 7) * T * AT, (n >> 3) * T * AT); this.paint(ag, 0, 0, n >> 4, (n >> 3) & 1, n & 7); }
     this.mc = document.createElement('canvas'); this.mc.width = this.mc.height = N;
     this.mimg = this.mc.getContext('2d').createImageData(N, N);
     v.updateFog();
@@ -416,7 +418,7 @@ export class Renderer {
         if (!v.explored[i]) continue;
         let h = Math.imul(tx * 374761393 + ty * 668265263, 1274126177); h ^= h >>> 15; // well mixed, so variants do not line up
         const tt = v.terrain[i];
-        g.drawImage(this.atlas, (tt * 16 + ((tx + ty) & 1) * 8 + ((h >>> 8) & 7)) * T, 0, T, T, tx * T, ty * T, T + .6, T + .6);
+        g.drawImage(this.atlas, ((h >>> 8) & 7) * T * AT, (tt * 2 + ((tx + ty) & 1)) * T * AT, T * AT, T * AT, tx * T, ty * T, T + .6, T + .6);
         if (tt === 1) { // a sandy shore wherever water meets land
           g.fillStyle = 'rgba(233,224,180,.7)';
           if (ty > 0 && v.terrain[i - N] !== 1) g.fillRect(tx * T, ty * T, T, 3.5);
