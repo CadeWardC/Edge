@@ -7,7 +7,7 @@ const V = VERSION === 'dev' ? '' : '?v=' + VERSION;
 const ASSETS = [
   './', 'index.html', 'manifest.webmanifest',
   'icons/icon.svg', 'icons/icon-192.png', 'icons/apple-touch-icon.png', 'icons/icon-512.png', 'icons/icon-maskable-512.png',
-  ...['css/style.css', 'js/main.js', 'js/data.js', 'js/sim.js', 'js/ai.js', 'js/render.js', 'js/net.js', 'lib/peerjs.min.js'].map(u => u + V),
+  ...['css/style.css', 'js/main.js', 'js/data.js', 'js/maps.js', 'js/sim.js', 'js/nomad.js', 'js/ai.js', 'js/render.js', 'js/net.js', 'lib/peerjs.min.js'].map(u => u + V),
 ];
 self.addEventListener('install', e => {
   // cache: 'reload' goes to the server, never to a copy the browser kept from an earlier release.

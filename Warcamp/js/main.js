@@ -1,5 +1,6 @@
 // Menus, lobby, controls and the game loop.
-import { TILE as T, DEF, TYPES, BUILDABLE, COLORS, COLOR_NAMES, HEROES, MAP_SIZE, BUILD_RANGE, MAXCAP, SURVIVAL } from './data.js';
+import { TILE as T, DEF, TYPES, BUILDABLE, COLORS, COLOR_NAMES, HEROES, MAP_SIZE, BUILD_RANGE, MAXCAP, SURVIVAL, NOMAD } from './data.js';
+import { MAPS, mapOf } from './maps.js';
 import { Sim } from './sim.js';
 import { AI } from './ai.js';
 import { View, Renderer, icon } from './render.js';
@@ -64,7 +65,7 @@ function setKind(s, kind) {
 }
 function newLobby(online, code, kinds) {
   const p = prefs();
-  L = { online, host: true, code, mode: 'ffa', level: 1, you: 0, slots: [{ kind: 'human', name: myName(), token: TOKEN, hero: p.hero, color: p.color }] };
+  L = { online, host: true, code, mode: 'ffa', map: 'classic', level: 1, you: 0, slots: [{ kind: 'human', name: myName(), token: TOKEN, hero: p.hero, color: p.color }] };
   for (const k of kinds) { const s = { kind: 'closed' }; L.slots.push(s); setKind(s, k); }
   renderLobby(); show('lobby');
 }
@@ -100,7 +101,7 @@ async function join(code) {
   $('mMsg').textContent = 'Joining ' + code + '…';
   try {
     const c = await joinRoom(code);
-    L = { online: true, host: false, code, mode: 'ffa', level: 1, you: -1, slots: [] };
+    L = { online: true, host: false, code, mode: 'ffa', map: 'classic', level: 1, you: -1, slots: [] };
     useConn(c);
     $('mMsg').textContent = '';
     renderLobby(); show('lobby');
@@ -117,13 +118,14 @@ $('code').addEventListener('keydown', e => { if (e.key === 'Enter') $('mJoin').c
 // A game this device is running (single player, or as host) is saved every few seconds, so it survives the app
 // being closed or the page being reloaded.
 const SAVE = 'warcamp-save' + (params.get('id') || '');
+const NKEY = 'warcamp-nomad-best'; // the furthest any Nomad run on this device has got, in tiles
 function saved() {
   try { const s = JSON.parse(store.get(SAVE) || 'null'); return s && s.sim && Date.now() - s.at < 12 * 3600e3 ? s : null; } catch { return null; }
 }
 $('mContinue').onclick = async () => {
   const s = saved();
   if (!s) return;
-  L = { online: !!s.code, host: true, code: s.code || '', mode: 'ffa', level: s.cfg.level, you: 0, slots: [] };
+  L = { online: !!s.code, host: true, code: s.code || '', mode: s.cfg.mode || 'ffa', map: s.cfg.map || 'classic', level: s.cfg.level, you: 0, slots: [] };
   if (s.code) { // reopen the same room, so the other players' devices find their way back in
     $('mMsg').textContent = 'Reopening room ' + s.code + '…';
     try { G.room = await hostRoom(s.code); G.room.onconn = onJoin; $('mMsg').textContent = ''; }
@@ -172,12 +174,12 @@ function onJoin(c) {
 function syncLobby() {
   renderLobby();
   const slots = L.slots.map(s => ({ kind: s.kind, name: s.name, hero: s.hero, color: s.color }));
-  L.slots.forEach((s, i) => s.conn && s.conn.send({ t: 'lobby', slots, mode: L.mode, level: L.level, wave: L.wave ?? 1, extra: L.extra || 0, code: L.code, you: i }));
+  L.slots.forEach((s, i) => s.conn && s.conn.send({ t: 'lobby', slots, mode: L.mode, map: L.map, level: L.level, wave: L.wave ?? 1, extra: L.extra || 0, code: L.code, you: i }));
 }
 function renderLobby() {
   $('lTitle').textContent = L.online ? 'Multiplayer game' : 'Single player';
   $('lCode').hidden = !L.online;
-  $('lCode').innerHTML = `Room code<b>${esc(L.code)}</b>${L.host ? 'Friends type this code and tap Join.' : ''}`;
+  $('lCode').innerHTML = `Room code<b>${esc(L.code)}</b><button id="lCopy">${copied === L.code ? 'Copied' : 'Copy code'}</button>${L.host ? '<span>Friends type this code and tap Join.</span>' : ''}`;
   const label = { ai: 'Computer', open: 'Waiting for a player…', closed: 'Closed' };
   $('slots').innerHTML = L.slots.map((s, i) => {
     const text = s.kind === 'human' ? esc(s.name) + (i === L.you ? ' (you)' : '') : label[s.kind];
@@ -191,15 +193,38 @@ function renderLobby() {
       `<button data-hero="${h}" class="${me.hero === h ? 'on' : ''}"><b>${DEF[h].name}</b><small>${DEF[h].about}</small><small><i>${DEF[h].abs[0].name}</i>: ${DEF[h].abs[0].about}</small><small>More spells at levels 2 and 4</small></button>`).join('') +
     '</div><div class="pl">Your colour</div><div class="colors">' + COLORS.map((c, i) =>
       `<button data-color="${i}" style="background:${c}" class="${me.color === i ? 'on' : ''}" aria-label="${COLOR_NAMES[i]}"${L.slots.some(o => o !== me && seated(o) && o.color === i) ? ' disabled' : ''}></button>`).join('') + '</div>';
-  $('lMode').value = L.mode; $('lLevel').value = L.level; $('lWave').value = L.wave ?? 1; $('lWave').disabled = !L.host;
-  $('lWaveL').hidden = L.mode !== 'survival'; $('lLevel').parentElement.hidden = L.mode === 'survival'; $('lExtra').value = L.extra || 0;
-  $('lMode').disabled = $('lLevel').disabled = $('lExtra').disabled = !L.host;
+  const horde = L.mode === 'survival' || L.mode === 'nomad', lv = SURVIVAL.levels[L.wave ?? 1];
+  $('lMode').value = L.mode; $('lMap').value = L.map; $('lLevel').value = L.level; $('lWave').value = L.wave ?? 1; $('lWave').disabled = !L.host;
+  $('lWaveL').hidden = !horde; $('lExtra').value = L.extra || 0;
+  // The computers' own difficulty matters wherever a computer plays: not in Nomad, and in Survival only with one seated.
+  $('lLevel').parentElement.hidden = L.mode === 'nomad' || (L.mode === 'survival' && !L.slots.some(s => s.kind === 'ai'));
+  $('lMode').disabled = $('lMap').disabled = $('lLevel').disabled = $('lExtra').disabled = !L.host;
   $('lExtraL').hidden = L.mode !== 'coop';
   $('lAbout').textContent = { ffa: 'Everyone for themselves.', coop: 'All the players on one side against the computers. Computers can sit in empty seats, and up to four more can be added.',
-    survival: 'Everyone on one side against endless waves, each bigger than the last, with a Warlord every fifth wave. More players bring a bigger, tougher Horde. ' + SURVIVAL.levels[L.wave ?? 1].name + ': ' + SURVIVAL.levels[L.wave ?? 1].about + '.' }[L.mode];
+    survival: 'Everyone on one side, their Keeps together in the middle of the map, against endless waves from its edges. Each wave is bigger than the last, with a Warlord every fifth. More players bring a bigger, tougher Horde. ' + lv.name + ': ' + lv.about + '.',
+    nomad: 'No base: lead your hero and a small party as far from the start as you can. Camps lie in wait or patrol on the way, and the further you push, the more waves hunt you. It ends when your hero falls, or the Warlord at the far end does. Computers sit this one out. ' + lv.name + ': ' + lv.about + '.' }[L.mode]
+    + ' Map: ' + mapOf(L.map).about;
   $('lStart').hidden = !L.host;
   $('lMsg').textContent = L.host ? '' : 'Waiting for the host to start…';
 }
+// Tap the room code, or the button under it, to copy it.
+let copied = '';
+$('lCode').onclick = async e => {
+  if (!L || !L.code || !e.target.closest('b, button')) return;
+  const code = L.code;
+  try { await navigator.clipboard.writeText(code); }
+  catch { // no clipboard access here (an old browser, or a page not served over HTTPS): the old way
+    const t = document.createElement('textarea');
+    t.value = code; t.setAttribute('readonly', ''); t.style.cssText = 'position:fixed;top:0;left:0;opacity:0';
+    document.body.appendChild(t); t.select();
+    let ok = false; try { ok = document.execCommand('copy'); } catch { /* not allowed either */ }
+    t.remove();
+    if (!ok) { $('lMsg').textContent = 'Could not copy: the code is ' + code + '.'; return; }
+  }
+  copied = code; buzz(8);
+  if ($('lCopy')) $('lCopy').textContent = 'Copied';
+  setTimeout(() => { copied = ''; if ($('lCopy')) $('lCopy').textContent = 'Copy code'; }, 2000);
+};
 $('pick').onclick = e => {
   const b = e.target.closest('button');
   const me = L && L.slots[L.you];
@@ -218,6 +243,8 @@ $('slots').onclick = e => {
   syncLobby();
 };
 $('lMode').onchange = () => { L.mode = $('lMode').value; if (L.mode === 'coop' && !L.extra && !L.slots.some(s => s.kind === 'ai')) L.extra = 1; syncLobby(); };
+$('lMap').innerHTML = MAPS.map(m => `<option value="${m.id}">${m.name}</option>`).join('');
+$('lMap').onchange = () => { L.map = mapOf($('lMap').value).id; syncLobby(); };
 $('lExtra').onchange = () => { L.extra = +$('lExtra').value; syncLobby(); };
 $('lLevel').onchange = () => { L.level = +$('lLevel').value; syncLobby(); };
 $('lWave').onchange = () => { L.wave = +$('lWave').value; syncLobby(); };
@@ -225,15 +252,15 @@ $('lBack').onclick = () => { closeNet(); show('menu'); };
 $('lStart').onclick = () => {
   const ps = [], conns = [], tokens = [];
   let n = 1;
+  const survival = L.mode === 'survival', nomad = L.mode === 'nomad';
   for (const s of L.slots) {
-    if (!seated(s)) continue;
+    if (!seated(s) || (nomad && s.kind === 'ai')) continue; // Nomad is for people: a computer has no idea how to wander
     const ai = s.kind === 'ai';
     ps.push({ name: ai ? 'Computer ' + n++ : s.name, ai, team: 0, bonus: ai ? [.85, 1, 1.25][L.level] : 1, hero: s.hero || 'hero', color: s.color });
     conns.push(s.conn || null);
     tokens.push(ai ? null : s.token || null);
   }
   if (ps.length < 2 && L.mode === 'ffa') { $('lMsg').textContent = 'Add a computer or wait for a player.'; return; }
-  const survival = L.mode === 'survival';
   if (L.mode === 'coop') { // up to four more computers, on top of the four seats
     const used = new Set(ps.map(p => p.color));
     for (let k = 0; k < (L.extra || 0) && ps.length < 8; k++) {
@@ -244,9 +271,12 @@ $('lStart').onclick = () => {
   }
   const coop = L.mode === 'coop' && ps.some(p => p.ai) && ps.some(p => !p.ai);
   if (L.mode === 'coop' && !coop) { $('lMsg').textContent = 'Players vs computers needs at least one computer.'; return; }
-  ps.forEach((p, i) => { p.team = survival ? 0 : coop ? (p.ai ? 1 : 0) : i; });
-  if (survival) { ps.push({ name: 'The Horde', horde: true, team: 1, tint: '#57534e' }); conns.push(null); tokens.push(null); }
-  const cfg = { seed: (Math.random() * 2 ** 31) | 0, size: MAP_SIZE, level: L.level, wave: L.wave ?? 1, mode: L.mode, cluster: L.mode !== 'ffa', extra: L.mode === 'ffa' && ps.length > 4, players: ps };
+  ps.forEach((p, i) => { p.team = survival || nomad ? 0 : coop ? (p.ai ? 1 : 0) : i; });
+  if (survival || nomad) { ps.push({ name: 'The Horde', horde: true, team: 1, tint: '#57534e' }); conns.push(null); tokens.push(null); }
+  // Where everyone starts: allies against computers share a corner (cluster); in Survival the players hold the middle
+  // of the map together (center, on the sites that `extra` lays out there) and the Horde walks in from the edges.
+  const cfg = { seed: (Math.random() * 2 ** 31) | 0, size: nomad ? NOMAD.map : MAP_SIZE, level: L.level, wave: L.wave ?? 1, mode: L.mode, map: mapOf(L.map).id,
+    cluster: L.mode === 'coop', center: survival, extra: survival || (L.mode === 'ffa' && ps.length > 4), players: ps };
   G.tokens = tokens;
   conns.forEach((c, i) => c && c.send({ t: 'start', cfg, you: i }));
   startGame(cfg, 0, conns);
@@ -256,7 +286,7 @@ $('lStart').onclick = () => {
 function net(msg) { const n = $('net'); n.textContent = msg; n.hidden = !msg; }
 function clientMsg(m) {
   if (!m) return;
-  if (m.t === 'lobby' && !G.view) { L = { online: true, host: false, code: m.code, mode: m.mode, level: m.level, wave: m.wave ?? 1, extra: m.extra || 0, you: m.you, slots: m.slots }; renderLobby(); }
+  if (m.t === 'lobby' && !G.view) { L = { online: true, host: false, code: m.code, mode: m.mode, map: mapOf(m.map).id, level: m.level, wave: m.wave ?? 1, extra: m.extra || 0, you: m.you, slots: m.slots }; renderLobby(); }
   else if (m.t === 'start') {
     const back = !!G.rc;
     if (G.rc) { clearTimeout(G.rc.wait); G.rc = null; }
@@ -446,7 +476,8 @@ function startGame(cfg, me, conns, save) {
   G.view = new View(cfg, me);
   R.setView(G.view);
   R.cam.z = Math.min(innerWidth, innerHeight) < 500 ? .8 : 1;
-  G.sel.clear(); G.placing = null; G.box = null; G.boxMode = false; G.amove = false; G.disband = 0; G.moving = false; G.cfg = cfg; G.ended = false; G.elim = false; G.needCenter = true;
+  G.sel.clear(); G.placing = null; G.box = null; G.boxMode = false; G.amove = false; G.disband = 0; G.moving = false; G.cfg = cfg; G.ended = false; G.elim = false; G.lost = false; G.needCenter = true;
+  G.record = G.record0 = +store.get(NKEY) || 0;
   G.lastSnap = performance.now();
   $('news').textContent = '';
   $('bBox').classList.remove('on');
@@ -460,7 +491,7 @@ function startGame(cfg, me, conns, save) {
       for (const i of sim.gone) G.view.terrain[i] = 0;
     }
     const keep = () => {
-      if (sim.winner !== -1) return store.set(SAVE, '');
+      if (sim.winner !== -1 || G.lost) return store.set(SAVE, ''); // over, or over for the only person playing
       try {
         store.set(SAVE, JSON.stringify({ at: Date.now(), cfg, me, code: L && L.online ? L.code : '', tokens: G.tokens || [],
           ais: ais.map((a, i) => a && cfg.players[i].ai ? { att: a.att, wave: a.wave } : null), sim: sim.save() }));
@@ -538,9 +569,12 @@ document.addEventListener('visibilitychange', () => {
   R.resize();
   if (G.conns && G.conns.some(c => c)) toast('You host this game: it pauses for everyone while you are away');
 });
-function endScreen(title, msg) {
+// stats: the lines of a run summary, as [label, value] pairs.
+function endScreen(title, msg, stats) {
   G.ended = true;
   $('eTitle').textContent = title; $('eMsg').textContent = msg;
+  $('eStats').hidden = !stats;
+  $('eStats').innerHTML = (stats || []).map(([k, v]) => `<li><span>${esc(k)}</span><b>${esc(v)}</b></li>`).join('');
   show('end');
 }
 function quit() {
@@ -600,7 +634,7 @@ function pick(wx, wy, pad) {
 function canPlace(type, tx, ty) {
   const v = G.view, N = v.N, s = DEF[type].size;
   for (let y = ty; y < ty + s; y++) for (let x = tx; x < tx + s; x++) {
-    if (x < 0 || y < 0 || x >= N || y >= N || v.terrain[y * N + x] !== 0 || !v.explored[y * N + x]) return false;
+    if (x < 0 || y < 0 || x >= N || y >= N || v.terrain[y * N + x] !== 0 || !v.explored[y * N + x] || (v.deck && v.deck[y * N + x])) return false;
   }
   for (const e of ents().values()) if (e.b && tx < e.tx + e.size && tx + s > e.tx && ty < e.ty + e.size && ty + s > e.ty) return false;
   return !!DEF[type].anywhere || inRange(type, tx, ty);
@@ -812,7 +846,24 @@ function fit() {
   if (h) st.setProperty('--fh', h + 'px'); else st.removeProperty('--fh');
 }
 fit(); setTimeout(fit, 300); setTimeout(fit, 1500);
-{ const ver = new URL(import.meta.url).searchParams.get('v'); if (ver) { $('mVer').textContent = 'Version ' + ver.slice(0, 7); $('mVer').hidden = false; } }
+{ const ver = new URL(import.meta.url).searchParams.get('v'); $('mVer').textContent = 'Version ' + (ver ? ver.slice(0, 7) : 'dev'); $('mVer').hidden = false; }
+// Tap the version on the menu to see how this device lays the page out: the numbers needed to chase a screen that
+// sits too high, too low or too short in the installed app.
+$('mVer').onclick = () => {
+  const box = css => { const d = document.createElement('div'); d.style.cssText = 'position:fixed;visibility:hidden;' + css; document.body.appendChild(d); const r = d.getBoundingClientRect(), c = getComputedStyle(d); const o = { top: r.top, h: r.height, pt: c.paddingTop, pb: c.paddingBottom }; d.remove(); return o; };
+  const fixed = box('top:0;bottom:0;left:0;width:0'), vh = box('top:0;left:0;width:0;height:100vh'), dvh = box('top:0;left:0;width:0;height:100dvh');
+  const safe = box('top:0;left:0;padding-top:env(safe-area-inset-top);padding-bottom:env(safe-area-inset-bottom)'), vv = window.visualViewport, g = $('menu').getBoundingClientRect();
+  const mode = ['fullscreen', 'standalone', 'browser'].find(m => matchMedia(`(display-mode: ${m})`).matches);
+  $('mDiag').textContent = [
+    `screen ${screen.width}x${screen.height}  window ${innerWidth}x${innerHeight}  page ${document.documentElement.clientWidth}x${document.documentElement.clientHeight}`,
+    `fixed box top ${fixed.top} height ${fixed.h}  100vh ${vh.h}  100dvh ${dvh.h}`,
+    `menu top ${g.top} height ${g.height}  fh ${document.documentElement.style.getPropertyValue('--fh') || 'none'}`,
+    `view ${vv ? `${vv.width}x${vv.height} top ${vv.offsetTop} page ${vv.pageTop} zoom ${vv.scale}` : 'n/a'}  scroll ${scrollX},${scrollY}`,
+    `safe top ${safe.pt} bottom ${safe.pb}  mode ${mode}  installed ${!!navigator.standalone}  ${innerHeight >= innerWidth ? 'portrait' : 'landscape'}`,
+    navigator.userAgent.replace(/^.*?\((.*?)\).*$/, '$1'),
+  ].join('\n');
+  $('mDiag').hidden = false;
+};
 addEventListener('resize', () => { fit(); R.resize(); });
 if (window.ResizeObserver) new ResizeObserver(() => { R.resize(); pads(); }).observe(cv); // the map area changes size with the dock
 addEventListener('orientationchange', () => setTimeout(() => { fit(); R.resize(); }, 250));
@@ -826,7 +877,7 @@ const buzz = ms => { if (navigator.vibrate) navigator.vibrate(ms); };
 $('bArmy').onclick = () => {
   G.sel.clear(); G.placing = null;
   for (const e of ents().values()) if (e.owner === G.view.me && DEF[e.type].mil) G.sel.add(e.id);
-  if (!G.sel.size) toast('No army yet: train soldiers at a Barracks');
+  if (!G.sel.size) toast(G.view.nomad ? 'Nobody is left in your party' : 'No army yet: train soldiers at a Barracks');
   hudT = 0;
 };
 let idleI = 0;
@@ -920,12 +971,46 @@ function announce(text, color, note) {
   setTimeout(() => row.classList.add('out'), 6000);
   setTimeout(() => row.remove(), 6600);
 }
+// Is this device's player the only person in the game (single player, however many computers)?
+const solo = () => !!G.conns && !G.cfg.players.some((p, i) => i !== G.view.me && !p.ai && !p.horde);
+
+// ---------------------------------------------------------------- Nomad: distance, alerts and the run summary
+const TIPS = { res: $('res').title, wood: $('wood').title, pop: $('pop').title };
+const NOMAD_TIPS = { res: 'How far your hero is from the start now, in tiles', wood: 'The furthest this run has got', pop: 'The furthest any run on this device has got' };
+function nomadHud(v, nm) {
+  const hero = [...ents().values()].find(e => e.owner === v.me && DEF[e.type].hero);
+  const now = hero ? Math.floor(Math.hypot(hero.x / T - (nm.ox + .5), hero.y / T - (nm.oy + .5))) : 0;
+  if (nm.best > G.record) { G.record = nm.best; store.set(NKEY, G.record); }
+  $('res').textContent = '➤ Now ' + now;
+  $('wood').textContent = 'Run ' + nm.best;
+  $('pop').textContent = '★ Best ' + G.record;
+  $('waveInfo').textContent = v.winner !== -1 ? '' : `Wave ${nm.wave} · ${nm.best >= nm.next ? 'the next is on its way' : `next at ${nm.next} tiles`} · camps ${nm.cleared}/${nm.camps}`;
+  while (nm.news.length) {
+    const [k, a, b] = nm.news.shift();
+    if (k === 'w') announce('Wave ' + a, '#57534e', b ? 'A Warlord leads the hunt' : 'The Horde is on your trail');
+    else if (k === 'a') announce(a === 2 ? "The Warlord's camp" : a === 1 ? 'A patrol has found you' : 'Ambush!', '#b91c1c', a === 2 ? 'Defeat it to complete the journey' : a === 1 ? '' : 'They were lying in wait');
+    else if (k === 'c') announce('Camp cleared', v.info[a].color, (b ? `${b} recruit${b > 1 ? 's' : ''} join${b > 1 ? '' : 's'} ${a === v.me ? 'you' : v.info[a].name}` : 'No room for recruits') + ': tap Army to gather everyone');
+  }
+}
+function nomadEnd(v, nm) {
+  const secs = Math.floor(v.tick / 10), record = nm.best > G.record0;
+  endScreen(nm.won ? 'Journey complete' : 'Party lost',
+    nm.won ? `You crossed the whole land, ${nm.best} tiles from where you set out, and the Warlord at its end is beaten.` : `You got ${nm.best} tiles from where you set out. The far end of the land is ${nm.far} tiles away.`,
+    [['Furthest this run', nm.best + ' tiles' + (record ? ' (a new best)' : '')], [record ? 'Best before' : 'Best on this device', Math.max(G.record0, record ? 0 : nm.best) + ' tiles'],
+      ['Waves faced', nm.wave], ['Camps cleared', `${nm.cleared} of ${nm.camps}`], ['Enemies defeated', nm.kills], ['Time', `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, '0')}`]]);
+}
+
 let hudT = 0, lastPanel = null, lastAlert = 0;
 function updateHud() {
-  const v = G.view, P = v.pl[v.me];
-  $('res').textContent = '◆ ' + P.res;
-  $('pop').textContent = `☗ ${P.pop}/${P.cap}`;
-  $('wood').textContent = '▮ ' + P.wood;
+  const v = G.view, P = v.pl[v.me], nm = v.nomad;
+  if (nm) nomadHud(v, nm);
+  else {
+    $('res').textContent = '◆ ' + P.res;
+    $('pop').textContent = `☗ ${P.pop}/${P.cap}`;
+    $('wood').textContent = '▮ ' + P.wood;
+  }
+  for (const id of ['res', 'wood', 'pop']) $(id).title = (nm ? NOMAD_TIPS : TIPS)[id];
+  $('bBuild').disabled = $('bIdle').disabled = !!nm; // a party has no workers
   $('heroInfo').textContent = P.heroT > 0 ? `${DEF[v.info[v.me].hero].name} returns in ${P.heroT}s` : P.alive ? `${DEF[v.info[v.me].hero].name} Lv ${P.lvl}` : '';
   $('heroInfo').classList.toggle('down', P.heroT > 0);
   if (!G.conns && !G.ended && !G.rc && performance.now() - G.lastSnap > 7000) reconnect(); // the host has gone quiet
@@ -968,11 +1053,11 @@ function updateHud() {
     const [n, secs] = v.wave;
     $('waveInfo').textContent = `Wave ${n} · next in ${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, '0')}`;
     if (v.waveNews) { announce('Wave ' + v.waveNews, '#57534e', v.waveNews % SURVIVAL.bossEvery === 0 ? 'A Warlord leads it' : 'The Horde is coming'); v.waveNews = 0; }
-  } else $('waveInfo').textContent = '';
+  } else if (!nm) $('waveInfo').textContent = '';
   // tell everyone when a player has been knocked out
   while (v.news.length) {
     const i = v.news.shift(), left = v.pl.filter(p => p.alive).length;
-    if (i !== v.me) announce(`${v.info[i].name} has been wiped out`, v.info[i].color, v.winner === -1 && left > 1 ? `${left - (v.wave ? 1 : 0)} players left` : '');
+    if (i !== v.me) announce(`${v.info[i].name} has been wiped out`, v.info[i].color, v.winner === -1 && left > 1 ? `${left - (v.wave || nm ? 1 : 0)} players left` : '');
   }
   // alerts and the end of the game
   if (v.hurt && v.tick - v.hurt.tick < 5 && performance.now() - lastAlert > 12000) {
@@ -982,13 +1067,22 @@ function updateHud() {
   if (v.winner !== -1 && !G.ended) {
     store.set(SKEY, '');
     const won = v.winner === v.team;
-    if (v.wave) { // Survival has no victory: the score is how far you got
+    if (nm) nomadEnd(v, nm);
+    else if (v.wave) { // Survival has no victory: the score is how far you got
       const held = Math.max(0, v.wave[0] - 1), best = Math.max(held, +store.get('warcamp-best') || 0);
       store.set('warcamp-best', best);
       endScreen('Overrun', `You held out for ${held} wave${held === 1 ? '' : 's'}. Your best: ${best}.`);
     } else endScreen(won ? 'Victory' : 'Defeat', won ? 'Every enemy Keep, worker and hero is gone.' : v.winner === -2 ? 'Nobody is left standing.' : 'Your Keeps, workers and hero are all gone.');
   } else if (!P.alive && !G.elim && !G.ended) {
-    G.elim = true; announce('You have been wiped out', v.info[v.me].color, 'You can keep watching');
+    G.elim = true;
+    if (solo() && !v.pl.some((p, i) => p.alive && v.info[i].team === v.team)) {
+      // Single player, and nobody is left on my side: the game is decided for the only person playing, so say so
+      // now (not when the computers have finished with each other), and do not offer this game again from the menu.
+      G.lost = true; store.set(SAVE, '');
+      endScreen('Defeat', 'Your Keeps, workers and hero are all gone. The computers fight on: look around to watch.');
+      return;
+    }
+    announce('You have been wiped out', v.info[v.me].color, 'You can keep watching');
     // A knocked-out host passes the game on straight away, so it no longer depends on their device.
     if (G.conns && G.conns.some(c => c)) handover().then(to => { if (to) follow(to); });
   }
@@ -1031,7 +1125,9 @@ function frame(now) {
     if (keys.has('arrowup') || keys.has('w')) c.y -= sp;
     if (keys.has('arrowdown') || keys.has('s')) c.y += sp;
     if (G.needCenter) {
-      for (const e of v.ents.values()) if (e.owner === v.me && e.type === 'hq') { R.center(e.x, e.y); G.needCenter = false; break; }
+      // start on my Keep, or on my hero when there is none (Nomad)
+      const mine = [...v.ents.values()].filter(e => e.owner === v.me), at = mine.find(e => e.type === 'hq') || mine.find(e => DEF[e.type].hero);
+      if (at) { R.center(at.x, at.y); G.needCenter = false; }
     }
     for (const id of G.sel) { const e = v.ents.get(id); if (!e || !visible(e)) { G.sel.delete(id); hudT = 0; } }
     if (G.placing && !myUnits().some(e => e.type === 'worker')) { G.placing = null; hudT = 0; }

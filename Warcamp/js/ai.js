@@ -1,5 +1,5 @@
 // Computer opponent. It plays through the same sim.command() calls a human does.
-import { DEF, MAXCAP, HEROES } from './data.js';
+import { DEF, MAXCAP, HEROES, KEEP_LIMIT } from './data.js';
 
 export class AI {
   // level: 0 easy, 1 normal, 2 hard
@@ -23,7 +23,12 @@ export class AI {
     const hq = g('hq')[0], workers = g('worker');
     const near = (list, t) => list.reduce((b, w) => (!b || s.dist(w, t) < s.dist(b, t) ? w : b), null);
 
-    for (const w of workers) if (!w.order) s.autoHarvest(w);
+    // With no Keep or Outpost there is nowhere to bring anything. If a new Keep cannot be paid for either, the base
+    // is lost for good: the workers stop gathering and join the last stand further down.
+    const depot = hq || g('outpost').some(b => b.built);
+    const canKeep = me.keeps < KEEP_LIMIT && me.res >= DEF.hq.cost && me.wood >= DEF.hq.wood;
+    const lost = !depot && !canKeep;
+    for (const w of workers) if (!w.order && !lost) s.autoHarvest(w);
     // Keep some workers on wood (buildings cost it) and the rest on crystal (units cost it).
     const onWood = workers.filter(w => w.order && w.order.k === 'harvest' && w.order.kind === 2);
     const wantWood = me.wood < 200 ? Math.max(2, Math.ceil(workers.length * 0.4)) : me.wood > 500 ? 1 : Math.max(1, Math.round(workers.length * 0.25));
@@ -50,6 +55,11 @@ export class AI {
     }
 
     if (hq && !hq.queue.length && workers.length < this.maxW) cmd({ t: 'train', b: hq.id, u: 'worker' });
+    // The last Keep has fallen, but there are workers and enough in store: build a new one beside them.
+    if (!hq && workers.length && canKeep) {
+      const w = workers[0], site = s.findSite('hq', s.tileOf(w.x), s.tileOf(w.y));
+      if (site) cmd({ t: 'build', ids: workers.slice(0, 3).map(w => w.id), b: 'hq', tx: site[0], ty: site[1] });
+    }
 
     const army = [...g('soldier'), ...g('archer'), ...g('knight'), ...g('guard'), ...g('mage'), ...g('catapult')];
     const racks = g('barracks');
@@ -85,11 +95,12 @@ export class AI {
 
     const hero = HEROES.flatMap(g)[0];
     const force = hero ? [...army, hero] : army;
+    if (lost) force.push(...workers);
     const idle = force.filter(u => !u.order).map(u => u.id);
     const home = hq || force[0];
     if (me.alert && s.tick - me.alert.tick < 40 && home && Math.hypot(me.alert.x - home.x, me.alert.y - home.y) < 520) {
       if (idle.length) cmd({ t: 'move', a: 1, ids: idle, x: me.alert.x, y: me.alert.y }); // defend the base
-    } else if (!workers.length && me.res < DEF.worker.cost && idle.length) {
+    } else if ((lost || (!workers.length && me.res < DEF.worker.cost)) && idle.length) {
       const t = this.target(home); // nothing left to build with: throw everything at the enemy
       if (t) cmd({ t: 'move', a: 1, ids: idle, x: t.x, y: t.y });
     } else if (this.att) {
