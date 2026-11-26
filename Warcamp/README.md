@@ -14,6 +14,8 @@ their workers and kill their hero.
 - **Multiplayer** for 2 to 4 people on their own devices, with computers in the empty seats if wanted:
   free for all, or everyone against the computers.
 - **Touch first**, and it also plays with mouse and keyboard.
+- The map has its own area; the controls sit in a dock below it (phone upright) or beside it (sideways) and never
+  cover the battlefield. Hits, heals and damaged buildings are shown to every player.
 - **Offline**: after the first visit the game is cached and single player works with no connection.
 
 The roadmap towards a full campaign game with three worlds and six factions is in [PLAN.md](PLAN.md).

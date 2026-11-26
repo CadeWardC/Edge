@@ -21,6 +21,8 @@ window.__wc = { G, R, get L() { return L; }, drop() { const c = G.conn; if (c) {
 function show(id) {
   for (const s of ['menu', 'lobby', 'help', 'end', 'ask']) $(s).hidden = s !== id;
   $('hud').hidden = !G.view;
+  $('game').classList.toggle('on', !!G.view); // the dock takes its place beside the map
+  R.resize();
   if (id === 'menu') {
     const s = session(); $('mRejoin').hidden = !s; if (s) $('mRejoin').textContent = 'Rejoin game ' + s.code;
     const g = saved(); $('mContinue').hidden = !g;
@@ -717,6 +719,7 @@ addEventListener('keydown', e => {
 addEventListener('keyup', e => keys.delete(e.key.toLowerCase()));
 addEventListener('blur', () => keys.clear());
 addEventListener('resize', () => R.resize());
+if (window.ResizeObserver) new ResizeObserver(() => R.resize()).observe(cv); // the map area changes size with the dock
 addEventListener('orientationchange', () => setTimeout(() => R.resize(), 250));
 if (window.visualViewport) visualViewport.addEventListener('resize', () => R.resize());
 // iPhone: stop the page itself from zooming or bouncing under the game.
@@ -774,7 +777,9 @@ function panelHTML() {
   for (const e of mine) count[e.type] = (count[e.type] || 0) + 1;
   const kinds = Object.keys(count), hero = mine.find(e => DEF[e.type].hero), fighters = mine.some(e => DEF[e.type].mil);
   let h;
-  if (mine.length === 1) {
+  if (mine.length > 1 && kinds.length === 1) { // several of one kind: a single line is enough
+    h = `<div class="t">${pic(kinds[0])}${mine.length} ${DEF[kinds[0]].name}s</div>`;
+  } else if (mine.length === 1) {
     const e = mine[0], d = DEF[e.type];
     h = `<div class="t">${pic(e.type)}${d.name}${d.hero ? ` · Level ${P.lvl}` : ''}</div><div class="d">${d.info || d.about || ''}</div>`;
   } else {
@@ -790,7 +795,7 @@ function panelHTML() {
     : `<button disabled class="spell">${ab.name}<small>unlocks at level ${ab.lvl}</small></button>`).join('');
   if (count.worker) {
     const has = t => [...ents().values()].some(e => e.owner === me && e.type === t && e.built);
-    h += BUILDABLE.map(t => btn('build:' + t, t === 'hq' ? { ...DEF.hq, name: `Keep (${P.keeps} left)` } : DEF[t], P.res < DEF[t].cost || P.wood < (DEF[t].wood || 0) || (DEF[t].req && !has(DEF[t].req)) || (t === 'hq' && P.keeps < 1), t)).join('');
+    h += BUILDABLE.map(t => btn('build:' + t, t === 'hq' ? { ...DEF.hq, name: `Keep ×${P.keeps}` } : t === 'tower' ? { ...DEF.tower, name: 'Tower' } : DEF[t], P.res < DEF[t].cost || P.wood < (DEF[t].wood || 0) || (DEF[t].req && !has(DEF[t].req)) || (t === 'hq' && P.keeps < 1), t)).join('');
   }
   if (fighters) h += `<button data-act="amove" class="${G.amove ? 'on' : ''}">Attack-move<small>${G.amove ? 'now tap where to go' : 'fight on the way'}</small></button>`;
   h += '<button data-act="stop">Stop</button>';
@@ -831,7 +836,7 @@ function updateHud() {
     if (phb) { // one or many of my units: total health
       let hp = 0, max = 0;
       for (const u of sel) { hp += u.hp; max += u.max; }
-      pd.textContent = `Health ${hp}/${max}`;
+      pd.textContent = `♥ ${hp}/${max}`;
       phb.style.width = Math.round(hp / max * 100) + '%';
       phb.style.background = hp / max > .5 ? '#4ade80' : hp / max > .25 ? '#fbbf24' : '#f87171';
     }

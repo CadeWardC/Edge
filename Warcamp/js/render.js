@@ -31,6 +31,7 @@ export class View {
         this.ents.set(e.id, e);
       }
       if (a[5] < e.hp && e.owner === this.me) this.hurt = { x: a[3], y: a[4], tick: s.k };
+      if (a[5] < e.hp) e.hurtT = performance.now();
       e.x = a[3]; e.y = a[4]; e.hp = a[5]; e.stamp = s.k;
       if (d.b) { e.built = !!a[6]; e.prog = a[7]; e.queue = a[8]; e.paused = !!a[9]; }
       else { e.carry = a[6]; e.cds = a[7] || null; e.idle = a[8]; e.buff = a[9] || 0; }
@@ -38,7 +39,7 @@ export class View {
     }
     for (const [id, e] of this.ents) if (e.stamp !== s.k) this.ents.delete(id);
     for (const i of s.rm) { this.terrain[i] = 0; this.dirty.push(i); }
-    for (const f of s.fx) this.fx.push({ k: f[0], a: f, t: 0 });
+    for (const f of s.fx) { if (f[0] === 'n' && this.fx.length > 140) continue; this.fx.push({ k: f[0], a: f, t: 0, ox: f[0] === 'n' ? ((this.fx.length * 7) % 15) - 7 : 0 }); }
   }
   friendly(e) { return this.info[e.owner].team === this.team; }
   spectating() { return this.winner !== -1 || !this.pl[this.me].alive; }
@@ -82,8 +83,9 @@ function drawUnit(g, e, col) {
   if (t === 'catapult') { drawCatapult(g, e, col); g.restore(); return; }
   g.fillStyle = 'rgba(0,0,0,.28)';
   g.beginPath(); g.ellipse(0, 7 * s, 8 * s, 3.5 * s, 0, 0, 7); g.fill();
+  g.translate(0, -(e.bob || 0)); // a little hop with each step
   g.scale(e.face < 0 ? -s : s, s);
-  g.lineWidth = 1; g.strokeStyle = 'rgba(0,0,0,.55)'; g.lineCap = 'round';
+  g.lineWidth = 1.1; g.strokeStyle = 'rgba(20,16,12,.8)'; g.lineCap = 'round'; g.lineJoin = 'round';
   let by = -4;
   if (t === 'knight') {
     by = -10;
@@ -99,7 +101,9 @@ function drawUnit(g, e, col) {
   g.fillStyle = col;
   rr(g, -5, by, 10, 9, 2); g.fill(); g.stroke();
   g.fillStyle = t === 'soldier' || t === 'knight' ? '#b4bac4' : '#f1cf9d';
-  g.beginPath(); g.arc(0, by - 4, 4.2, 0, 7); g.fill(); g.stroke();
+  g.beginPath(); g.arc(0, by - 4, 4.4, 0, 7); g.fill(); g.stroke();
+  g.fillStyle = 'rgba(255,255,255,.22)'; g.fillRect(-4, by + 1, 3, 6); // light on the tunic
+  g.fillStyle = '#1f1a14'; g.fillRect(1, by - 5, 1.3, 1.6); g.fillRect(3.2, by - 5, 1.1, 1.6); // eyes, looking the way it walks
   g.lineWidth = 1.6;
   if (t === 'worker') {
     g.fillStyle = '#8b5a2b'; g.beginPath(); g.arc(0, by - 5, 4.4, Math.PI, 0); g.fill();
@@ -158,58 +162,113 @@ function drawCatapult(g, e, col) {
   g.fillStyle = '#9ca3af'; g.strokeStyle = 'rgba(0,0,0,.55)'; g.lineWidth = 1; g.beginPath(); g.arc(10, -14, 3.6, 0, 7); g.fill(); g.stroke();
 }
 
+// Shade a #rrggbb colour: f < 1 darker, f > 1 lighter.
+const shadeCache = new Map();
+function shade(col, f) {
+  const key = col + f;
+  let v = shadeCache.get(key);
+  if (!v) {
+    const n = parseInt(col.slice(1), 16), ch = s => Math.max(0, Math.min(255, Math.round(((n >> s) & 255) * f)));
+    v = `rgb(${ch(16)},${ch(8)},${ch(0)})`;
+    shadeCache.set(key, v);
+  }
+  return v;
+}
+// A box seen from above and slightly in front: a top face, and a darker front face below it.
+function block(g, x, y, w, h, d, top, front, r = 3) {
+  g.fillStyle = front; rr(g, x, y + d, w, h, r); g.fill(); g.stroke();
+  g.fillStyle = top; rr(g, x, y, w, h, r); g.fill(); g.stroke();
+}
+const STONE = '#d8cfbc', STONE_D = '#978d7b', INK = '#4a4336';
+
 function drawBuilding(g, e, col) {
   const x = e.tx * T, y = e.ty * T, w = e.size * T, cx = x + w / 2, cy = y + w / 2, t = e.type;
+  const dark = shade(col, .68), light = shade(col, 1.22);
   g.save();
   if (!e.built) g.globalAlpha = .6;
-  g.lineWidth = 1.5; g.strokeStyle = '#5b5446';
-  g.fillStyle = 'rgba(0,0,0,.25)'; rr(g, x + 4, y + 6, w - 5, w - 5, 5); g.fill();
-  g.fillStyle = '#d3cab8'; rr(g, x + 2, y + 2, w - 4, w - 4, 5); g.fill(); g.stroke();
-  if (t === 'wall') { // a stone block with a stripe of the owner's colour
-    g.fillStyle = '#9aa3ad'; rr(g, x + 1, y + 1, w - 2, w - 2, 3); g.fill(); g.stroke();
-    g.strokeStyle = 'rgba(0,0,0,.25)'; g.lineWidth = 1; line(g, x + 2, cy, x + w - 2, cy); line(g, cx, y + 2, cx, cy); line(g, x + 9, cy, x + 9, y + w - 2); line(g, x + 23, cy, x + 23, y + w - 2);
-    g.fillStyle = col; g.fillRect(x + 4, y + 4, w - 8, 4);
-  } else if (t === 'tower') {
-    g.fillStyle = col; g.beginPath(); g.arc(cx, cy, 9, 0, 7); g.fill(); g.stroke();
-    g.fillStyle = '#f8fafc';
-    for (let i = 0; i < 4; i++) { const a = i * Math.PI / 2 + Math.PI / 4; g.fillRect(cx + Math.cos(a) * 8 - 2, cy + Math.sin(a) * 8 - 2, 4, 4); }
-  } else {
-    const p = t === 'hq' ? 9 : 6;
-    g.fillStyle = col; rr(g, x + p, y + p, w - 2 * p, w - 2 * p, 3); g.fill(); g.stroke();
-    g.strokeStyle = 'rgba(0,0,0,.28)'; g.lineWidth = 1.2;
-    line(g, x + p, y + p, x + w - p, y + w - p); line(g, x + w - p, y + p, x + p, y + w - p);
-    g.strokeStyle = '#5b5446';
-    if (t === 'hq') {
-      g.fillStyle = '#d3cab8';
-      for (const [dx, dy] of [[0, 0], [1, 0], [0, 1], [1, 1]]) { rr(g, x + 3 + dx * (w - 20), y + 3 + dy * (w - 20), 14, 14, 3); g.fill(); g.stroke(); }
-      g.fillStyle = '#fde68a'; g.beginPath();
-      for (let i = 0; i < 10; i++) { const a = -Math.PI / 2 + i * Math.PI / 5, r = i % 2 ? 6 : 13; g.lineTo(cx + Math.cos(a) * r, cy + Math.sin(a) * r); }
-      g.closePath(); g.fill(); g.stroke();
-    } else if (t === 'house') {
-      g.fillStyle = '#f8fafc'; rr(g, cx - 5, cy - 5, 10, 10, 2); g.fill(); g.stroke();
-    } else if (t === 'barracks') {
-      g.strokeStyle = '#f8fafc'; g.lineWidth = 3; g.lineCap = 'round';
-      line(g, cx - 10, cy - 10, cx + 10, cy + 10); line(g, cx + 10, cy - 10, cx - 10, cy + 10);
-    } else if (t === 'workshop') { // a cog
-      g.fillStyle = '#f8fafc'; g.strokeStyle = '#5b5446'; g.lineWidth = 1.2;
-      for (let i = 0; i < 8; i++) { const a = i * Math.PI / 4; g.fillRect(cx + Math.cos(a) * 9 - 2.5, cy + Math.sin(a) * 9 - 2.5, 5, 5); }
-      g.beginPath(); g.arc(cx, cy, 8, 0, 7); g.fill(); g.stroke();
-      g.fillStyle = col; g.beginPath(); g.arc(cx, cy, 3, 0, 7); g.fill();
-    } else if (t === 'sanctum') { // a glowing orb
-      g.fillStyle = 'rgba(196,181,253,.45)'; g.beginPath(); g.arc(cx, cy, 12, 0, 7); g.fill();
-      g.fillStyle = '#7c3aed'; g.strokeStyle = '#f8fafc'; g.lineWidth = 1.5; g.beginPath(); g.arc(cx, cy, 7.5, 0, 7); g.fill(); g.stroke();
-      g.fillStyle = '#ede9fe'; g.beginPath(); g.arc(cx - 2.5, cy - 2.5, 2.2, 0, 7); g.fill();
-    } else if (t === 'outpost') {
-      g.fillStyle = '#7dd3fc'; g.strokeStyle = '#0c4a6e'; g.lineWidth = 1.5;
-      g.beginPath(); g.moveTo(cx, cy - 11); g.lineTo(cx + 8, cy - 2); g.lineTo(cx, cy + 11); g.lineTo(cx - 8, cy - 2); g.closePath(); g.fill(); g.stroke();
-      g.strokeStyle = 'rgba(255,255,255,.8)'; line(g, cx - 8, cy - 2, cx + 8, cy - 2);
-    } else if (t === 'stable') {
-      g.strokeStyle = '#f8fafc'; g.lineWidth = 4; g.lineCap = 'round';
-      g.beginPath(); g.arc(cx, cy - 1, 9, Math.PI * .85, Math.PI * .15); g.stroke();
+  g.lineWidth = 1.4; g.strokeStyle = INK; g.lineJoin = 'round'; g.lineCap = 'round';
+  g.fillStyle = 'rgba(0,0,0,.16)'; g.beginPath(); g.ellipse(cx + 2, y + w - 8, w / 2 - 4, w / 5, 0, 0, 7); g.fill(); // shadow on the ground
+  if (t === 'hq') { // a walled keep: four round towers, a hall with a pitched roof, a gate and a flag
+    block(g, x + 8, y + 10, w - 16, w - 26, 9, STONE, STONE_D);
+    g.fillStyle = '#b3a892'; rr(g, x + 15, y + 17, w - 30, w - 40, 2); g.fill();
+    g.fillStyle = '#3b2f22'; rr(g, cx - 7, y + w - 17, 14, 11, 3); g.fill(); g.stroke(); // gate
+    block(g, cx - 19, cy - 22, 38, 26, 6, col, dark);
+    g.fillStyle = light; g.beginPath(); g.moveTo(cx - 19, cy - 22); g.lineTo(cx + 19, cy - 22); g.lineTo(cx + 12, cy - 9); g.lineTo(cx - 12, cy - 9); g.closePath(); g.fill();
+    g.strokeStyle = 'rgba(0,0,0,.35)'; line(g, cx - 12, cy - 9, cx + 12, cy - 9); g.strokeStyle = INK;
+    for (const [tx, ty] of [[x + 12, y + 13], [x + w - 12, y + 13], [x + 12, y + w - 20], [x + w - 12, y + w - 20]]) {
+      g.fillStyle = STONE_D; g.beginPath(); g.ellipse(tx, ty + 6, 10, 8, 0, 0, 7); g.fill(); g.stroke();
+      g.fillStyle = STONE; g.beginPath(); g.arc(tx, ty, 10, 0, 7); g.fill(); g.stroke();
+      g.fillStyle = col; g.beginPath(); g.arc(tx, ty, 5.5, 0, 7); g.fill(); g.stroke();
     }
+    g.strokeStyle = INK; g.lineWidth = 1.6; line(g, cx, cy - 12, cx, cy - 36);
+    g.fillStyle = '#fde68a'; g.beginPath(); g.moveTo(cx, cy - 36); g.lineTo(cx + 13, cy - 32); g.lineTo(cx, cy - 27); g.closePath(); g.fill(); g.stroke();
+  } else if (t === 'house') { // a cottage: cream walls, a two-sided roof, a chimney and a door
+    block(g, x + 9, y + 20, w - 18, w - 36, 8, '#f1e6cf', '#c9b994');
+    g.fillStyle = '#6b4423'; rr(g, cx - 4, y + w - 17, 8, 9, 2); g.fill(); g.stroke();
+    g.fillStyle = dark; g.beginPath(); g.moveTo(x + 5, y + 30); g.lineTo(cx, y + 8); g.lineTo(x + w - 5, y + 30); g.lineTo(x + w - 5, y + 36); g.lineTo(x + 5, y + 36); g.closePath(); g.fill(); g.stroke();
+    g.fillStyle = col; g.beginPath(); g.moveTo(x + 5, y + 30); g.lineTo(cx, y + 8); g.lineTo(cx, y + 36); g.lineTo(x + 5, y + 36); g.closePath(); g.fill(); g.stroke();
+    g.fillStyle = '#8a8f98'; rr(g, x + w - 22, y + 9, 8, 12, 1.5); g.fill(); g.stroke();
+  } else if (t === 'barracks') { // a long hall with a planked roof, shields on the front and banners
+    block(g, x + 6, y + 22, w - 12, w - 38, 9, STONE, STONE_D);
+    g.fillStyle = col; rr(g, x + 4, y + 8, w - 8, 26, 4); g.fill(); g.stroke();
+    g.fillStyle = light; rr(g, x + 4, y + 8, w - 8, 9, 4); g.fill();
+    g.strokeStyle = 'rgba(0,0,0,.28)'; g.lineWidth = 1; for (let i = 1; i < 5; i++) line(g, x + 4 + i * (w - 8) / 5, y + 9, x + 4 + i * (w - 8) / 5, y + 33);
+    g.strokeStyle = INK; g.lineWidth = 1.4; rr(g, x + 4, y + 8, w - 8, 26, 4); g.stroke();
+    for (const sx of [cx - 13, cx + 13]) { g.fillStyle = '#f8fafc'; g.beginPath(); g.arc(sx, y + w - 18, 6, 0, 7); g.fill(); g.stroke(); g.fillStyle = col; g.fillRect(sx - 1.5, y + w - 23, 3, 10); g.fillRect(sx - 5, y + w - 19.5, 10, 3); }
+    g.fillStyle = '#3b2f22'; rr(g, cx - 5, y + w - 20, 10, 12, 2); g.fill(); g.stroke();
+  } else if (t === 'workshop') { // the Arsenal: a round slate forge with a cog, a chimney and a glowing crystal
+    g.fillStyle = STONE_D; g.beginPath(); g.ellipse(cx, cy + 9, 25, 21, 0, 0, 7); g.fill(); g.stroke();
+    g.fillStyle = '#64748b'; g.beginPath(); g.arc(cx, cy, 25, 0, 7); g.fill(); g.stroke();
+    g.fillStyle = '#475569'; g.beginPath(); g.arc(cx, cy, 18, 0, 7); g.fill();
+    g.strokeStyle = col; g.lineWidth = 3.5; g.beginPath(); g.arc(cx, cy, 21.5, 0, 7); g.stroke();
+    g.strokeStyle = INK; g.lineWidth = 1.2; g.fillStyle = '#e2e8f0';
+    for (let i = 0; i < 8; i++) { const a = i * Math.PI / 4; g.fillRect(cx + Math.cos(a) * 10 - 2.5, cy + Math.sin(a) * 10 - 2.5, 5, 5); }
+    g.beginPath(); g.arc(cx, cy, 9, 0, 7); g.fill(); g.stroke();
+    g.fillStyle = '#a78bfa'; g.beginPath(); g.arc(cx, cy, 4, 0, 7); g.fill(); g.stroke();
+    g.fillStyle = '#334155'; rr(g, x + w - 18, y + 4, 10, 15, 2); g.fill(); g.stroke();
+    g.fillStyle = '#fb923c'; rr(g, x + w - 16, y + 6, 6, 4, 1); g.fill();
+  } else if (t === 'outpost') { // an open depot: a plank floor, a striped awning, crates, logs and crystal
+    block(g, x + 6, y + 14, w - 12, w - 26, 6, '#b88a55', '#8a6238');
+    g.strokeStyle = 'rgba(0,0,0,.22)'; g.lineWidth = 1; for (let i = 1; i < 4; i++) line(g, x + 7, y + 14 + i * (w - 26) / 4, x + w - 7, y + 14 + i * (w - 26) / 4);
+    g.strokeStyle = INK; g.lineWidth = 1.4;
+    for (let i = 0; i < 6; i++) { g.fillStyle = i % 2 ? '#f8fafc' : col; g.fillRect(x + 6 + i * (w - 12) / 6, y + 7, (w - 12) / 6 + .5, 13); }
+    rr(g, x + 6, y + 7, w - 12, 13, 2); g.stroke();
+    g.fillStyle = '#d6a45f'; rr(g, x + 11, y + 27, 12, 12, 1.5); g.fill(); g.stroke(); line(g, x + 11, y + 27, x + 23, y + 39); line(g, x + 23, y + 27, x + 11, y + 39);
+    g.fillStyle = '#7dd3fc'; g.beginPath(); g.moveTo(cx + 6, y + 40); g.lineTo(cx + 11, y + 25); g.lineTo(cx + 16, y + 33); g.lineTo(cx + 20, y + 27); g.lineTo(cx + 23, y + 40); g.closePath(); g.fill(); g.stroke();
+    g.fillStyle = '#a16207'; for (const lx of [x + 13, x + 20]) { g.beginPath(); g.arc(lx, y + 46, 3.4, 0, 7); g.fill(); g.stroke(); }
+  } else if (t === 'tower') { // a round stone tower with battlements and a pointed roof
+    g.fillStyle = STONE_D; g.beginPath(); g.ellipse(cx, cy + 6, 12, 10, 0, 0, 7); g.fill(); g.stroke();
+    g.fillStyle = STONE; g.beginPath(); g.arc(cx, cy - 1, 12, 0, 7); g.fill(); g.stroke();
+    g.fillStyle = '#f8fafc'; for (let i = 0; i < 6; i++) { const a = i * Math.PI / 3; g.fillRect(cx + Math.cos(a) * 10.5 - 2, cy - 1 + Math.sin(a) * 10.5 - 2, 4, 4); }
+    g.fillStyle = dark; g.beginPath(); g.arc(cx, cy - 1, 7.5, 0, 7); g.fill(); g.stroke();
+    g.fillStyle = col; g.beginPath(); g.moveTo(cx - 7.5, cy - 1); g.lineTo(cx, cy - 13); g.lineTo(cx + 7.5, cy - 1); g.closePath(); g.fill(); g.stroke();
+  } else if (t === 'wall') { // a stone block with a stripe of the owner's colour
+    block(g, x + 1, y + 2, w - 2, w - 9, 6, '#a8b0ba', '#767e88');
+    g.strokeStyle = 'rgba(0,0,0,.25)'; g.lineWidth = 1; line(g, x + 2, y + 12, x + w - 2, y + 12); line(g, cx, y + 3, cx, y + 12); line(g, x + 9, y + 12, x + 9, y + w - 8); line(g, x + 23, y + 12, x + 23, y + w - 8);
+    g.fillStyle = col; g.fillRect(x + 4, y + 4, w - 8, 3.5);
+  } else { // buildings from older saves: a plain hall
+    block(g, x + 6, y + 10, w - 12, w - 24, 8, col, dark);
+    g.strokeStyle = 'rgba(255,255,255,.8)'; g.lineWidth = 3; line(g, cx - 9, cy - 12, cx + 9, cy + 4); line(g, cx + 9, cy - 12, cx - 9, cy + 4);
   }
   g.restore();
   if (!e.built) bar(g, cx, y + w - 7, w - 12, e.prog / 100, '#fbbf24');
+}
+// Smoke from a damaged building, fire from a badly damaged one.
+function wounds(g, e, now) {
+  const f = e.hp / e.max;
+  if (f >= .6 || !e.built) return;
+  const w = e.size * T, x = e.tx * T, y = e.ty * T, n = e.size + (f < .3 ? 1 : 0);
+  for (let i = 0; i < n; i++) {
+    const seed = e.id * 7 + i * 13, px = x + 8 + (seed * 17 % (w - 16)), py = y + 8 + (seed * 29 % (w - 22));
+    const ph = (now * .9 + seed * .37) % 1;
+    g.fillStyle = `rgba(70,70,78,${.5 * (1 - ph)})`;
+    g.beginPath(); g.arc(px + Math.sin(ph * 4 + seed) * 3, py - ph * 22, 3 + ph * 6, 0, 7); g.fill();
+    if (f < .3) {
+      const fl = 5 + Math.sin(now * 14 + seed) * 1.6;
+      g.fillStyle = '#f97316'; g.beginPath(); g.moveTo(px - 4, py + 3); g.quadraticCurveTo(px - 5, py - fl, px, py - fl - 5); g.quadraticCurveTo(px + 5, py - fl, px + 4, py + 3); g.closePath(); g.fill();
+      g.fillStyle = '#fde047'; g.beginPath(); g.moveTo(px - 2, py + 3); g.quadraticCurveTo(px - 2.5, py - fl * .5, px, py - fl * .7); g.quadraticCurveTo(px + 2.5, py - fl * .5, px + 2, py + 3); g.closePath(); g.fill();
+    }
+  }
 }
 // How far something can shoot: a dashed ring.
 function reach(g, x, y, radius, z) {
@@ -329,11 +388,13 @@ export class Renderer {
     }
 
     const k = Math.min(1, dt * 12), units = [], spect = v.spectating();
+    const now = this.time = (this.time || 0) + dt, clock = performance.now();
     for (const e of v.ents.values()) {
       if (e.b) continue;
       const dx = e.x - e.rx, dy = e.y - e.ry;
       if (Math.abs(dx) > 1.5) e.face = dx > 0 ? 1 : -1;
       if (Math.abs(dx) + Math.abs(dy) > 150) { e.rx = e.x; e.ry = e.y; } else { e.rx += dx * k; e.ry += dy * k; }
+      e.bob = Math.abs(dx) + Math.abs(dy) > 1.2 ? Math.abs(Math.sin(now * 11 + e.id)) * 1.8 : 0;
     }
     const onScreen = e => e.rx > c.x - 60 && e.ry > c.y - 60 && e.rx < c.x + vw + 60 && e.ry < c.y + vh + 60;
     for (const e of v.ents.values()) {
@@ -341,6 +402,8 @@ export class Renderer {
       if (!e.b) { units.push(e); continue; }
       if (ui.sel.has(e.id)) { g.strokeStyle = '#4ade80'; g.lineWidth = 2; rr(g, e.tx * T, e.ty * T, e.size * T, e.size * T, 6); g.stroke(); }
       drawBuilding(g, e, v.info[e.owner].color);
+      wounds(g, e, now);
+      if (clock - e.hurtT < 110) { g.fillStyle = 'rgba(255,255,255,.35)'; rr(g, e.tx * T + 3, e.ty * T + 3, e.size * T - 6, e.size * T - 6, 5); g.fill(); }
       if (ui.sel.has(e.id) && DEF[e.type].range) reach(g, e.rx, e.ry, DEF[e.type].range, c.z);
       const max = e.max;
       if (e.built && (e.hp < max || ui.sel.has(e.id))) bar(g, e.rx, e.ty * T - 4, e.size * T - 10, e.hp / max, '#4ade80');
@@ -359,6 +422,7 @@ export class Renderer {
         g.beginPath(); g.ellipse(e.rx, e.ry + 6, big ? 13 : 10, big ? 7 : 5.5, 0, 0, 7); g.stroke();
       }
       drawUnit(g, e, v.info[e.owner].color);
+      if (clock - e.hurtT < 110) { g.fillStyle = 'rgba(255,255,255,.6)'; g.beginPath(); g.ellipse(e.rx, e.ry - 3 - (e.bob || 0), big ? 10 : 7.5, big ? 13 : 10, 0, 0, 7); g.fill(); } // a white flash when hit
       const max = e.max;
       if (e.hp < max || ui.sel.has(e.id) || DEF[e.type].hero) bar(g, e.rx, e.ry - (big ? 27 : 19), big ? 20 : 16, e.hp / max, v.friendly(e) ? '#4ade80' : '#f87171');
       if (DEF[e.type].hero) { // level badge
@@ -370,47 +434,80 @@ export class Renderer {
       }
     }
 
-    // effects
+    // effects: shots in flight, blows landing, numbers for damage and healing
+    const seen = (x, y) => spect || v.visible[Math.max(0, Math.min(N - 1, (y / T) | 0)) * N + Math.max(0, Math.min(N - 1, (x / T) | 0))];
     for (let i = v.fx.length - 1; i >= 0; i--) {
-      const f = v.fx[i], a = f.a;
+      const f = v.fx[i], a = f.a, drop = () => v.fx.splice(i, 1);
+      if (f.t === 0 && f.k !== 'm' && !seen(a[1], a[2]) && !(f.k === 'a' && seen(a[3], a[4]))) { drop(); continue; } // nothing shows through the fog
       f.t += dt;
-      if (f.k === 'a') {
+      if (f.k === 'a') { // 0 arrow, 1 magic bolt, 2 boulder, 3 tower shot
+        const kind = a[5] || 0, len = Math.hypot(a[3] - a[1], a[4] - a[2]) || 1, dur = kind === 2 ? Math.max(.4, len / 420) : kind === 1 ? Math.max(.16, len / 520) : Math.max(.1, len / 900);
+        const p = f.t / dur;
+        if (p >= 1) { drop(); if (kind === 1 || kind === 2) v.fx.push({ k: 'i', a: ['i', a[3], a[4], kind], t: 0 }); continue; }
+        const x = a[1] + (a[3] - a[1]) * p, y = a[2] + (a[4] - a[2]) * p, ux = (a[3] - a[1]) / len, uy = (a[4] - a[2]) / len;
+        if (kind === 2) {
+          const lift = Math.sin(p * Math.PI) * Math.min(70, len * .3);
+          g.fillStyle = 'rgba(0,0,0,.25)'; g.beginPath(); g.ellipse(x, y + 4, 5, 2.5, 0, 0, 7); g.fill();
+          g.fillStyle = '#6b7280'; g.strokeStyle = '#1f2937'; g.lineWidth = 1; g.beginPath(); g.arc(x, y - lift, 4.5, 0, 7); g.fill(); g.stroke();
+        } else if (kind === 1) {
+          g.fillStyle = 'rgba(196,181,253,.35)'; g.beginPath(); g.arc(x - ux * 6, y - uy * 6, 4, 0, 7); g.fill();
+          g.fillStyle = '#c4b5fd'; g.beginPath(); g.arc(x, y, 4, 0, 7); g.fill();
+          g.fillStyle = '#fff'; g.beginPath(); g.arc(x, y, 1.8, 0, 7); g.fill();
+        } else {
+          g.strokeStyle = kind === 3 ? '#fde047' : '#f5f0dc'; g.lineWidth = kind === 3 ? 2.2 : 1.6; line(g, x, y, x - ux * 9, y - uy * 9);
+          if (kind === 0) { g.strokeStyle = '#7c4a1e'; g.lineWidth = 1.6; line(g, x - ux * 9, y - uy * 9, x - ux * 12, y - uy * 12); }
+        }
+      } else if (f.k === 'i') { // a bolt bursting or a boulder landing
+        if (f.t > .32) { drop(); continue; }
+        const p = f.t / .32, big = a[3] === 2;
+        g.strokeStyle = big ? `rgba(120,113,108,${1 - p})` : `rgba(196,181,253,${1 - p})`; g.lineWidth = 3 * (1 - p) + 1;
+        g.beginPath(); g.arc(a[1], a[2], (big ? 8 : 6) + (big ? 26 : 36) * p, 0, 7); g.stroke();
+        if (big) { g.fillStyle = `rgba(214,211,209,${.6 * (1 - p)})`; for (let n = 0; n < 5; n++) { const an = n * 1.257 + a[1]; g.beginPath(); g.arc(a[1] + Math.cos(an) * 22 * p, a[2] + Math.sin(an) * 14 * p - 6 * p, 3.5 * (1 - p) + 1, 0, 7); g.fill(); } }
+      } else if (f.k === 'h') { // a blade landing: a quick white slash
+        if (f.t > .16) { drop(); continue; }
         const p = f.t / .16;
-        if (p >= 1) { v.fx.splice(i, 1); continue; }
-        g.strokeStyle = '#fff7d6'; g.lineWidth = 1.6;
-        const x = a[1] + (a[3] - a[1]) * p, y = a[2] + (a[4] - a[2]) * p, l = Math.hypot(a[3] - a[1], a[4] - a[2]) || 1;
-        line(g, x, y, x - (a[3] - a[1]) / l * 7, y - (a[4] - a[2]) / l * 7);
-      } else if (f.k === 'h') {
-        if (f.t > .15) { v.fx.splice(i, 1); continue; }
-        g.strokeStyle = '#fff'; g.lineWidth = 1.5;
-        const r = 3 + f.t * 40;
-        line(g, a[1] - r, a[2] - r, a[1] + r, a[2] + r); line(g, a[1] + r, a[2] - r, a[1] - r, a[2] + r);
+        g.strokeStyle = `rgba(255,255,255,${1 - p * .6})`; g.lineWidth = 2.4 * (1 - p) + .8;
+        g.beginPath(); g.arc(a[1] - 6, a[2] - 2, 12, -1.1 + p * .9, .2 + p * .9); g.stroke();
+      } else if (f.k === 'n') { // how much damage (or healing) that was
+        if (f.t > .75) { drop(); continue; }
+        const p = f.t / .75, heal = a[4] === 1, big = a[3] >= 40;
+        g.font = `bold ${big ? 13 : 10.5}px system-ui, sans-serif`; g.textAlign = 'center'; g.textBaseline = 'middle';
+        const tx = a[1] + f.ox, ty = a[2] - 16 - 20 * p;
+        g.globalAlpha = p < .6 ? 1 : 1 - (p - .6) / .4;
+        g.lineWidth = 2.6; g.strokeStyle = 'rgba(15,23,42,.85)'; g.strokeText((heal ? '+' : '') + a[3], tx, ty);
+        g.fillStyle = heal ? '#86efac' : big ? '#fde047' : '#fecaca'; g.fillText((heal ? '+' : '') + a[3], tx, ty);
+        g.globalAlpha = 1;
       } else if (f.k === 'd') {
-        if (f.t > .45) { v.fx.splice(i, 1); continue; }
-        const p = f.t / .45;
+        if (f.t > .5) { drop(); continue; }
+        const p = f.t / .5;
         g.fillStyle = `rgba(255,${200 - p * 120 | 0},90,${.7 * (1 - p)})`;
         g.beginPath(); g.arc(a[1], a[2], 8 + (a[3] ? a[3] * 22 : 10) * p, 0, 7); g.fill();
+        g.fillStyle = `rgba(87,83,78,${.8 * (1 - p)})`;
+        for (let n = 0; n < (a[3] ? 8 : 4); n++) { const an = n * 2.4 + a[2]; const d = (a[3] ? a[3] * 24 : 14) * p; g.fillRect(a[1] + Math.cos(an) * d - 1.5, a[2] + Math.sin(an) * d * .7 - 10 * p * (1 - p) * 4 - 1.5, 3, 3); }
       } else if (f.k === 's') {
-        if (f.t > .5) { v.fx.splice(i, 1); continue; }
+        if (f.t > .5) { drop(); continue; }
         const p = f.t / .5;
+        g.fillStyle = `rgba(${['253,224,71', '125,211,252', '134,239,172', '248,113,113', '147,197,253'][a[4] || 0]},${.14 * (1 - p)})`;
+        g.beginPath(); g.arc(a[1], a[2], (a[3] || 90) * p, 0, 7); g.fill();
         g.strokeStyle = `rgba(${['253,224,71', '125,211,252', '134,239,172', '248,113,113', '147,197,253'][a[4] || 0]},${1 - p})`; g.lineWidth = 5 * (1 - p) + 1;
         g.beginPath(); g.arc(a[1], a[2], (a[3] || 90) * p, 0, 7); g.stroke();
       } else if (f.k === 'l') { // level up
-        if (f.t > 1.1) { v.fx.splice(i, 1); continue; }
+        if (f.t > 1.1) { drop(); continue; }
         const p = f.t / 1.1;
         g.strokeStyle = `rgba(251,191,36,${1 - p})`; g.lineWidth = 3; g.beginPath(); g.arc(a[1], a[2], 12 + 40 * p, 0, 7); g.stroke();
         g.fillStyle = `rgba(253,230,138,${1 - p * p})`; g.font = 'bold 13px system-ui, sans-serif'; g.textAlign = 'center';
         g.fillText('LEVEL UP', a[1], a[2] - 30 - 22 * p);
-      } else if (f.k === 'q') { // healed
-        if (f.t > .5) { v.fx.splice(i, 1); continue; }
-        const p = f.t / .5, y = a[2] - 18 - 12 * p;
-        g.fillStyle = `rgba(74,222,128,${1 - p})`; g.fillRect(a[1] - 1.5, y - 5, 3, 10); g.fillRect(a[1] - 5, y - 1.5, 10, 3);
+      } else if (f.k === 'q') { // healed: a green ring closing on the unit
+        if (f.t > .45) { drop(); continue; }
+        const p = f.t / .45;
+        g.strokeStyle = `rgba(74,222,128,${1 - p})`; g.lineWidth = 2;
+        g.beginPath(); g.ellipse(a[1], a[2] + 5, 16 - 8 * p, 9 - 4.5 * p, 0, 0, 7); g.stroke();
       } else if (f.k === 'm') {
-        if (f.t > .4) { v.fx.splice(i, 1); continue; }
+        if (f.t > .4) { drop(); continue; }
         const p = f.t / .4;
         g.strokeStyle = a[3]; g.lineWidth = 2;
         g.beginPath(); g.ellipse(a[1], a[2], 14 * (1 - p) + 3, 8 * (1 - p) + 2, 0, 0, 7); g.stroke();
-      }
+      } else drop();
     }
 
     // fog, one run of tiles at a time
