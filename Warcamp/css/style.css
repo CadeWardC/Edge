@@ -481,6 +481,8 @@ input, select { background: var(--dock); border: 1px solid #3b4d6b; border-radiu
 #game.on:is(.lay-over, .lay-lite, .folded) #fold { bottom: max(var(--pb, 0px), env(safe-area-inset-bottom)); }
 /* An installed iPhone app can report a screen shorter than it is, which left an empty band along the bottom: main.js measures the real height. */
 #game, .screen { height: var(--fh, auto); }
+/* The stretched part lies outside what the page thinks is the screen, so the page must not clip to that. */
+html.tall, html.tall body { overflow: visible; }
 
 /* The run summary on the end screen (Nomad). */
 .stats { list-style: none; margin: 0 0 6px; padding: 0 !important; display: flex; flex-direction: column; gap: 2px; }
@@ -488,3 +490,70 @@ input, select { background: var(--dock); border: 1px solid #3b4d6b; border-radiu
 .stats li span { color: var(--dim); }
 .diag { white-space: pre-wrap; text-align: left; font: 11px/1.5 ui-monospace, Menlo, monospace; user-select: text; -webkit-user-select: text; }
 #mVer { cursor: pointer; }
+
+/* ---------- main menu and lobby ---------- */
+/* A game between four computers plays behind both (main.js, "the game behind the menus"). The menu lets it show
+   through; the lobby dims and blurs it so the settings read clearly. */
+#menu { background: radial-gradient(ellipse at 50% 42%, rgba(8, 13, 24, .5), rgba(8, 13, 24, .9) 75%); }
+#lobby { background: rgba(8, 13, 24, .84); -webkit-backdrop-filter: blur(7px); backdrop-filter: blur(7px); }
+.glass { display: flex; flex-direction: column; gap: 10px; padding: 14px; border-radius: 16px; border: 1px solid rgba(148, 178, 222, .16);
+  background: linear-gradient(rgba(27, 42, 70, .82), rgba(13, 22, 40, .88)); box-shadow: 0 18px 44px rgba(0, 0, 0, .45), inset 0 1px 0 rgba(255, 255, 255, .06);
+  -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px); }
+#menu .card { width: min(392px, 100%); gap: 12px; }
+.brand { text-align: center; padding: 6px 0 2px; }
+.brand h1 { font-size: clamp(38px, 12vw, 60px); line-height: 1; letter-spacing: .1em; margin-right: -.1em; font-weight: 800; color: var(--gold);
+  background: linear-gradient(#fff7d6 12%, #fde68a 46%, #f59e0b 92%); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
+  text-shadow: none; filter: drop-shadow(0 3px 0 #7c2d12) drop-shadow(0 10px 18px rgba(0, 0, 0, .65)); }
+.brand .tag { margin: 12px 0 0; display: flex; align-items: center; justify-content: center; gap: 10px; color: #dbe6f7; font-size: 12.5px; font-weight: 600; letter-spacing: .3em; text-transform: uppercase; text-shadow: 0 1px 6px #000; }
+.brand .tag i { width: 5px; height: 5px; border-radius: 50%; background: var(--gold); }
+.field { flex-direction: column; align-items: stretch !important; gap: 5px !important; }
+.field span, .row.opts label span, .pl { font-size: 11px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: #8ea3c4; }
+.field input { font-weight: 600; }
+.glass input, .glass select { background: rgba(8, 13, 24, .6); border-color: rgba(148, 178, 222, .22); min-height: 44px; }
+.glass input:focus, .glass select:focus { outline: none; border-color: #60a5fa; box-shadow: 0 0 0 3px rgba(59, 130, 246, .28); }
+button.choice { text-align: left; padding: 11px 16px; font-weight: 700; font-size: 16px; display: flex; flex-direction: column; gap: 1px; }
+button.choice small { font-size: 12px; font-weight: 400; color: #b7c6de; }
+button.choice.big small { color: #dbeafe; }
+#menu button, #lobby button { transition: transform .08s, background .15s, border-color .15s; }
+#menu button:active, #lobby button:active { transform: scale(.985); }
+#menu button.big, #lobby button.big { background: linear-gradient(#3b82f6, #1d4ed8); border-color: #60a5fa; box-shadow: 0 6px 16px rgba(29, 78, 216, .4), inset 0 1px 0 rgba(255, 255, 255, .22); }
+#menu button.rejoin { background: linear-gradient(#d97706, #b45309); border-color: #fbbf24; box-shadow: 0 6px 16px rgba(180, 83, 9, .4), inset 0 1px 0 rgba(255, 255, 255, .22); }
+#menu button:not(.big), #lobby .card > .row button:not(.big) { background: rgba(34, 50, 80, .82); border-color: rgba(148, 178, 222, .24); }
+.or { display: flex; align-items: center; gap: 10px; color: #8ea3c4; font-size: 11px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; margin-top: 2px; }
+.or::before, .or::after { content: ""; flex: 1; height: 1px; background: rgba(148, 178, 222, .2); }
+.row.join > input { flex: 1.3; } .row.join > button { flex: 1; }
+.glass .msg:empty { display: none; }
+.row.minor button { -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); }
+#menu .hint { color: #b7c6de; text-shadow: 0 1px 4px #000; }
+
+#lobby .card { width: min(500px, 100%); gap: 12px; }
+.lhead { display: flex; flex-direction: column; gap: 10px; }
+.lhead h2 { font-size: 24px; font-weight: 800; letter-spacing: .01em; }
+.lhead .code { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 0 12px; text-align: left; padding: 10px 14px; border-radius: 14px;
+  border: 1px dashed rgba(253, 230, 138, .45); background: rgba(253, 230, 138, .06); font-size: 11px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: #8ea3c4; }
+.lhead .code b { grid-column: 1; font-size: 34px; line-height: 1.1; letter-spacing: .28em; padding: 0; }
+.lhead .code button { grid-column: 2; grid-row: 1 / 3; margin: 0; padding: 8px 14px; font-size: 13px; letter-spacing: 0; text-transform: none; font-weight: 600; }
+.lhead .code span { grid-column: 1 / 3; margin-top: 4px; font-size: 12.5px; font-weight: 400; letter-spacing: 0; text-transform: none; color: var(--dim); }
+#lobby .slot { background: rgba(8, 13, 24, .5); border-color: rgba(148, 178, 222, .16); border-radius: 12px; padding: 7px 10px 7px 8px; min-height: 48px; }
+#lobby .slot i { width: 8px; height: 32px; border-radius: 4px; }
+#lobby .slot span { font-weight: 600; }
+#lobby .slot span small { font-weight: 400; }
+#lobby .slot.off { min-height: 40px; border-style: dashed; background: transparent; }
+#lobby .slot.off i { height: 22px; }
+#lobby .slot.off span { font-weight: 400; }
+#lobby .slot button { background: rgba(34, 50, 80, .82); border-color: rgba(148, 178, 222, .24); font-size: 13px; }
+#lobby .pl { margin: 0; }
+#lobby .heroes button { background: rgba(8, 13, 24, .5); border-color: rgba(148, 178, 222, .16); border-radius: 12px; padding: 10px; }
+#lobby .heroes button.on { background: linear-gradient(#2563eb, #1e40af); border-color: #93c5fd; box-shadow: 0 4px 14px rgba(29, 78, 216, .4); }
+#lobby .colors { gap: 6px; justify-content: space-between; flex-wrap: nowrap; }
+#lobby .colors button { width: auto; flex: 0 1 38px; aspect-ratio: 1; height: auto; min-height: 0; }
+#lobby .row.opts { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+#lobby .row.opts label { flex-direction: column; align-items: stretch; gap: 5px; }
+.note { margin: 0; padding: 10px 12px; border-radius: 10px; border-left: 3px solid #3b82f6; background: rgba(37, 99, 235, .1); color: #c6d3e8; font-size: 13px; line-height: 1.45; }
+#lobby .msg:empty { display: none; }
+#lobby .card > .row:last-child { margin: 0; padding: 18px 0 max(10px, env(safe-area-inset-bottom)); background: linear-gradient(rgba(8, 13, 24, 0), #080d18 30%); }
+#lobby .card > .row:last-child button:not(.big) { background: #1b2942; }
+#lobby .card > .row:last-child button { min-height: 48px; }
+#lobby .card > .row:last-child #lStart { flex: 2; font-size: 16px; }
+@media (max-width: 380px) { .heroes { grid-template-columns: 1fr; } }
+@media (orientation: landscape) and (max-height: 520px) { .brand h1 { font-size: 38px; } .brand .tag { margin-top: 6px; } #menu .card { width: min(560px, 100%); } }

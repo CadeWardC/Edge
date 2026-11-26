@@ -8,7 +8,8 @@
 <meta name="theme-color" content="#0b1220">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<!-- The page starts below the clock. Running under it ("black-translucent") made iPhones lay the page out too short. -->
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" sizes="180x180" href="icons/apple-touch-icon.png">
@@ -50,44 +51,59 @@
 
 <div id="menu" class="screen">
   <div class="card">
-    <h1>WARCAMP</h1>
-    <p class="tag">Gather. Build. Conquer. 1–4 players.</p>
-    <label>Your name <input id="name" maxlength="12" autocomplete="off" spellcheck="false"></label>
-    <button id="mContinue" class="big rejoin" hidden>Continue your game</button>
-    <button id="mRejoin" class="big rejoin" hidden>Rejoin game</button>
-    <button id="mSingle" class="big">Single player</button>
-    <button id="mHost" class="big">Host a multiplayer game</button>
-    <div class="row">
-      <input id="code" maxlength="4" placeholder="CODE" autocomplete="off" autocapitalize="characters" spellcheck="false">
-      <button id="mJoin" class="big">Join</button>
+    <header class="brand">
+      <h1>WARCAMP</h1>
+      <p class="tag">Gather <i></i> Build <i></i> Conquer</p>
+    </header>
+    <div class="glass">
+      <label class="field"><span>Your name</span><input id="name" maxlength="12" autocomplete="off" spellcheck="false"></label>
+      <button id="mContinue" class="big rejoin" hidden>Continue your game</button>
+      <button id="mRejoin" class="big rejoin" hidden>Rejoin game</button>
+      <button id="mSingle" class="big choice">Single player<small>Skirmish, Survival or Nomad</small></button>
+      <button id="mHost" class="choice">Host a multiplayer game<small>Up to 4 players, each on their own device</small></button>
+      <div class="or"><span>or join a friend</span></div>
+      <div class="row join">
+        <input id="code" maxlength="4" placeholder="CODE" autocomplete="off" autocapitalize="characters" spellcheck="false">
+        <button id="mJoin" class="big">Join</button>
+      </div>
+      <p id="mMsg" class="msg"></p>
     </div>
-    <button id="mHelp">How to play</button>
-    <button id="mInstall" hidden>Install app</button>
+    <div class="row minor">
+      <button id="mHelp">How to play</button>
+      <button id="mInstall" hidden>Install app</button>
+    </div>
+    <p id="mIOS" class="hint" hidden>For full screen on iPhone and iPad: tap Share, then “Add to Home Screen”.</p>
     <p id="mVer" class="hint" hidden></p>
     <p id="mDiag" class="hint diag" hidden></p>
-    <p id="mIOS" class="hint" hidden>For full screen on iPhone and iPad: tap Share, then “Add to Home Screen”.</p>
-    <p id="mMsg" class="msg"></p>
   </div>
 </div>
 
 <div id="lobby" class="screen" hidden>
   <div class="card">
-    <h2 id="lTitle">Game setup</h2>
-    <p id="lCode" class="code" hidden></p>
-    <div id="slots"></div>
-    <div id="pick"></div>
-    <div class="row opts">
-      <label>Mode <select id="lMode"><option value="ffa">Free for all</option><option value="coop">Players vs computers</option><option value="survival">Survival: waves and bosses</option><option value="nomad">Nomad: how far can you get?</option></select></label>
-      <label>Map <select id="lMap"></select></label>
-      <label id="lExtraL">More computers <select id="lExtra"><option>0</option><option>1</option><option>2</option><option>3</option><option>4</option></select></label>
-      <label>Difficulty <select id="lLevel"><option value="0">Easy</option><option value="1" selected>Normal</option><option value="2">Hard</option></select></label>
-      <label id="lWaveL" hidden>Waves <select id="lWave"><option value="0">Easy</option><option value="1" selected>Normal</option><option value="2">Hard</option><option value="3">Nightmare</option></select></label>
-    </div>
-    <p id="lAbout" class="hint"></p>
+    <header class="lhead">
+      <h2 id="lTitle">Game setup</h2>
+      <p id="lCode" class="code" hidden></p>
+    </header>
+    <section class="glass">
+      <div class="pl">Players</div>
+      <div id="slots"></div>
+    </section>
+    <section class="glass" id="pick"></section>
+    <section class="glass">
+      <div class="pl">Game</div>
+      <div class="row opts">
+        <label><span>Mode</span><select id="lMode"><option value="ffa">Free for all</option><option value="coop">Players vs computers</option><option value="survival">Survival</option><option value="nomad">Nomad</option></select></label>
+        <label><span>Map</span><select id="lMap"></select></label>
+        <label id="lExtraL"><span>More computers</span><select id="lExtra"><option>0</option><option>1</option><option>2</option><option>3</option><option>4</option></select></label>
+        <label><span>Difficulty</span><select id="lLevel"><option value="0">Easy</option><option value="1" selected>Normal</option><option value="2">Hard</option></select></label>
+        <label id="lWaveL" hidden><span>Waves</span><select id="lWave"><option value="0">Easy</option><option value="1" selected>Normal</option><option value="2">Hard</option><option value="3">Nightmare</option></select></label>
+      </div>
+      <p id="lAbout" class="note"></p>
+    </section>
     <p id="lMsg" class="msg"></p>
     <div class="row">
       <button id="lBack">Back</button>
-      <button id="lStart" class="big">Start</button>
+      <button id="lStart" class="big">Start game</button>
     </div>
   </div>
 </div>
