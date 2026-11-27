@@ -117,9 +117,13 @@ export class AI {
     // ---------------------------------------------------------------- building
     const racks = g('barracks');
     if (hq && !unbuilt.length && workers.length) {
-      let want = null, at = [hq.tx + 1, hq.ty + 1];
+      let want = null, at = [hq.tx + 1, hq.ty + 1], gift;
       if (me.cap - me.pop <= 2 && me.cap < MAXCAP) want = 'house';
       else if (!racks.length && workers.length >= 4) want = 'barracks';
+      else if (fighters.length >= 4 && me.res >= DEF.hq.cost && me.wood >= DEF.hq.wood && s.players.some((q, i) => s.canRevive(pid, i))) {
+        want = 'hq'; gift = s.players.findIndex((q, i) => s.canRevive(pid, i)); // Survival: bring a fallen ally back
+        at = [hq.tx + 1 + (pid % 2 ? 9 : -9), hq.ty + 1];
+      }
       else if (g('tower').length < [1, 2, 3][L] && fighters.length >= 4 && me.res >= 320) {
         want = 'tower';
         if (stage && L > 0) at = [s.tileOf((hq.x + stage.x) / 2), s.tileOf((hq.y + stage.y) / 2)]; // on the side the enemy will come from
@@ -146,7 +150,7 @@ export class AI {
       if (want && me.res >= DEF[want].cost && me.wood >= (DEF[want].wood || 0)) {
         const site = s.findSite(want, at[0], at[1]);
         const w = workers.find(w => !w.order || w.order.k === 'harvest');
-        if (site && w && (DEF[want].anywhere || s.nearKeep(pid, want, site[0], site[1]))) cmd({ t: 'build', ids: [w.id], b: want, tx: site[0], ty: site[1] });
+        if (site && w && (DEF[want].anywhere || s.nearKeep(pid, want, site[0], site[1]))) cmd(gift === undefined ? { t: 'build', ids: [w.id], b: want, tx: site[0], ty: site[1] } : { t: 'build', ids: [w.id], b: want, tx: site[0], ty: site[1], for: gift });
       }
     }
 

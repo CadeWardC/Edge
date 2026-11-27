@@ -522,7 +522,10 @@ export class Sim {
         if (this.dist(e, b) <= REACH) {
           b.prog += DT / bd.time; b.wk = this.tick;
           b.hp = Math.min(bd.hp, b.hp + bd.hp * 0.9 * DT / bd.time);
-          if (b.prog >= 1) { b.prog = 1; b.built = true; if (bd.cap) this.players[b.owner].cap += bd.cap; }
+          if (b.prog >= 1) {
+            b.prog = 1; b.built = true; if (bd.cap) this.players[b.owner].cap += bd.cap;
+            if (b.type === 'hq' && !this.players[b.owner].alive) this.revive(b.owner, b); // a Keep built for a fallen ally
+          }
         } else if (this.follow(e)) {
           if (++o.tries > 6) e.order = null; else this.pathTo(e, b.tx, b.ty, b.tx + b.size - 1, b.ty + b.size - 1);
         }
@@ -539,6 +542,22 @@ export class Sim {
     }
     n.order = { k: 'move', x, y, tries: 0 };
     this.pathPoint(n, x, y);
+  }
+  // Survival: a fallen player whose ally has finished a Keep for them is back in the game, with a hero, three
+  // workers and enough to get going again.
+  revive(i, keep) {
+    const P = this.players[i];
+    P.alive = true; P.heroT = DT; // the hero walks out of the new Keep on the next tick
+    P.res = Math.max(P.res, 150); P.wood = Math.max(P.wood, 150);
+    for (let j = 0; j < 3; j++) { const sp = this.freeSpot(keep); if (sp) this.autoHarvest(this.spawnUnit('worker', i, (sp[0] + .5) * T + j, (sp[1] + .5) * T)); }
+    this.fx.push(['l', keep.x | 0, keep.y | 0]);
+  }
+  // May this player build a Keep for that one? Only in Survival, for an ally who is out and has no Keep on the way.
+  canRevive(pid, i) {
+    const P = this.players[pid], Q = this.players[i];
+    if (this.hordeId < 0 || this.nomad || !Number.isInteger(i) || !Q || i === pid || Q.alive || Q.horde || Q.team !== P.team) return false;
+    for (const e of this.ents.values()) if (e.owner === i && e.type === 'hq') return false;
+    return true;
   }
   updateBuilding(e) {
     if (!e.built) return;
@@ -731,10 +750,14 @@ export class Sim {
         if (P.res < d.cost || P.wood < wood || (d.req && !this.hasBuilt(pid, d.req)) || !this.canPlace(c.b, tx, ty)) return;
         const ws = own(c.ids).filter(e => e.type === 'worker');
         if (!ws.length) return;
-        if (c.b === 'hq') { if (P.keeps >= KEEP_LIMIT) return; } else if (!d.anywhere && !this.nearKeep(pid, c.b, tx, ty)) return;
-        if (c.b === 'hq') P.keeps++;
+        // c.for: this Keep is for a fallen ally (Survival). The builder pays; it is theirs from the first stone, does
+        // not count against the builder's own Keeps, and brings them back when it is finished.
+        const gift = c.for !== undefined;
+        if (gift && (c.b !== 'hq' || !this.canRevive(pid, c.for))) return;
+        if (c.b === 'hq') { if (!gift && P.keeps >= KEEP_LIMIT) return; } else if (!d.anywhere && !this.nearKeep(pid, c.b, tx, ty)) return;
+        if (c.b === 'hq' && !gift) P.keeps++;
         P.res -= d.cost; P.wood -= wood;
-        const b = this.addBuilding(c.b, pid, tx, ty, false);
+        const b = this.addBuilding(c.b, gift ? c.for : pid, tx, ty, false);
         for (const e of ws) {
           const cur = e.order && e.order.k === 'build' && this.ents.get(e.order.b);
           if (cur && !cur.built) { (e.order.q || (e.order.q = [])).push(b.id); continue; } // busy building: queue it
@@ -758,9 +781,9 @@ export class Sim {
         }
         break;
       }
-      case 'assist': {
+      case 'assist': { // workers may help with an ally's building as well as their own
         const b = this.ents.get(c.b);
-        if (!b || !b.b || b.built || b.owner !== pid) return;
+        if (!b || !b.b || b.built || this.players[b.owner].team !== P.team) return;
         for (const e of own(c.ids)) if (e.type === 'worker') {
           e.order = { k: 'build', b: b.id, tries: 0, back: this.wasGathering(e) };
           this.pathTo(e, b.tx, b.ty, b.tx + b.size - 1, b.ty + b.size - 1);

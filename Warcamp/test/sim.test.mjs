@@ -746,5 +746,60 @@ for (const { id } of MAPS) {
   }
 }
 
+// Survival: a living player can build a Keep for a fallen ally, which brings them back.
+{
+  const cfg = { seed: 21, mode: 'survival', center: true, extra: true, players: [{ name: 'A', team: 0 }, { name: 'B', team: 0 }, { name: 'C', team: 0 }, { name: 'The Horde', team: 1, horde: true }] };
+  const s = new Sim(cfg), run = n => { for (let i = 0; i < n; i++) { s.step(); s.snapshot(); } };
+  const A = s.players[0], B = s.players[1];
+  const ws = () => [...s.ents.values()].filter(e => e.owner === 0 && e.type === 'worker').map(e => e.id);
+  const site = () => { const hq = [...s.ents.values()].find(e => e.type === 'hq' && e.owner === 0); return s.findSite('hq', hq.tx + 9, hq.ty + 1); };
+  A.res = 5000; A.wood = 5000;
+  let at = site();
+  s.command(0, { t: 'build', ids: ws(), b: 'hq', tx: at[0], ty: at[1], for: 1 });
+  s.command(0, { t: 'build', ids: ws(), b: 'hq', tx: at[0], ty: at[1], for: 3 });
+  s.command(0, { t: 'build', ids: ws(), b: 'hq', tx: at[0], ty: at[1], for: 0 });
+  s.command(0, { t: 'build', ids: ws(), b: 'hq', tx: at[0], ty: at[1], for: 'x' });
+  check([...s.ents.values()].filter(e => e.type === 'hq').length === 3 && A.res === 5000, 'no Keep can be built for an ally who is still in, for the Horde, for yourself, or for nobody');
+  s.command(1, { t: 'giveup' }); run(12);
+  check(!B.alive && ![...s.ents.values()].some(e => e.owner === 1) && s.winner === -1, 'one player is wiped out; the others play on');
+  s.command(0, { t: 'build', ids: ws(), b: 'tower', tx: at[0], ty: at[1], for: 1 });
+  check(![...s.ents.values()].some(e => e.type === 'tower'), 'only a Keep can be built for a fallen ally');
+  const r0 = A.res, w0a = A.wood;
+  s.command(0, { t: 'build', ids: ws(), b: 'hq', tx: at[0], ty: at[1], for: 1 });
+  const keep = [...s.ents.values()].find(e => e.type === 'hq' && e.owner === 1);
+  check(!!keep && !keep.built && A.res === r0 - 450 && A.wood === w0a - 550 && A.keeps === 0 && !B.alive, 'the builder pays for it, it does not use up one of their own Keeps, and it belongs to the fallen ally from the start');
+  at = site();
+  s.command(0, { t: 'build', ids: ws(), b: 'hq', tx: at[0], ty: at[1], for: 1 });
+  check([...s.ents.values()].filter(e => e.type === 'hq' && e.owner === 1).length === 1, 'one Keep at a time for the same ally');
+  const helper = [...s.ents.values()].find(e => e.owner === 2 && e.type === 'worker');
+  s.command(2, { t: 'assist', ids: [helper.id], b: keep.id });
+  check(helper.order && helper.order.k === 'build' && helper.order.b === keep.id, "another ally's workers can help build it");
+  let t = 0; while (!keep.built && t++ < 1500) { s.step(); s.snapshot(); if (s.winner !== -1) break; }
+  run(3);
+  const mine = [...s.ents.values()].filter(e => e.owner === 1);
+  check(keep.built && B.alive && mine.filter(e => e.type === 'worker').length === 3 && mine.some(e => e.cds) && B.res >= 150 && B.cap === 10 && s.snapshot().p[1][3] === 1,
+    `when it is finished the ally is back: a Keep, a hero, three workers and ${Math.floor(B.res)} crystal (after ${(t / 10).toFixed(0)} s of building)`);
+  const hq1 = mine.find(e => e.type === 'hq');
+  s.command(1, { t: 'train', b: hq1.id, u: 'worker' }); run(90);
+  check([...s.ents.values()].filter(e => e.owner === 1 && e.type === 'worker').length === 4 && [...s.ents.values()].filter(e => e.owner === 1 && e.type === 'worker').every(w => w.order), 'and they can play again: the new Keep trains workers, and the workers gather');
+  const back = Sim.restore(cfg, JSON.parse(JSON.stringify(s.save())));
+  check(back.players[1].alive && [...back.ents.values()].some(e => e.owner === 1 && e.type === 'hq'), 'a revived player is still in after a save');
+  // not outside Survival
+  const ffa = new Sim({ seed: 3, players: [{ name: 'a', team: 0 }, { name: 'b', team: 0 }, { name: 'c', team: 1 }] });
+  ffa.command(1, { t: 'giveup' }); for (let i = 0; i < 12; i++) ffa.step();
+  ffa.players[0].res = 5000; ffa.players[0].wood = 5000;
+  const w0 = [...ffa.ents.values()].filter(e => e.owner === 0 && e.type === 'worker').map(e => e.id), h0 = [...ffa.ents.values()].find(e => e.type === 'hq' && e.owner === 0), st = ffa.findSite('hq', h0.tx + 9, h0.ty + 1);
+  ffa.command(0, { t: 'build', ids: w0, b: 'hq', tx: st[0], ty: st[1], for: 1 });
+  check(!ffa.players[1].alive && ![...ffa.ents.values()].some(e => e.owner === 1), 'outside Survival a fallen player stays out');
+}
+// A computer ally does the same for a fallen teammate.
+{
+  const s = new Sim({ seed: 9, mode: 'survival', center: true, extra: true, wave: 0, players: [{ name: 'A', team: 0, ai: true }, { name: 'B', team: 0 }, { name: 'The Horde', team: 1, horde: true }] }), ai = new AI(s, 0, 1);
+  for (let i = 0; i < 1500; i++) { ai.update(); s.step(); s.snapshot(); }
+  s.command(1, { t: 'giveup' });
+  let t = 0; while (!s.players[1].alive && s.winner === -1 && t++ < 9000) { ai.update(); s.step(); s.snapshot(); }
+  check(s.players[1].alive && [...s.ents.values()].some(e => e.owner === 1 && e.cds), `a computer ally builds a fallen teammate a Keep (back after ${(t / 600).toFixed(1)} game-min)`);
+}
+
 if (failed) { console.error(`${failed} check(s) failed`); process.exit(1); }
 console.log('all checks passed');
