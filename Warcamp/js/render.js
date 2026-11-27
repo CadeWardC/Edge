@@ -16,7 +16,7 @@ export class View {
     this.info = cfg.players.map((p, i) => ({ name: p.name, team: p.team, color: p.tint || COLORS[p.color ?? i] || COLORS[i % COLORS.length], hero: p.hero || 'hero', horde: !!p.horde }));
     this.me = me; this.team = this.info[me].team;
     this.pl = this.info.map(() => ({ res: 0, pop: 0, cap: 0, alive: true, heroT: 0 }));
-    this.ents = new Map(); this.fx = []; this.dirty = []; this.news = []; this.got = false;
+    this.ents = new Map(); this.fx = []; this.dirty = []; this.news = []; this.back = []; this.got = false; // news: who has just been knocked out; back: who has just been brought back
     this.tick = 0; this.winner = -1; this.hurt = null;
     this.explored = new Uint8Array(this.N * this.N);
     this.visible = new Uint8Array(this.N * this.N);
@@ -26,7 +26,7 @@ export class View {
     if (s.wv) { if (this.wave && s.wv[0] > this.wave[0]) this.waveNews = s.wv[0]; this.wave = s.wv; }
     if (s.nm && this.nomad) { const n = this.nomad; [n.best, n.wave, n.next, n.kills, n.cleared, n.camps] = s.nm; n.won = s.nm[7]; n.news.push(...s.nm[6]); }
     // who has just been knocked out (not on the first snapshot, which only says how things already stand)
-    if (this.got) s.p.forEach((a, i) => { if (this.pl[i].alive && !a[3]) this.news.push(i); });
+    if (this.got) s.p.forEach((a, i) => { if (this.pl[i].alive && !a[3]) this.news.push(i); else if (!this.pl[i].alive && a[3]) this.back.push(i); });
     this.got = true;
     s.p.forEach((a, i) => { this.pl[i] = { res: a[0], pop: a[1], cap: a[2], alive: !!a[3], heroT: a[4], wood: a[5] || 0, lvl: a[6] || 1, xp: a[7] || 0, keeps: a[8] ?? 0 }; });
     for (const a of s.e) {

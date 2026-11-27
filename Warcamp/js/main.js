@@ -421,7 +421,7 @@ async function handover() {
   if (!order.length) return null;
   G.moving = true;
   clearInterval(G.timer); G.timer = 0; // freeze, so the copy that is sent is the final word
-  const state = { cfg, tokens: G.tokens, ais: G.ais.map((a, i) => a && cfg.players[i].ai ? { att: a.att, wave: a.wave } : null), sim: sim.save() };
+  const state = { cfg, tokens: G.tokens, ais: G.ais.map((a, i) => a && cfg.players[i].ai ? a.state() : null), sim: sim.save() };
   for (const i of order) {
     const c = conns[i];
     if (!c) continue;
@@ -536,7 +536,7 @@ function startGame(cfg, me, conns, save) {
       if (sim.winner !== -1 || G.lost) return store.set(SAVE, ''); // over, or over for the only person playing
       try {
         store.set(SAVE, JSON.stringify({ at: Date.now(), cfg, me, code: L && L.online ? L.code : '', tokens: G.tokens || [],
-          ais: ais.map((a, i) => a && cfg.players[i].ai ? { att: a.att, wave: a.wave } : null), sim: sim.save() }));
+          ais: ais.map((a, i) => a && cfg.players[i].ai ? a.state() : null), sim: sim.save() }));
       } catch { /* storage full or blocked: play on without saving */ }
     };
     G.conns = conns;
@@ -693,7 +693,7 @@ function confirmPlace() {
   if (!p || !p.has) return;
   if (!canPlace(p.type, p.tx, p.ty)) { toast(!DEF[p.type].anywhere && !inRange(p.type, p.tx, p.ty) ? 'Too far from your Keep: build inside the dashed line' : "Can't build there"); return; }
   const ids = myUnits().filter(e => e.type === 'worker').map(e => e.id);
-  if (ids.length) G.send({ t: 'build', ids, b: p.type, tx: p.tx, ty: p.ty });
+  if (ids.length) G.send(p.gift === undefined ? { t: 'build', ids, b: p.type, tx: p.tx, ty: p.ty } : { t: 'build', ids, b: p.type, tx: p.tx, ty: p.ty, for: p.gift });
   // Walls go down in runs: stay in placing mode until the player stops.
   if (DEF[p.type].wall) { p.has = false; if (G.touch) buzz(8); } else G.placing = null;
   hudT = 0;
@@ -722,7 +722,7 @@ function order(wx, wy, ent) {
     if (rest.length) G.send({ t: 'move', ids: rest, x: wx, y: wy });
     mark(ent.rx, ent.ry, '#4ade80'); return;
   }
-  if (ent && ent.b && !ent.built && ent.owner === v.me && workers.length) {
+  if (ent && ent.b && !ent.built && v.friendly(ent) && workers.length) { // mine, or an ally's
     G.send({ t: 'assist', ids: workers, b: ent.id });
     if (rest.length) G.send({ t: 'move', ids: rest, x: wx, y: wy });
     mark(ent.rx, ent.ry, '#fbbf24'); return;
@@ -764,7 +764,7 @@ function tap(sx, sy, touch, add) {
   const e = pick(wx, wy, touch ? 16 : 6);
   if (!touch) { if (e) selectEnt(e, add); else { G.sel.clear(); hudT = 0; } return; }
   // With workers selected, a tap on one of my buildings that needs them (unfinished or damaged) sends them to it.
-  if (e && e.b && e.owner === G.view.me && (!e.built || e.hp < e.max) && myUnits().some(u => u.type === 'worker')) return order(wx, wy, e);
+  if (e && e.b && (e.owner === G.view.me ? !e.built || e.hp < e.max : !e.built && G.view.friendly(e)) && myUnits().some(u => u.type === 'worker')) return order(wx, wy, e);
   if (e && e.owner === G.view.me) return selectEnt(e, false);
   if (myUnits().length) return order(wx, wy, e);
   if (e) selectEnt(e, false); else { G.sel.clear(); hudT = 0; }
@@ -966,7 +966,7 @@ function panelHTML() {
   const v = G.view, me = v.me, P = v.pl[me];
   if (G.placing) {
     const p = G.placing;
-    return `<div class="t">Place ${DEF[p.type].name}${DEF[p.type].wall ? ': keep tapping to build a run, then Done' : ''}</div><div class="d">${G.touch ? (p.has ? 'Tap the same spot again, or Build here.' : 'Tap where it should go.') : 'Click where it should go.'}</div>` +
+    return `<div class="t">Place ${DEF[p.type].name}${p.gift !== undefined ? ' for ' + esc(v.info[p.gift].name) : ''}${DEF[p.type].wall ? ': keep tapping to build a run, then Done' : ''}</div><div class="d">${G.touch ? (p.has ? 'Tap the same spot again, or Build here.' : 'Tap where it should go.') : 'Click where it should go.'}</div>` +
       `<div class="acts">${p.has && G.touch ? '<button data-act="confirm">Build here</button>' : ''}<button data-act="cancel">${DEF[p.type].wall ? 'Done' : 'Cancel'}</button></div>`;
   }
   const sel = selected();
@@ -1014,6 +1014,11 @@ function panelHTML() {
     const has = t => [...ents().values()].some(e => e.owner === me && e.type === t && e.built);
     h += BUILDABLE.map(t => btn('build:' + t, t === 'hq' ? { ...DEF.hq, name: `Keep ×${P.keeps}` } : t === 'tower' ? { ...DEF.tower, name: 'Tower' } : DEF[t], P.res < DEF[t].cost || P.wood < (DEF[t].wood || 0) || (DEF[t].req && !has(DEF[t].req)) || (t === 'hq' && P.keeps < 1), t)).join('');
   }
+  // Survival: a Keep for an ally who has been wiped out brings them back.
+  if (count.worker && v.wave) v.pl.forEach((q, i) => {
+    if (q.alive || i === me || v.info[i].horde || v.info[i].team !== v.team || [...ents().values()].some(e => e.owner === i && e.type === 'hq')) return;
+    h += `<button data-act="revive:${i}" class="ib"${P.res < DEF.hq.cost || P.wood < DEF.hq.wood ? ' disabled' : ''}><img src="${icon('hq', v.info[i].color)}" alt=""><span class="l">Revive ${esc(v.info[i].name)}<span>${price(DEF.hq)}</span></span></button>`;
+  });
   if (fighters) h += `<button data-act="amove" class="${G.amove ? 'on' : ''}">${G.amove ? 'Tap where to go' : 'Attack-move'}</button>`;
   h += '<button data-act="stop">Stop</button>';
   const n = mine.filter(e => !DEF[e.type].hero).length, armed = G.disband && performance.now() - G.disband < 4000;
@@ -1117,6 +1122,12 @@ function updateHud() {
     const i = v.news.shift(), left = v.pl.filter(p => p.alive).length;
     if (i !== v.me) announce(`${v.info[i].name} has been wiped out`, v.info[i].color, v.winner === -1 && left > 1 ? `${left - (v.wave || nm ? 1 : 0)} players left` : '');
   }
+  // ...and when an ally has built a fallen player a Keep
+  while (v.back.length) {
+    const i = v.back.shift();
+    announce(i === v.me ? 'You are back in the fight' : `${v.info[i].name} is back in the fight`, v.info[i].color, i === v.me ? 'An ally built you a Keep' : 'An ally built them a Keep');
+    if (i === v.me) { G.elim = false; G.needCenter = true; }
+  }
   // alerts and the end of the game
   if (v.hurt && v.tick - v.hurt.tick < 5 && performance.now() - lastAlert > 12000) {
     const c = R.cam, h = v.hurt;
@@ -1150,6 +1161,7 @@ $('panel').addEventListener('click', ev => {
   if (!b || b.disabled || !G.view) return;
   const [a, arg] = b.dataset.act.split(':'), me = G.view.me;
   if (a === 'build') G.placing = { type: arg, tx: 0, ty: 0, has: false };
+  else if (a === 'revive') { G.placing = { type: 'hq', gift: +arg, tx: 0, ty: 0, has: false }; toast('Tap where the Keep for ' + G.view.info[+arg].name + ' should go'); }
   else if (a === 'cancel') G.placing = null;
   else if (a === 'confirm') confirmPlace();
   else if (a === 'repair') { const e = selected().find(e => e.b && e.owner === me); if (e) { G.send({ t: 'repair', b: e.id }); toast('Workers are on their way'); } }
