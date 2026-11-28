@@ -831,5 +831,15 @@ for (const { id } of MAPS) {
   check(s.snapshot().fx.some(f => f[0] === 'p'), 'and every screen is shown the line');
 }
 
+// Levelling up does not heal the hero: it only gains the extra health the level brings.
+{
+  const s = new Sim({ seed: 6, players: [{ name: 'a', team: 0 }, { name: 'b', team: 1 }] });
+  const h = [...s.ents.values()].find(e => e.owner === 0 && e.type === 'hero');
+  h.hp = 100;
+  for (let i = 0; i < 6; i++) { const v = s.spawnUnit('soldier', 1, h.x + 10, h.y); s.hit(v, 999, h); }
+  const max = s.maxHp(h);
+  check(s.players[0].lvl === 2 && h.hp === 100 + (max - 420) && h.hp < max / 2, `a wounded hero that levels up stays wounded (100 of 420 becomes ${h.hp} of ${max})`);
+}
+
 if (failed) { console.error(`${failed} check(s) failed`); process.exit(1); }
 console.log('all checks passed');

@@ -370,8 +370,10 @@ export class Sim {
     const d = DEF[t.type], v = t.b ? (d.wall ? 1 : 8) : d.boss ? 45 : d.hero ? 25 : Math.max(2, Math.round(d.hp / 20));
     P.xp += direct ? v : v * 0.6;
     while (P.lvl <= LEVELS.length && P.xp >= LEVELS[P.lvl - 1]) {
+      // A level raises the hero's top health, and the hero gains just that much: its wounds are not healed.
+      const before = this.maxHp(hero);
       P.lvl++;
-      hero.hp = this.maxHp(hero);
+      hero.hp += this.maxHp(hero) - before;
       this.fx.push(['l', hero.x | 0, hero.y | 0]);
     }
   }
