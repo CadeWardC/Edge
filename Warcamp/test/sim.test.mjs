@@ -801,5 +801,35 @@ for (const { id } of MAPS) {
   check(s.players[1].alive && [...s.ents.values()].some(e => e.owner === 1 && e.cds), `a computer ally builds a fallen teammate a Keep (back after ${(t / 600).toFixed(1)} game-min)`);
 }
 
+// The Ranger's three spells.
+{
+  const mk = () => new Sim({ seed: 2, players: [{ name: 'a', team: 0, hero: 'ranger' }, { name: 'b', team: 1 }] });
+  const hold = u => { u.order = { k: 'move', x: u.x, y: u.y, tries: 0 }; return u; };
+  const R = DEFS.ranger.abs, W = DEFS.hero.abs;
+  check(R[1].dmg > W[0].dmg && R[1].dmg < W[2].dmg, `Volley (${R[1].dmg}) hits harder than Shockwave (${W[0].dmg}) and less hard than Earthshatter (${W[2].dmg})`);
+  // Swift March: troops and buildings, for nine seconds
+  let s = mk();
+  let h = [...s.ents.values()].find(e => e.owner === 0 && e.type === 'ranger');
+  const hq = [...s.ents.values()].find(e => e.owner === 0 && e.type === 'hq'), foeHq = [...s.ents.values()].find(e => e.owner === 1 && e.type === 'hq');
+  s.command(0, { t: 'train', b: hq.id, u: 'worker' }); s.command(1, { t: 'train', b: foeHq.id, u: 'worker' });
+  s.command(0, { t: 'ability', id: h.id, n: 0 });
+  const w = [...s.ents.values()].find(e => e.owner === 0 && e.type === 'worker');
+  check(w.hasteT - s.tick === 90 && hq.hasteT === w.hasteT && !foeHq.hasteT && s.snapshot().e.find(a => a[0] === hq.id)[11] === 1, 'Swift March lasts 9 seconds and reaches nearby buildings as well as troops (not the enemy\'s)');
+  let mine = 0, theirs = 0;
+  for (let t = 1; t <= 90; t++) { s.step(); s.snapshot(); if (!mine && !hq.queue.length) mine = t; if (!theirs && !foeHq.queue.length) theirs = t; }
+  check(mine > 0 && mine <= 42 && theirs >= 79, `a building under Swift March trains twice as fast (a worker in ${(mine / 10).toFixed(1)} s; the enemy's, untouched, took ${(theirs / 10).toFixed(1)})`);
+  // Deadeye: straight through everything on the line
+  s = mk();
+  h = [...s.ents.values()].find(e => e.owner === 0 && e.type === 'ranger');
+  s.players[0].lvl = 4; h.hp = s.maxHp(h);
+  const inLine = [60, 130, 220].map(d => hold(s.spawnUnit('guard', 1, h.x + d, h.y + (d === 130 ? 8 : 0))));
+  const beside = hold(s.spawnUnit('guard', 1, h.x + 130, h.y + 50)), behind = hold(s.spawnUnit('guard', 1, h.x - 80, h.y)), beyond = hold(s.spawnUnit('guard', 1, h.x + 340, h.y));
+  const friend = s.spawnUnit('soldier', 0, h.x + 100, h.y);
+  s.command(0, { t: 'ability', id: h.id, n: 2 });
+  check(inLine.every(u => u.hp === 230 - 150) && beside.hp === 230 && behind.hp === 230 && beyond.hp === 230 && friend.hp === 95 && h.cds[2] > 0,
+    'Deadeye goes straight through: every enemy on its line is hit, and nobody beside it, behind the Ranger, out of range, or on her own side');
+  check(s.snapshot().fx.some(f => f[0] === 'p'), 'and every screen is shown the line');
+}
+
 if (failed) { console.error(`${failed} check(s) failed`); process.exit(1); }
 console.log('all checks passed');

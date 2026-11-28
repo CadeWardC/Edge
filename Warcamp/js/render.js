@@ -40,7 +40,7 @@ export class View {
       if (a[5] < e.hp && e.owner === this.me) this.hurt = { x: a[3], y: a[4], tick: s.k };
       if (a[5] < e.hp) e.hurtT = performance.now();
       e.x = a[3]; e.y = a[4]; e.hp = a[5]; e.stamp = s.k;
-      if (d.b) { e.built = !!a[6]; e.prog = a[7]; e.queue = a[8]; e.paused = !!a[9]; e.rally = a[10] || null; }
+      if (d.b) { e.built = !!a[6]; e.prog = a[7]; e.queue = a[8]; e.paused = !!a[9]; e.rally = a[10] || null; e.fast = !!a[11]; }
       else { e.carry = a[6]; e.cds = a[7] || null; e.idle = a[8]; e.buff = a[9] || 0; }
       e.max = Math.round(d.hp * (d.hero ? heroMult(this.pl[e.owner].lvl) : 1) * (!d.b && a[10] ? a[10] / 100 : 1));
     }
@@ -465,6 +465,9 @@ export class Renderer {
       drawBuilding(g, e, v.info[e.owner].color);
       wounds(g, e, now);
       if (clock - e.hurtT < 110) { g.fillStyle = 'rgba(255,255,255,.35)'; rr(g, e.tx * T + 3, e.ty * T + 3, e.size * T - 6, e.size * T - 6, 5); g.fill(); }
+      if (e.fast) { // Swift March: training faster, shown as a pulsing gold outline
+        g.strokeStyle = `rgba(253,224,71,${.55 + .35 * Math.sin(now * 9)})`; g.lineWidth = 2.5; rr(g, e.tx * T + 2, e.ty * T + 2, e.size * T - 4, e.size * T - 4, 6); g.stroke();
+      }
       if (ui.sel.has(e.id) && DEF[e.type].range) reach(g, e.rx, e.ry, DEF[e.type].range, c.z);
       if (ui.sel.has(e.id) && e.rally && e.owner === v.me) { // where its new units go: a dashed line to a small flag
         const [fx, fy] = e.rally;
@@ -517,7 +520,7 @@ export class Renderer {
     const seen = (x, y) => spect || v.visible[Math.max(0, Math.min(N - 1, (y / T) | 0)) * N + Math.max(0, Math.min(N - 1, (x / T) | 0))];
     for (let i = v.fx.length - 1; i >= 0; i--) {
       const f = v.fx[i], a = f.a, drop = () => v.fx.splice(i, 1);
-      if (f.t === 0 && f.k !== 'm' && !seen(a[1], a[2]) && !(f.k === 'a' && seen(a[3], a[4]))) { drop(); continue; } // nothing shows through the fog
+      if (f.t === 0 && f.k !== 'm' && !seen(a[1], a[2]) && !((f.k === 'a' || f.k === 'p') && seen(a[3], a[4]))) { drop(); continue; } // nothing shows through the fog
       f.t += dt;
       if (f.k === 'a') { // 0 arrow, 1 magic bolt, 2 boulder, 3 tower shot
         const kind = a[5] || 0, len = Math.hypot(a[3] - a[1], a[4] - a[2]) || 1, dur = kind === 2 ? Math.max(.4, len / 420) : kind === 1 ? Math.max(.16, len / 520) : Math.max(.1, len / 900);
@@ -581,6 +584,12 @@ export class Renderer {
         const p = f.t / .45;
         g.strokeStyle = `rgba(74,222,128,${1 - p})`; g.lineWidth = 2;
         g.beginPath(); g.ellipse(a[1], a[2] + 5, 16 - 8 * p, 9 - 4.5 * p, 0, 0, 7); g.stroke();
+      } else if (f.k === 'p') { // a shot that goes straight through: a bright line that fades
+        if (f.t > .35) { drop(); continue; }
+        const p = f.t / .35;
+        g.lineCap = 'round';
+        g.strokeStyle = `rgba(253,224,71,${.5 * (1 - p)})`; g.lineWidth = 9 * (1 - p) + 2; line(g, a[1], a[2], a[3], a[4]);
+        g.strokeStyle = `rgba(255,255,255,${1 - p})`; g.lineWidth = 2.5; line(g, a[1], a[2], a[3], a[4]);
       } else if (f.k === 'm') {
         if (f.t > .4) { drop(); continue; }
         const p = f.t / .4;

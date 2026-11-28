@@ -1,6 +1,6 @@
 // The authoritative simulation. It has no DOM or network code: the host (or a single-player
 // game) steps it 10 times a second, feeds it commands, and ships snapshot() to every screen.
-import { TILE as T, DEF, TI, MAXCAP, MAP_SIZE, BUILDABLE, SURVIVAL, HEROES, HERO_RESPAWN, LEVELS, heroMult, RAGE_BONUS, WARD_TAKEN, SHOCK_VS_BUILDINGS, BUILD_RANGE, KEEP_LIMIT } from './data.js';
+import { TILE as T, DEF, TI, MAXCAP, MAP_SIZE, BUILDABLE, SURVIVAL, HEROES, HERO_RESPAWN, LEVELS, heroMult, RAGE_BONUS, WARD_TAKEN, SHOCK_VS_BUILDINGS, BUILD_RANGE, KEEP_LIMIT, HASTE_MOVE, HASTE_TRAIN } from './data.js';
 import { rng, genMap, makeMap, TREE_AMT, CRYSTAL_AMT } from './maps.js';
 import { startNomad, stepNomad, nomadSnap } from './nomad.js';
 
@@ -324,7 +324,7 @@ export class Sim {
   follow(e) {
     const p = e.path;
     if (!p || e.pi >= p.length) return 1;
-    let step = DEF[e.type].speed * DT * (e.hasteT > this.tick ? 1.5 : 1);
+    let step = DEF[e.type].speed * DT * (e.hasteT > this.tick ? HASTE_MOVE : 1);
     while (step > 0 && e.pi < p.length) {
       const wx = p[e.pi], wy = p[e.pi + 1];
       if (!this.walkable((wx / T) | 0, (wy / T) | 0)) { e.path = null; return 2; }
@@ -571,7 +571,7 @@ export class Sim {
     }
     if (e.queue.length) {
       const u = e.queue[0], need = DEF[u].time;
-      e.trainT += DT;
+      e.trainT += DT * (e.hasteT > this.tick ? HASTE_TRAIN : 1);
       if (e.trainT >= need) {
         const s = this.freeSpot(e);
         if (s) {
@@ -838,20 +838,26 @@ export class Sim {
         const ab = e && DEF[e.type].abs && DEF[e.type].abs[n];
         if (!e || e.owner !== pid || !ab || P.lvl < ab.lvl || e.cds[n] > 0) return;
         const until = this.tick + (ab.secs || 0) * 10;
-        if (ab.kind === 'snipe') { // one shot at the strongest enemy in reach
+        if (ab.kind === 'snipe') { // one shot aimed at the strongest enemy in reach, straight through every enemy troop on its line
           let best = null;
           for (const t of this.ents.values()) {
             if (t.b || !this.enemy(e, t) || this.dist(e, t) > ab.radius) continue;
             if (!best || (DEF[t.type].hero ? 1e5 : 0) + t.hp > (DEF[best.type].hero ? 1e5 : 0) + best.hp) best = t;
           }
           if (!best) return;
-          this.fx.push(['a', e.x | 0, e.y | 0, best.x | 0, best.y | 0], ['s', best.x | 0, best.y | 0, 40, 0]);
-          this.hit(best, ab.dmg, e);
+          const d = Math.hypot(best.x - e.x, best.y - e.y) || 1, ux = (best.x - e.x) / d, uy = (best.y - e.y) / d, x0 = e.x, y0 = e.y;
+          this.fx.push(['p', x0 | 0, y0 | 0, (x0 + ux * ab.radius) | 0, (y0 + uy * ab.radius) | 0]);
+          for (const t of [...this.ents.values()]) {
+            if (t.b || !this.enemy(e, t)) continue;
+            const along = (t.x - x0) * ux + (t.y - y0) * uy, off = Math.abs((t.x - x0) * uy - (t.y - y0) * ux);
+            if (along >= 0 && along <= ab.radius && off <= DEF[t.type].r + 6) this.hit(t, ab.dmg, e);
+          }
         } else {
           this.fx.push(['s', e.x | 0, e.y | 0, ab.radius, { shock: 0, haste: 1, heal: 2, rage: 3, ward: 4 }[ab.kind]]);
           for (const t of [...this.ents.values()]) {
             if (this.dist(e, t) > ab.radius) continue;
             if (ab.kind === 'shock') { if (this.enemy(e, t)) this.hit(t, t.b ? ab.dmg * SHOCK_VS_BUILDINGS : ab.dmg, e); }
+            else if (ab.kind === 'haste') { if (!this.enemy(e, t)) t.hasteT = until; } // troops march faster, buildings train faster
             else if (!this.enemy(e, t) && !t.b) {
               if (ab.kind === 'haste') t.hasteT = until;
               else if (ab.kind === 'rage') t.rageT = until;
@@ -919,7 +925,7 @@ export class Sim {
     this.changed = []; this.fx = [];
     for (const e of this.ents.values()) {
       const a = [e.id, TI[e.type], e.owner, Math.round(e.x), Math.round(e.y), Math.ceil(e.hp)];
-      if (e.b) a.push(e.built ? 1 : 0, Math.floor((e.built ? (e.queue.length ? e.trainT / DEF[e.queue[0]].time : 0) : e.prog) * 100), e.queue.map(u => TI[u]), !e.built && this.tick - (e.wk ?? -99) > 8 ? 1 : 0, e.rally || 0);
+      if (e.b) a.push(e.built ? 1 : 0, Math.floor((e.built ? (e.queue.length ? e.trainT / DEF[e.queue[0]].time : 0) : e.prog) * 100), e.queue.map(u => TI[u]), !e.built && this.tick - (e.wk ?? -99) > 8 ? 1 : 0, e.rally || 0, e.hasteT > this.tick ? 1 : 0);
       else a.push(e.carry ? e.ck : 0, e.cds ? e.cds.map(c => Math.max(0, Math.ceil(c))) : 0, e.order ? 0 : 1,
         (e.hasteT > this.tick ? 1 : 0) | (e.rageT > this.tick ? 2 : 0) | (e.wardT > this.tick ? 4 : 0), e.mul ? Math.round(e.mul * 100) : 0);
       s.e.push(a);

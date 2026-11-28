@@ -29,9 +29,9 @@ export const DEF = {
                     { name: 'Battle Cry', lvl: 2, cd: 35, kind: 'rage', radius: 150, secs: 8, about: 'nearby troops hit a little harder' },
                     { name: 'Earthshatter', lvl: 4, cd: 60, kind: 'shock', radius: 115, dmg: 65, about: 'a heavy blast' }] },
   ranger:   { name: 'Ranger', hp: 300, speed: 90, dmg: 20, range: 170, cd: 1, cost: 0, time: 0, sight: 9, r: 11, mil: 1, hero: 1, about: 'Fast, shoots from far away',
-              abs: [{ name: 'Swift March', lvl: 1, cd: 30, kind: 'haste', radius: 150, secs: 6, about: 'nearby troops move faster' },
-                    { name: 'Volley', lvl: 2, cd: 30, kind: 'shock', radius: 170, dmg: 22, about: 'arrows rain on every enemy near' },
-                    { name: 'Deadeye', lvl: 4, cd: 45, kind: 'snipe', radius: 300, dmg: 150, about: 'one shot at the strongest enemy' }] },
+              abs: [{ name: 'Swift March', lvl: 1, cd: 30, kind: 'haste', radius: 150, secs: 9, about: 'nearby troops move faster, and nearby buildings train faster' },
+                    { name: 'Volley', lvl: 2, cd: 30, kind: 'shock', radius: 170, dmg: 48, about: 'arrows rain on every enemy near' },
+                    { name: 'Deadeye', lvl: 4, cd: 45, kind: 'snipe', radius: 300, dmg: 150, about: 'one shot straight through every enemy in its line' }] },
   sage:     { name: 'Sage', hp: 340, speed: 80, dmg: 14, range: 110, cd: 1, cost: 0, time: 0, sight: 8, r: 11, mil: 1, hero: 1, about: 'Keeps the army alive',
               abs: [{ name: 'Mend', lvl: 1, cd: 22, kind: 'heal', radius: 130, heal: 45, about: 'heals nearby troops' },
                     { name: 'Ward', lvl: 2, cd: 35, kind: 'ward', radius: 150, secs: 6, about: 'nearby troops take less damage' },
@@ -61,6 +61,8 @@ export const LEVELS = [20, 55, 110, 190];
 export const LEVEL_BONUS = 0.08;
 // Spell strengths that are not per-spell numbers.
 export const RAGE_BONUS = 1.25, WARD_TAKEN = 0.7, SHOCK_VS_BUILDINGS = 0.4;
+// Swift March: troops move this much faster, and buildings train this much faster, while it lasts.
+export const HASTE_MOVE = 1.5, HASTE_TRAIN = 2;
 // Every building except a Keep must stand within this many tiles of one of the player's finished Keeps.
 export const BUILD_RANGE = 16;
 // How many Keeps a player may build in one game, on top of the one they start with.
